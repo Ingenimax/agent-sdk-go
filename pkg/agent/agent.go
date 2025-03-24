@@ -436,6 +436,8 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 	if a.systemPrompt != "" {
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
 	}
+
+	// Add response format as a generate option if available
 	if a.responseFormat != nil {
 		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
 	}

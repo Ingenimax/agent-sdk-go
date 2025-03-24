@@ -268,6 +268,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				Schema: params.ResponseFormat.Schema,
 			},
 		}
+		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
 	}
 
 	// Send request
@@ -355,6 +356,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					Schema: params.ResponseFormat.Schema,
 				},
 			}
+			c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
 		}
 
 		finalCompletion, err := c.Client.CreateChatCompletion(ctx, req)
