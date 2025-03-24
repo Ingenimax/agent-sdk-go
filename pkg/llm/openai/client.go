@@ -105,6 +105,18 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		Stop:             params.StopSequences,
 	}
 
+	// Set response format if provided
+	if params.ResponseFormat != nil {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:   params.ResponseFormat.Name,
+				Schema: params.ResponseFormat.Schema,
+			},
+		}
+		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
+	}
+
 	//c.logger.Debug(ctx, "Sending request to OpenAI", map[string]interface{}{"request": req})
 	// Set organization ID if available
 	if orgID, ok := ctx.Value(organizationKey).(string); ok && orgID != "" {
@@ -247,6 +259,17 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Stop:             params.StopSequences,
 	}
 
+	// Set response format if provided
+	if params.ResponseFormat != nil {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:   params.ResponseFormat.Name,
+				Schema: params.ResponseFormat.Schema,
+			},
+		}
+	}
+
 	// Send request
 	resp, err := c.Client.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -312,7 +335,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 		// Get the final response
 		c.logger.Info(ctx, "Sending final request with tool results", nil)
-		finalCompletion, err := c.Client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+
+		req := openai.ChatCompletionRequest{
 			Model:            c.Model,
 			Messages:         messages,
 			Temperature:      float32(params.Temperature),
@@ -320,8 +344,20 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			FrequencyPenalty: float32(params.FrequencyPenalty),
 			PresencePenalty:  float32(params.PresencePenalty),
 			Stop:             params.StopSequences,
-		})
+		}
 
+		// Set response format for final request if provided
+		if params.ResponseFormat != nil {
+			req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+				Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+				JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+					Name:   params.ResponseFormat.Name,
+					Schema: params.ResponseFormat.Schema,
+				},
+			}
+		}
+
+		finalCompletion, err := c.Client.CreateChatCompletion(ctx, req)
 		if err != nil {
 			c.logger.Error(ctx, "Error from final OpenAI API call", map[string]interface{}{"error": err.Error()})
 			return "", fmt.Errorf("failed to create final chat completion: %w", err)
@@ -384,5 +420,12 @@ func WithStopSequences(stopSequences []string) interfaces.GenerateOption {
 func WithSystemMessage(systemMessage string) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
 		options.SystemMessage = systemMessage
+	}
+}
+
+// WithResponseFormat creates a GenerateOption to set the response format
+func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		options.ResponseFormat = &format
 	}
 }

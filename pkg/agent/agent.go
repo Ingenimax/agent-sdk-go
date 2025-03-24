@@ -20,10 +20,11 @@ type Agent struct {
 	tracer              interfaces.Tracer
 	guardrails          interfaces.Guardrails
 	systemPrompt        string
-	name                string                    // Name of the agent, e.g., "PlatformOps", "Math", "Research"
-	requirePlanApproval bool                      // New field to control whether execution plans require approval
-	plans               map[string]*ExecutionPlan // Map of task IDs to execution plans
-	plansMutex          sync.RWMutex              // Mutex for thread-safe access to plans
+	name                string                     // Name of the agent, e.g., "PlatformOps", "Math", "Research"
+	requirePlanApproval bool                       // New field to control whether execution plans require approval
+	plans               map[string]*ExecutionPlan  // Map of task IDs to execution plans
+	plansMutex          sync.RWMutex               // Mutex for thread-safe access to plans
+	responseFormat      *interfaces.ResponseFormat // Response format for the agent
 }
 
 // Option represents an option for configuring an agent
@@ -89,6 +90,13 @@ func WithRequirePlanApproval(require bool) Option {
 func WithName(name string) Option {
 	return func(a *Agent) {
 		a.name = name
+	}
+}
+
+// WithResponseFormat sets the response format for the agent
+func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
+	return func(a *Agent) {
+		a.responseFormat = &formatType
 	}
 }
 
@@ -350,6 +358,9 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
+	}
+	if a.responseFormat != nil {
+		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
 	}
 
 	if len(a.tools) > 0 {
