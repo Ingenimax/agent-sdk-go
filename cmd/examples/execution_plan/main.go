@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/calculator"
@@ -104,7 +105,7 @@ func main() {
 	fmt.Println()
 
 	// Keep track of the current execution plan
-	var currentPlan *agent.ExecutionPlan
+	var currentPlan *executionplan.ExecutionPlan
 
 	for {
 		fmt.Print("User: ")
@@ -140,7 +141,7 @@ func main() {
 				}
 				currentPlan = modifiedPlan
 				fmt.Println("I've updated the execution plan based on your feedback:")
-				fmt.Println(agent.FormatExecutionPlan(currentPlan))
+				fmt.Println(executionplan.FormatExecutionPlan(currentPlan))
 				fmt.Println("Do you approve this plan? You can modify it further if needed.")
 				continue
 			} else if strings.HasPrefix(strings.ToLower(userInput), "cancel") || strings.HasPrefix(strings.ToLower(userInput), "no") {
@@ -166,16 +167,19 @@ func main() {
 			// This is a simplistic approach; in a real implementation, you would use a more robust method
 			fmt.Println("\nWould you like to approve, modify, or cancel this plan?")
 
-			// Get the execution plan from the agent
-			// In a real implementation, you would have a way to get the plan from the agent
-			// For now, we'll assume the agent has a method to get the last generated plan
+			// Generate an execution plan
+			fmt.Println("\nAgent: Generating an execution plan for your request...")
 			plan, err := myAgent.GenerateExecutionPlan(ctx, userInput)
 			if err != nil {
-				fmt.Println("Error getting execution plan:", err)
+				fmt.Println("Error generating plan:", err)
 				continue
 			}
 
+			// Store the plan and show it to the user
 			currentPlan = plan
+			fmt.Println("I've created an execution plan for your request:")
+			fmt.Println(executionplan.FormatExecutionPlan(plan))
+			fmt.Println("Do you approve this plan? You can modify it if needed.")
 		}
 	}
 

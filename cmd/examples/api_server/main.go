@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/calculator"
@@ -168,7 +169,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Check if the response contains a task ID
 	var taskID string
 	for _, plan := range agentInstance.ListTasks() {
-		if plan.Status == agent.StatusPendingApproval {
+		if plan.Status == executionplan.StatusPendingApproval {
 			taskID = plan.TaskID
 			break
 		}
@@ -212,7 +213,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request, taskID st
 	}
 
 	// Find the agent that has this task
-	var taskPlan *agent.ExecutionPlan
+	var taskPlan *executionplan.ExecutionPlan
 	var found bool
 	for _, agentInstance := range s.agents {
 		if plan, exists := agentInstance.GetTaskByID(taskID); exists {

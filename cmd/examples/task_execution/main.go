@@ -9,7 +9,7 @@ import (
 	agentsdk "github.com/Ingenimax/agent-sdk-go/pkg"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
-	"github.com/Ingenimax/agent-sdk-go/pkg/task"
+	"github.com/Ingenimax/agent-sdk-go/pkg/task/api"
 )
 
 func main() {
@@ -17,10 +17,10 @@ func main() {
 	logger := logging.New()
 
 	// Create a task executor
-	executor := agentsdk.NewTaskExecutor()
+	taskExecutor := agentsdk.NewTaskExecutor()
 
 	// Register a simple task
-	executor.RegisterTask("hello", func(ctx context.Context, params interface{}) (interface{}, error) {
+	taskExecutor.RegisterTask("hello", func(ctx context.Context, params interface{}) (interface{}, error) {
 		name, ok := params.(string)
 		if !ok {
 			name = "World"
@@ -30,7 +30,7 @@ func main() {
 
 	// Execute the task synchronously
 	logger.Info(context.Background(), "Executing task synchronously", nil)
-	result, err := executor.ExecuteSync(context.Background(), "hello", "John", nil)
+	result, err := taskExecutor.ExecuteSync(context.Background(), "hello", "John", nil)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 	} else {
@@ -39,7 +39,7 @@ func main() {
 
 	// Execute the task asynchronously
 	logger.Info(context.Background(), "Executing task asynchronously", nil)
-	resultChan, err := executor.ExecuteAsync(context.Background(), "hello", "Jane", nil)
+	resultChan, err := taskExecutor.ExecuteAsync(context.Background(), "hello", "Jane", nil)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 	} else {
@@ -51,10 +51,17 @@ func main() {
 	apiClient := agentsdk.NewAPIClient("https://jsonplaceholder.typicode.com", 10*time.Second)
 
 	// Register an API task
-	executor.RegisterTask("get_todos", agentsdk.APITask(apiClient, task.APIRequest{
-		Method: "GET",
-		Path:   "/todos/1",
-	}))
+	taskExecutor.RegisterTask("get_todos", func(ctx context.Context, params interface{}) (interface{}, error) {
+		// Create API request
+		apiRequest := api.Request{
+			Method: "GET",
+			Path:   "/todos/1",
+		}
+
+		// Execute the request
+		response, err := apiClient.Do(ctx, apiRequest)
+		return response, err
+	})
 
 	// Execute the API task
 	logger.Info(context.Background(), "Executing API task", nil)
@@ -66,7 +73,7 @@ func main() {
 		BackoffMultiplier: 2.0,
 	}
 
-	result, err = executor.ExecuteSync(context.Background(), "get_todos", nil, &interfaces.TaskOptions{
+	result, err = taskExecutor.ExecuteSync(context.Background(), "get_todos", nil, &interfaces.TaskOptions{
 		Timeout:     &timeout,
 		RetryPolicy: retryPolicy,
 		Metadata: map[string]interface{}{
@@ -104,23 +111,30 @@ func main() {
 		})
 	}
 
-	// Create a Temporal client
-	temporalClient := agentsdk.NewTemporalClient(task.TemporalConfig{
-		HostPort:                 "localhost:7233",
-		Namespace:                "default",
-		TaskQueue:                "example",
-		WorkflowIDPrefix:         "example-",
-		WorkflowExecutionTimeout: 10 * time.Minute,
-		WorkflowRunTimeout:       5 * time.Minute,
-		WorkflowTaskTimeout:      10 * time.Second,
+	// Note: Temporal client functionality has been temporarily removed
+	// For demonstration purposes, we'll create a mock workflow task
+	logger.Info(context.Background(), "Temporal client functionality has been removed in restructuring", nil)
+	logger.Info(context.Background(), "Creating a mock workflow task instead", nil)
+
+	// Register a mock workflow task
+	taskExecutor.RegisterTask("mock_workflow", func(ctx context.Context, params interface{}) (interface{}, error) {
+		// Simulate a workflow execution
+		time.Sleep(500 * time.Millisecond)
+
+		input, ok := params.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected map[string]interface{} input, got %T", params)
+		}
+
+		return map[string]interface{}{
+			"result": fmt.Sprintf("Processed: %v", input["input"]),
+			"status": "completed",
+		}, nil
 	})
 
-	// Register a Temporal workflow task
-	executor.RegisterTask("example_workflow", agentsdk.TemporalWorkflowTask(temporalClient, "ExampleWorkflow"))
-
-	// Execute the Temporal workflow task
-	logger.Info(context.Background(), "Executing Temporal workflow task (this is a placeholder)", nil)
-	result, err = executor.ExecuteSync(context.Background(), "example_workflow", map[string]interface{}{
+	// Execute the mock workflow task
+	logger.Info(context.Background(), "Executing mock workflow task", nil)
+	result, err = taskExecutor.ExecuteSync(context.Background(), "mock_workflow", map[string]interface{}{
 		"input": "example input",
 	}, nil)
 

@@ -3,9 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
-	"sync"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
@@ -13,18 +14,21 @@ import (
 
 // Agent represents an AI agent
 type Agent struct {
-	llm                 interfaces.LLM
-	memory              interfaces.Memory
-	tools               []interfaces.Tool
-	orgID               string
-	tracer              interfaces.Tracer
-	guardrails          interfaces.Guardrails
-	systemPrompt        string
-	name                string                     // Name of the agent, e.g., "PlatformOps", "Math", "Research"
-	requirePlanApproval bool                       // New field to control whether execution plans require approval
-	plans               map[string]*ExecutionPlan  // Map of task IDs to execution plans
-	plansMutex          sync.RWMutex               // Mutex for thread-safe access to plans
-	responseFormat      *interfaces.ResponseFormat // Response format for the agent
+	llm                  interfaces.LLM
+	memory               interfaces.Memory
+	tools                []interfaces.Tool
+	orgID                string
+	tracer               interfaces.Tracer
+	guardrails           interfaces.Guardrails
+	systemPrompt         string
+	name                 string                   // Name of the agent, e.g., "PlatformOps", "Math", "Research"
+	requirePlanApproval  bool                     // New field to control whether execution plans require approval
+	planStore            *executionplan.Store     // Store for execution plans
+	planGenerator        *executionplan.Generator // Generator for execution plans
+	planExecutor         *executionplan.Executor  // Executor for execution plans
+	generatedAgentConfig *AgentConfig
+	generatedTaskConfigs TaskConfigs
+	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 }
 
 // Option represents an option for configuring an agent
@@ -93,6 +97,14 @@ func WithName(name string) Option {
 	}
 }
 
+// WithAgentConfig sets the agent configuration from a YAML config
+func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
+	return func(a *Agent) {
+		systemPrompt := FormatSystemPromptFromConfig(config, variables)
+		a.systemPrompt = systemPrompt
+	}
+}
+
 // WithResponseFormat sets the response format for the agent
 func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
 	return func(a *Agent) {
@@ -104,7 +116,6 @@ func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
 func NewAgent(options ...Option) (*Agent, error) {
 	agent := &Agent{
 		requirePlanApproval: true, // Default to requiring approval
-		plans:               make(map[string]*ExecutionPlan),
 	}
 
 	for _, option := range options {
@@ -116,7 +127,80 @@ func NewAgent(options ...Option) (*Agent, error) {
 		return nil, fmt.Errorf("LLM is required")
 	}
 
+	// Initialize execution plan components
+	agent.planStore = executionplan.NewStore()
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
+	agent.planExecutor = executionplan.NewExecutor(agent.tools)
+
 	return agent, nil
+}
+
+// NewAgentWithAutoConfig creates a new agent with automatic configuration generation
+// based on the system prompt if explicit configuration is not provided
+func NewAgentWithAutoConfig(ctx context.Context, options ...Option) (*Agent, error) {
+	// First create an agent with the provided options
+	agent, err := NewAgent(options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the agent doesn't have a name, set a default one
+	if agent.name == "" {
+		agent.name = "Auto-Configured Agent"
+	}
+
+	// If the system prompt is provided but no configuration was explicitly set,
+	// generate configuration using the LLM
+	if agent.systemPrompt != "" {
+		// Generate agent and task configurations from the system prompt
+		agentConfig, taskConfigs, err := GenerateConfigFromSystemPrompt(ctx, agent.llm, agent.systemPrompt)
+		if err != nil {
+			// If we fail to generate configs, just continue with the manual system prompt
+			// We don't want to fail agent creation just because auto-config failed
+			return agent, nil
+		}
+
+		// Create a task configuration map
+		taskConfigMap := make(TaskConfigs)
+		for i, taskConfig := range taskConfigs {
+			taskName := fmt.Sprintf("auto_task_%d", i+1)
+			taskConfig.Agent = agent.name // Set the task to use this agent
+			taskConfigMap[taskName] = taskConfig
+		}
+
+		// Store generated configurations in agent so they can be accessed later
+		agent.generatedAgentConfig = &agentConfig
+		agent.generatedTaskConfigs = taskConfigMap
+	}
+
+	return agent, nil
+}
+
+// NewAgentFromConfig creates a new agent from a YAML configuration
+func NewAgentFromConfig(agentName string, configs AgentConfigs, variables map[string]string, options ...Option) (*Agent, error) {
+	config, exists := configs[agentName]
+	if !exists {
+		return nil, fmt.Errorf("agent configuration for %s not found", agentName)
+	}
+
+	// Add the agent config option
+	configOption := WithAgentConfig(config, variables)
+	nameOption := WithName(agentName)
+
+	// Combine all options
+	allOptions := append([]Option{configOption, nameOption}, options...)
+
+	return NewAgent(allOptions...)
+}
+
+// CreateAgentForTask creates a new agent for a specific task
+func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs TaskConfigs, variables map[string]string, options ...Option) (*Agent, error) {
+	agentName, err := GetAgentForTask(taskConfigs, taskName)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewAgentFromConfig(agentName, agentConfigs, variables, options...)
 }
 
 // Run runs the agent with the given input
@@ -194,10 +278,7 @@ func (a *Agent) extractPlanAction(input string) (string, string, string) {
 
 // handlePlanAction handles actions related to an existing plan
 func (a *Agent) handlePlanAction(ctx context.Context, taskID, action, input string) (string, error) {
-	a.plansMutex.RLock()
-	plan, exists := a.plans[taskID]
-	a.plansMutex.RUnlock()
-
+	plan, exists := a.planStore.GetPlanByTaskID(taskID)
 	if !exists {
 		return "", fmt.Errorf("plan with task ID %s not found", taskID)
 	}
@@ -217,9 +298,9 @@ func (a *Agent) handlePlanAction(ctx context.Context, taskID, action, input stri
 }
 
 // approvePlan approves and executes a plan
-func (a *Agent) approvePlan(ctx context.Context, plan *ExecutionPlan) (string, error) {
+func (a *Agent) approvePlan(ctx context.Context, plan *executionplan.ExecutionPlan) (string, error) {
 	plan.UserApproved = true
-	plan.Status = StatusApproved
+	plan.Status = executionplan.StatusApproved
 
 	// Add the approval to memory
 	if a.memory != nil {
@@ -232,7 +313,7 @@ func (a *Agent) approvePlan(ctx context.Context, plan *ExecutionPlan) (string, e
 	}
 
 	// Execute the plan
-	result, err := a.ExecutePlan(ctx, plan)
+	result, err := a.planExecutor.ExecutePlan(ctx, plan)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute plan: %w", err)
 	}
@@ -251,7 +332,7 @@ func (a *Agent) approvePlan(ctx context.Context, plan *ExecutionPlan) (string, e
 }
 
 // modifyPlan modifies a plan based on user input
-func (a *Agent) modifyPlan(ctx context.Context, plan *ExecutionPlan, input string) (string, error) {
+func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPlan, input string) (string, error) {
 	// Add the modification request to memory
 	if a.memory != nil {
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
@@ -263,18 +344,16 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *ExecutionPlan, input strin
 	}
 
 	// Modify the plan
-	modifiedPlan, err := a.ModifyExecutionPlan(ctx, plan, input)
+	modifiedPlan, err := a.planGenerator.ModifyExecutionPlan(ctx, plan, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to modify plan: %w", err)
 	}
 
-	// Update the plan in the map
-	a.plansMutex.Lock()
-	a.plans[modifiedPlan.TaskID] = modifiedPlan
-	a.plansMutex.Unlock()
+	// Update the plan in the store
+	a.planStore.StorePlan(modifiedPlan)
 
 	// Format the modified plan
-	formattedPlan := FormatExecutionPlan(modifiedPlan)
+	formattedPlan := executionplan.FormatExecutionPlan(modifiedPlan)
 
 	// Add the modified plan to memory
 	if a.memory != nil {
@@ -290,16 +369,16 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *ExecutionPlan, input strin
 }
 
 // cancelPlan cancels a plan
-func (a *Agent) cancelPlan(plan *ExecutionPlan) (string, error) {
-	a.CancelPlan(plan)
+func (a *Agent) cancelPlan(plan *executionplan.ExecutionPlan) (string, error) {
+	a.planExecutor.CancelPlan(plan)
 
 	return "Plan cancelled. What would you like to do instead?", nil
 }
 
 // getPlanStatus returns the status of a plan
-func (a *Agent) getPlanStatus(plan *ExecutionPlan) (string, error) {
-	status := a.GetPlanStatus(plan)
-	formattedPlan := FormatExecutionPlan(plan)
+func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (string, error) {
+	status := a.planExecutor.GetPlanStatus(plan)
+	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
 	return fmt.Sprintf("Current plan status: %s\n\n%s", status, formattedPlan), nil
 }
@@ -307,18 +386,16 @@ func (a *Agent) getPlanStatus(plan *ExecutionPlan) (string, error) {
 // runWithExecutionPlan runs the agent with an execution plan
 func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string, error) {
 	// Generate an execution plan
-	plan, err := a.GenerateExecutionPlan(ctx, input)
+	plan, err := a.planGenerator.GenerateExecutionPlan(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate execution plan: %w", err)
 	}
 
 	// Store the plan
-	a.plansMutex.Lock()
-	a.plans[plan.TaskID] = plan
-	a.plansMutex.Unlock()
+	a.planStore.StorePlan(plan)
 
 	// Format the plan for display
-	formattedPlan := FormatExecutionPlan(plan)
+	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
 	// Add the plan to memory
 	if a.memory != nil {
@@ -396,24 +473,13 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 }
 
 // GetTaskByID returns a task by its ID
-func (a *Agent) GetTaskByID(taskID string) (*ExecutionPlan, bool) {
-	a.plansMutex.RLock()
-	defer a.plansMutex.RUnlock()
-
-	plan, exists := a.plans[taskID]
-	return plan, exists
+func (a *Agent) GetTaskByID(taskID string) (*executionplan.ExecutionPlan, bool) {
+	return a.planStore.GetPlanByTaskID(taskID)
 }
 
 // ListTasks returns a list of all tasks
-func (a *Agent) ListTasks() []*ExecutionPlan {
-	a.plansMutex.RLock()
-	defer a.plansMutex.RUnlock()
-
-	var tasks []*ExecutionPlan
-	for _, plan := range a.plans {
-		tasks = append(tasks, plan)
-	}
-	return tasks
+func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
+	return a.planStore.ListPlans()
 }
 
 // formatHistoryIntoPrompt formats conversation history into a prompt
@@ -433,70 +499,18 @@ func formatHistoryIntoPrompt(history []interfaces.Message) string {
 }
 
 // ApproveExecutionPlan approves an execution plan for execution
-func (a *Agent) ApproveExecutionPlan(ctx context.Context, plan *ExecutionPlan) (string, error) {
+func (a *Agent) ApproveExecutionPlan(ctx context.Context, plan *executionplan.ExecutionPlan) (string, error) {
 	return a.approvePlan(ctx, plan)
 }
 
 // ModifyExecutionPlan modifies an execution plan based on user input
-func (a *Agent) ModifyExecutionPlan(ctx context.Context, plan *ExecutionPlan, modifications string) (*ExecutionPlan, error) {
-	// Create a prompt for the LLM to modify the execution plan
-	prompt := fmt.Sprintf(`
-You are an AI assistant that modifies execution plans based on user feedback. 
-Here is the current execution plan:
-
-%s
-
-The user has requested the following modifications:
-%s
-
-Please modify the execution plan according to the user's request and return the updated plan in the same JSON format:
-{
-  "description": "High-level description of what the plan will accomplish",
-  "steps": [
-    {
-      "toolName": "Name of the tool to use",
-      "description": "Description of what this step will accomplish",
-      "input": "Input to provide to the tool",
-      "parameters": {
-        "param1": "value1",
-        "param2": "value2"
-      }
-    }
-  ]
+func (a *Agent) ModifyExecutionPlan(ctx context.Context, plan *executionplan.ExecutionPlan, modifications string) (*executionplan.ExecutionPlan, error) {
+	return a.planGenerator.ModifyExecutionPlan(ctx, plan, modifications)
 }
 
-Ensure that:
-1. Each step uses a valid tool from the list of available tools
-2. All required parameters for each tool are provided
-3. The plan is comprehensive and addresses all aspects of the user's request
-4. The plan is presented in valid JSON format
-
-Modified Execution Plan:
-`, FormatExecutionPlan(plan), modifications)
-
-	// Add system prompt as a generate option
-	generateOptions := []interfaces.GenerateOption{}
-	if a.systemPrompt != "" {
-		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
-	}
-
-	// Generate the modified execution plan using the LLM
-	response, err := a.llm.Generate(ctx, prompt, generateOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate modified execution plan: %w", err)
-	}
-
-	// Parse the modified execution plan from the LLM response
-	modifiedPlan, err := parseExecutionPlanFromResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse modified execution plan: %w", err)
-	}
-
-	// Preserve the task ID from the original plan
-	modifiedPlan.TaskID = plan.TaskID
-	modifiedPlan.Status = StatusPendingApproval
-
-	return modifiedPlan, nil
+// GenerateExecutionPlan generates an execution plan
+func (a *Agent) GenerateExecutionPlan(ctx context.Context, input string) (*executionplan.ExecutionPlan, error) {
+	return a.planGenerator.GenerateExecutionPlan(ctx, input)
 }
 
 // isAskingAboutRole determines if the user is asking about the agent's role or identity
@@ -584,4 +598,51 @@ Response:`, agentName, a.systemPrompt, agentName)
 	}
 
 	return response
+}
+
+// ExecuteTaskFromConfig executes a task using its YAML configuration
+func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, taskConfigs TaskConfigs, variables map[string]string) (string, error) {
+	taskConfig, exists := taskConfigs[taskName]
+	if !exists {
+		return "", fmt.Errorf("task configuration for %s not found", taskName)
+	}
+
+	// Replace variables in the task description
+	description := taskConfig.Description
+	for key, value := range variables {
+		placeholder := fmt.Sprintf("{%s}", key)
+		description = strings.ReplaceAll(description, placeholder, value)
+	}
+
+	// Run the agent with the task description
+	result, err := a.Run(ctx, description)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute task %s: %w", taskName, err)
+	}
+
+	// If an output file is specified, write the result to the file
+	if taskConfig.OutputFile != "" {
+		outputPath := taskConfig.OutputFile
+		for key, value := range variables {
+			placeholder := fmt.Sprintf("{%s}", key)
+			outputPath = strings.ReplaceAll(outputPath, placeholder, value)
+		}
+
+		err := os.WriteFile(outputPath, []byte(result), 0644)
+		if err != nil {
+			return result, fmt.Errorf("failed to write output to file %s: %w", outputPath, err)
+		}
+	}
+
+	return result, nil
+}
+
+// GetGeneratedAgentConfig returns the automatically generated agent configuration, if any
+func (a *Agent) GetGeneratedAgentConfig() *AgentConfig {
+	return a.generatedAgentConfig
+}
+
+// GetGeneratedTaskConfigs returns the automatically generated task configurations, if any
+func (a *Agent) GetGeneratedTaskConfigs() TaskConfigs {
+	return a.generatedTaskConfigs
 }

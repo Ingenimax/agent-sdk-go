@@ -11,6 +11,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
+	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
@@ -242,12 +243,12 @@ func advancedConversationLoop(agentInstance *agent.Agent, logger logging.Logger)
 }
 
 // Get all pending plans from the agent
-func getPendingPlans(agentInstance *agent.Agent) []*agent.ExecutionPlan {
+func getPendingPlans(agentInstance *agent.Agent) []*executionplan.ExecutionPlan {
 	allPlans := agentInstance.ListTasks()
-	pendingPlans := make([]*agent.ExecutionPlan, 0)
+	pendingPlans := make([]*executionplan.ExecutionPlan, 0)
 
 	for _, plan := range allPlans {
-		if plan.Status == agent.StatusPendingApproval {
+		if plan.Status == executionplan.StatusPendingApproval {
 			pendingPlans = append(pendingPlans, plan)
 		}
 	}
@@ -256,7 +257,7 @@ func getPendingPlans(agentInstance *agent.Agent) []*agent.ExecutionPlan {
 }
 
 // Pretty print an execution plan
-func prettyPrintPlan(plan *agent.ExecutionPlan) {
+func prettyPrintPlan(plan *executionplan.ExecutionPlan) {
 	fmt.Println("\n=== Execution Plan ===")
 	fmt.Printf("Task ID: %s\n", plan.TaskID)
 	fmt.Printf("Description: %s\n", plan.Description)

@@ -14,6 +14,8 @@ A Go-based SDK for building AI agents with various capabilities like memory, too
 - 🚦 **Guardrails**: Safety mechanisms for responsible AI
 - 📈 **Observability**: Tracing and logging for debugging
 - 🏢 **Multi-tenancy**: Support for multiple organizations
+- 📄 **YAML Configuration**: Define agents and tasks using YAML files
+- 🧙 **Auto-Configuration**: Generate agent configurations from system prompts
 
 ## Getting Started
 
@@ -111,6 +113,98 @@ agent, err := agent.NewAgent(
 )
 ```
 
+### Creating an Agent with YAML Configuration
+
+```go
+// Load agent configurations from YAML file
+agentConfigs, err := agent.LoadAgentConfigsFromFile("agent_config.yaml")
+if err != nil {
+    panic(err)
+}
+
+// Load task configurations from YAML file
+taskConfigs, err := agent.LoadTaskConfigsFromFile("task_config.yaml")
+if err != nil {
+    panic(err)
+}
+
+// Variables for template substitution
+variables := map[string]string{
+    "topic": "Climate Change",
+}
+
+// Create agent from YAML configuration
+agent, err := agent.NewAgentFromConfig(
+    "Research Assistant",
+    agentConfigs,
+    variables,
+    agent.WithLLM(openaiClient),
+)
+if err != nil {
+    panic(err)
+}
+
+// Execute a task defined in YAML
+result, err := agent.ExecuteTaskFromConfig(context.Background(), "research_task", taskConfigs, variables)
+if err != nil {
+    panic(err)
+}
+fmt.Println(result)
+```
+
+Example YAML configurations:
+
+**agent_config.yaml**:
+```yaml
+Research Assistant:
+  role: "{topic} Research Specialist"
+  goal: "To gather, analyze, and summarize information about {topic}"
+  backstory: "You are an expert researcher with years of experience in {topic} studies."
+```
+
+**task_config.yaml**:
+```yaml
+research_task:
+  description: "Find the latest research papers on {topic} and summarize their key findings."
+  expected_output: "A concise summary of recent research findings on {topic}."
+  agent: "Research Assistant"
+  output_file: "research_summary_{topic}.md"
+```
+
+### Auto-Generating Agent Configurations
+
+```go
+// Create agent with auto-configuration from system prompt
+agent, err := agent.NewAgentWithAutoConfig(
+    context.Background(),
+    agent.WithLLM(openaiClient),
+    agent.WithSystemPrompt("You are a travel advisor who helps users plan trips and vacations."),
+    agent.WithName("Travel Assistant"),
+)
+if err != nil {
+    panic(err)
+}
+
+// Access the generated configurations
+agentConfig := agent.GetGeneratedAgentConfig()
+taskConfigs := agent.GetGeneratedTaskConfigs()
+
+// Save the generated configurations to YAML files
+agentConfigMap := map[string]agent.AgentConfig{
+    "Travel Assistant": *agentConfig,
+}
+
+// Save agent configs
+agentYaml, _ := os.Create("agent_config.yaml")
+defer agentYaml.Close()
+agent.SaveAgentConfigsToFile(agentConfigMap, agentYaml)
+
+// Save task configs
+taskYaml, _ := os.Create("task_config.yaml")
+defer taskYaml.Close()
+agent.SaveTaskConfigsToFile(taskConfigs, taskYaml)
+```
+
 ### Using Execution Plans with Approval
 
 ```go
@@ -127,7 +221,10 @@ agent, err := agent.NewAgent(
 plans := agent.ListTasks()
 
 // Approve a plan by task ID
-response, err := agent.Run(ctx, fmt.Sprintf("I approve the execution plan for task %s", taskID))
+response, err := agent.ApproveExecutionPlan(ctx, plans[0])
+
+// Or modify a plan with user feedback
+modifiedPlan, err := agent.ModifyExecutionPlan(ctx, plans[0], "Change step 2 to use a different tool")
 ```
 
 ## Architecture
@@ -140,6 +237,18 @@ The SDK follows a modular architecture with these key components:
 - **Tools**: Extend the agent's capabilities
 - **Vector Store**: For semantic search and retrieval
 - **Guardrails**: Ensures safe and responsible AI usage
+- **Execution Plan**: Manages planning, approval, and execution of complex tasks
+- **Configuration**: YAML-based agent and task definitions
+
+## Examples
+
+Check out the `cmd/examples` directory for complete examples:
+
+- **Simple Agent**: Basic agent with system prompt
+- **YAML Configuration**: Defining agents and tasks in YAML
+- **Auto-Configuration**: Generating agent configurations from system prompts
+- **Agent Config Wizard**: Interactive CLI for creating and using agents
+- **Combined Config Example**: Shows both YAML and auto-configuration approaches
 
 ## License
 

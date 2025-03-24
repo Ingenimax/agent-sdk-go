@@ -5,7 +5,12 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/task"
+	"github.com/Ingenimax/agent-sdk-go/pkg/task/api"
+	"github.com/Ingenimax/agent-sdk-go/pkg/task/executor"
+	"github.com/Ingenimax/agent-sdk-go/pkg/task/planner"
+	"github.com/Ingenimax/agent-sdk-go/pkg/task/service"
 )
 
 // NewAgent creates a new agent with the given options
@@ -46,31 +51,32 @@ func WithGuardrails(guardrails interfaces.Guardrails) agent.Option {
 // Task Execution
 
 // NewTaskExecutor creates a new task executor
-func NewTaskExecutor() *task.Executor {
-	return task.NewExecutor()
+func NewTaskExecutor() *executor.TaskExecutor {
+	return executor.NewTaskExecutor()
 }
 
 // NewAPIClient creates a new API client for making API calls
-func NewAPIClient(baseURL string, timeout time.Duration) *task.APIClient {
-	return task.NewAPIClient(baseURL, timeout)
+func NewAPIClient(baseURL string, timeout time.Duration) *api.Client {
+	return api.NewClient(baseURL, timeout)
 }
 
-// NewTemporalClient creates a new Temporal client for executing workflows
-func NewTemporalClient(config task.TemporalConfig) *task.TemporalClient {
-	return task.NewTemporalClient(config)
+// NewTaskService creates a new task service with in-memory storage
+func NewTaskService(logger logging.Logger) interfaces.TaskService {
+	taskPlanner := planner.NewCorePlanner(logger)
+	return service.NewCoreMemoryService(logger, taskPlanner)
 }
 
-// APITask creates a task function for making an API request
-func APITask(client *task.APIClient, req task.APIRequest) task.TaskFunc {
-	return task.APITask(client, req)
+// NewTaskAPI creates a new task API client
+func NewTaskAPI(client *api.Client) *api.TaskAPI {
+	return api.NewTaskAPI(client)
 }
 
-// TemporalWorkflowTask creates a task function for executing a Temporal workflow
-func TemporalWorkflowTask(client *task.TemporalClient, workflowName string) task.TaskFunc {
-	return task.TemporalWorkflowTask(client, workflowName)
+// Creates a new agent task service
+func NewAgentTaskService(logger logging.Logger) (*task.AgentTaskService, error) {
+	return task.NewAgentTaskService(logger)
 }
 
-// TemporalWorkflowAsyncTask creates a task function for executing a Temporal workflow asynchronously
-func TemporalWorkflowAsyncTask(client *task.TemporalClient, workflowName string) task.TaskFunc {
-	return task.TemporalWorkflowAsyncTask(client, workflowName)
+// Creates a new agent task service with a custom adapter
+func NewAgentTaskServiceWithAdapter(logger logging.Logger, service task.AgentAdapterService) *task.AgentTaskService {
+	return task.NewAgentTaskServiceWithAdapter(logger, service)
 }

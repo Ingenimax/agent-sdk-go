@@ -22,18 +22,23 @@ The execution plan functionality provides several benefits:
 
 ## Implementation Details
 
-The execution plan functionality is implemented in the following files:
+The execution plan functionality is implemented in the following packages:
 
-- `pkg/agent/execution_plan.go`: Contains the core execution plan functionality.
-- `pkg/agent/agent.go`: Modified to support execution plan generation and approval.
+- `pkg/executionplan`: Contains the core execution plan functionality as an independent package.
+- `pkg/agent`: Uses the execution plan package for planning and execution functionality.
 
 The key components are:
 
-- `ExecutionPlan`: A struct that represents a plan of tool executions.
-- `ExecutionStep`: A struct that represents a single step in an execution plan.
-- `GenerateExecutionPlan`: A method that generates an execution plan based on user input.
-- `ModifyExecutionPlan`: A method that modifies an execution plan based on user feedback.
-- `ApproveExecutionPlan`: A method that approves and executes a plan.
+- `executionplan.ExecutionPlan`: A struct that represents a plan of tool executions.
+- `executionplan.ExecutionStep`: A struct that represents a single step in an execution plan.
+- `executionplan.Generator`: Handles generating and modifying execution plans.
+- `executionplan.Executor`: Handles executing plans.
+- `executionplan.Store`: Manages storage and retrieval of plans.
+
+The Agent provides methods to interact with execution plans:
+- `agent.GenerateExecutionPlan`: Generates an execution plan based on user input.
+- `agent.ModifyExecutionPlan`: Modifies an execution plan based on user feedback.
+- `agent.ApproveExecutionPlan`: Approves and executes a plan.
 
 ## Running the Example
 
@@ -104,8 +109,8 @@ Result: Executed calculator with input: convert 75F to C
 You can customize the execution plan functionality by:
 
 1. Setting `requirePlanApproval` to `false` to disable execution plan approval.
-2. Modifying the prompt templates in `createExecutionPlanPrompt` and `ModifyExecutionPlan`.
-3. Extending the `ExecutionPlan` and `ExecutionStep` structs with additional fields.
+2. Creating your own implementation of the `executionplan.Generator` or `executionplan.Executor`.
+3. Extending the `executionplan.ExecutionPlan` and `executionplan.ExecutionStep` structs with additional fields.
 
 ## Integration with Your Application
 
@@ -113,4 +118,5 @@ To integrate execution plan functionality into your application:
 
 1. Create an agent with `WithRequirePlanApproval(true)`.
 2. Handle user responses to execution plans in your application's UI.
-3. Call the appropriate methods (`ApproveExecutionPlan`, `ModifyExecutionPlan`) based on user responses. 
+3. Call the appropriate methods (`ApproveExecutionPlan`, `ModifyExecutionPlan`) based on user responses.
+4. Directly use the executionplan package if you need more control over the planning and execution process. 
