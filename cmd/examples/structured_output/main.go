@@ -44,7 +44,18 @@ func main() {
 	agent, err := agent.NewAgent(
 		agent.WithLLM(openaiClient),
 		agent.WithMemory(memory.NewConversationBuffer()),
-		agent.WithSystemPrompt(`You are an AI assistent that provides information about a person.`),
+		agent.WithSystemPrompt(`
+			You are an AI assistant that provides accurate biographical information about people.
+            
+            Guidelines:
+            - Provide factual, verifiable information only
+            - If a field's information is unknown, use null instead of making assumptions
+            - For living persons, leave death-related fields as null
+            - Keep descriptions concise but informative
+            - Focus on the person's most significant achievements and contributions
+            
+            If the person is not a real historical or contemporary figure, or if you're unsure about their existence, return all fields as null.
+		`),
 		agent.WithName("StructuredResponseAgent"),
 		// Set the response format to JSON
 		agent.WithResponseFormat(*responseFormat),
@@ -64,6 +75,7 @@ func main() {
 		"Tell me about Albert Einstein",
 		"Tell me about Steve Jobs",
 		"Tell me about Andrew Ng",
+		"Tell me about a guy that does not exist",
 	}
 
 	// Run the agent for each query
