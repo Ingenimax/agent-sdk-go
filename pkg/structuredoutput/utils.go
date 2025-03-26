@@ -36,9 +36,34 @@ func getJSONSchema(t reflect.Type) map[string]any {
 			jsonTag = field.Name
 		}
 
-		properties[jsonTag] = map[string]string{
-			"type":        getJSONType(field.Type),
-			"description": field.Tag.Get("description"), // Optional: support for description tags
+		// Handle nested structs
+		if field.Type.Kind() == reflect.Struct {
+			requiredFields := getRequiredFields(field.Type)
+			// Ensure required is an empty array instead of null when no required fields
+			if requiredFields == nil {
+				requiredFields = []string{}
+			}
+
+			properties[jsonTag] = map[string]any{
+				"type":        "object",
+				"description": field.Tag.Get("description"),
+				"properties":  getJSONSchema(field.Type),
+				"required":    requiredFields,
+			}
+		} else if field.Type.Kind() == reflect.Slice || field.Type.Kind() == reflect.Array {
+			// Handle arrays/slices with items property
+			properties[jsonTag] = map[string]any{
+				"type":        "array",
+				"description": field.Tag.Get("description"),
+				"items": map[string]string{
+					"type": getJSONType(field.Type.Elem()),
+				},
+			}
+		} else {
+			properties[jsonTag] = map[string]string{
+				"type":        getJSONType(field.Type),
+				"description": field.Tag.Get("description"),
+			}
 		}
 	}
 	return properties
@@ -54,6 +79,10 @@ func getJSONType(t reflect.Type) string {
 		return "number"
 	case reflect.Bool:
 		return "boolean"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	case reflect.Struct:
+		return "object"
 	default:
 		return "string"
 	}
@@ -70,6 +99,10 @@ func getRequiredFields(t reflect.Type) []string {
 			}
 			required = append(required, jsonTag)
 		}
+	}
+	// Ensure we return an empty array instead of nil
+	if required == nil {
+		return []string{}
 	}
 	return required
 }
