@@ -36,6 +36,9 @@ type ParameterSpec struct {
 
 	// Enum is a list of possible values for the parameter
 	Enum []interface{}
+
+	// Items is the type of the items in the parameter
+	Items *ParameterSpec
 }
 
 // ToolRegistry is a registry of available tools

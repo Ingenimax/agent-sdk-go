@@ -214,6 +214,14 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			if param.Required {
 				required = append(required, name)
 			}
+			if param.Items != nil {
+				properties[name].(map[string]interface{})["items"] = map[string]interface{}{
+					"type": param.Items.Type,
+				}
+				if param.Items.Enum != nil {
+					properties[name].(map[string]interface{})["items"].(map[string]interface{})["enum"] = param.Items.Enum
+				}
+			}
 		}
 
 		openaiTools[i] = openai.Tool{

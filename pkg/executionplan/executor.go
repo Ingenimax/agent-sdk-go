@@ -44,6 +44,7 @@ func (e *Executor) ExecutePlan(ctx context.Context, plan *ExecutionPlan) (string
 			return "", fmt.Errorf("unknown tool: %s", step.ToolName)
 		}
 
+		fmt.Println("step.Input", step.Input)
 		// Execute the tool
 		result, err := tool.Execute(ctx, step.Input)
 		if err != nil {

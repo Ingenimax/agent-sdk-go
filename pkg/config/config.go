@@ -99,6 +99,11 @@ type Config struct {
 			KubeConfig string
 			Context    string
 		}
+
+		// GitHub configuration
+		GitHub struct {
+			Token string
+		}
 	}
 
 	// Tracing configuration
@@ -195,6 +200,8 @@ func LoadFromEnv() *Config {
 
 	config.Tools.Kubernetes.KubeConfig = getEnv("KUBECONFIG", "")
 	config.Tools.Kubernetes.Context = getEnv("KUBE_CONTEXT", "")
+
+	config.Tools.GitHub.Token = getEnv("GITHUB_TOKEN", "")
 
 	// Tracing configuration
 	config.Tracing.Langfuse.Enabled = getEnvBool("LANGFUSE_ENABLED", false)
