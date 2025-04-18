@@ -260,14 +260,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	})
 
 	req := openai.ChatCompletionRequest{
-		Model:            c.Model,
-		Messages:         messages,
-		Tools:            openaiTools,
-		Temperature:      float32(params.Temperature),
-		TopP:             float32(params.TopP),
-		FrequencyPenalty: float32(params.FrequencyPenalty),
-		PresencePenalty:  float32(params.PresencePenalty),
-		Stop:             params.StopSequences,
+		Model:             c.Model,
+		Messages:          messages,
+		Tools:             openaiTools,
+		Temperature:       float32(params.Temperature),
+		TopP:              float32(params.TopP),
+		FrequencyPenalty:  float32(params.FrequencyPenalty),
+		PresencePenalty:   float32(params.PresencePenalty),
+		Stop:              params.StopSequences,
+		ParallelToolCalls: false,
 	}
 
 	// Set response format if provided
