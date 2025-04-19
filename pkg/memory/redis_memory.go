@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -115,9 +113,9 @@ func NewRedisMemory(client *redis.Client, options ...RedisOption) *RedisMemory {
 // AddMessage adds a message to the memory with improved error handling and retry logic
 func (r *RedisMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
 	// Get conversation ID from context
-	conversationID, ok := GetConversationID(ctx)
-	if !ok || conversationID == "" {
-		return fmt.Errorf("conversation ID not found in context")
+	conversationID, err := getConversationID(ctx)
+	if err != nil {
+		return err
 	}
 
 	// Get organization ID from context for multi-tenancy support
@@ -203,10 +201,13 @@ func (r *RedisMemory) processMessage(message interfaces.Message) (interfaces.Mes
 
 // GetMessages retrieves messages from the memory with improved filtering and pagination
 func (r *RedisMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
+	// ... implement with similar improvements to AddMessage
+	// Include support for pagination, filtering by role, etc.
+
 	// Get conversation ID from context
-	conversationID, ok := GetConversationID(ctx)
-	if !ok || conversationID == "" {
-		return nil, fmt.Errorf("conversation ID not found in context")
+	conversationID, err := getConversationID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation ID: %w", err)
 	}
 
 	// Get organization ID from context for multi-tenancy support
@@ -265,10 +266,12 @@ func (r *RedisMemory) GetMessages(ctx context.Context, options ...interfaces.Get
 
 // Clear clears the memory for a conversation
 func (r *RedisMemory) Clear(ctx context.Context) error {
+	// ... implement with improved error handling and multi-tenancy support
+
 	// Get conversation ID from context
-	conversationID, ok := GetConversationID(ctx)
-	if !ok || conversationID == "" {
-		return fmt.Errorf("conversation ID not found in context")
+	conversationID, err := getConversationID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get conversation ID: %w", err)
 	}
 
 	// Get organization ID from context for multi-tenancy support
@@ -294,51 +297,12 @@ func (r *RedisMemory) Clear(ctx context.Context) error {
 
 // NewRedisMemoryFromConfig creates a new Redis memory from configuration
 func NewRedisMemoryFromConfig(config RedisConfig, options ...RedisOption) (*RedisMemory, error) {
-	var client *redis.Client
-
-	// Case 1: URL contains a full Redis URI (redis://user:password@host:port/db)
-	if strings.Contains(config.URL, "://") {
-		// Let the redis package handle the parsing
-		opts, err := redis.ParseURL(config.URL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
-		}
-
-		// Override with explicit password if provided
-		if config.Password != "" {
-			opts.Password = config.Password
-		}
-
-		// Override with explicit DB if provided (and not -1)
-		if config.DB >= 0 {
-			opts.DB = config.DB
-		}
-
-		client = redis.NewClient(opts)
-	} else {
-		// Case 2: Simple host:port format without protocol
-		// Parse the Redis URL to handle formats like host:port/db
-		url := config.URL
-		db := config.DB
-
-		// Extract database number if present and override config.DB
-		if idx := strings.LastIndex(url, "/"); idx >= 0 {
-			dbStr := url[idx+1:]
-			url = url[:idx]
-
-			// Try to parse the database number
-			if parsedDB, err := strconv.Atoi(dbStr); err == nil {
-				db = parsedDB
-			}
-		}
-
-		// Create Redis client with the parsed address
-		client = redis.NewClient(&redis.Options{
-			Addr:     url,
-			Password: config.Password,
-			DB:       db,
-		})
-	}
+	// Create Redis client
+	client := redis.NewClient(&redis.Options{
+		Addr:     config.URL,
+		Password: config.Password,
+		DB:       config.DB,
+	})
 
 	// Test connection
 	ctx := context.Background()
