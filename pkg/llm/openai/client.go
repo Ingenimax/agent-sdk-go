@@ -268,7 +268,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		FrequencyPenalty:  float32(params.FrequencyPenalty),
 		PresencePenalty:   float32(params.PresencePenalty),
 		Stop:              params.StopSequences,
-		ParallelToolCalls: false,
+		ParallelToolCalls: true,
 	}
 
 	// Set response format if provided
@@ -317,9 +317,19 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				}
 			}
 
-			if selectedTool.Name() == "" {
-				c.logger.Error(ctx, "Tool not found", map[string]interface{}{"toolName": toolCall.Function.Name})
-				return "", fmt.Errorf("tool not found: %s", toolCall.Function.Name)
+			if selectedTool == nil || selectedTool.Name() == "" {
+				c.logger.Error(ctx, "Tool not found", map[string]interface{}{
+					"toolName": toolCall.Function.Name,
+					"toolcall": toolCall,
+					"resp":     resp,
+				})
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:       "tool",
+					Content:    fmt.Sprintf("Error: Tool not found: %s", toolCall.Function.Name),
+					Name:       toolCall.Function.Name,
+					ToolCallID: toolCall.ID,
+				})
+				continue
 			}
 
 			// Execute the tool
