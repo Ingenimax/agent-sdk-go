@@ -342,13 +342,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					// Convert parameters to JSON string
 					paramsBytes, err := json.Marshal(parameters)
 					if err != nil {
-						c.logger.Error(ctx, "Error marshaling parameters", map[string]interface{}{"error": err.Error()})
-						messages = append(messages, openai.ChatCompletionMessage{
-							Role:       "tool",
-							Content:    fmt.Sprintf("Error: failed to marshal parameters: %v", err),
-							Name:       toolName,
-							ToolCallID: toolCall.ID,
-						})
+						c.logger.Error(ctx, "Error marshalling parameters", map[string]interface{}{"error": err.Error()})
 						continue
 					}
 
