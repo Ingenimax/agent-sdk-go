@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -300,6 +301,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		toolCalls := resp.Choices[0].Message.ToolCalls
 		c.logger.Info(ctx, "Processing tool calls", map[string]interface{}{"count": len(toolCalls)})
 
+		// Replace multi_tool_use.parallel name if present
+		for i := range toolCalls {
+			if toolCalls[i].Function.Name == "multi_tool_use.parallel" {
+				c.logger.Info(ctx, "Replacing multi_tool_use.parallel with parallel_tool_use", nil)
+				// it's required because the function name must match ^[a-zA-Z0-9_-]+$ when sending the request to OpenAI
+				toolCalls[i].Function.Name = "parallel_tool_use"
+			}
+		}
+
 		// Create a new conversation with the initial messages
 		messages := []openai.ChatCompletionMessage{
 			{Role: "user", Content: prompt},
@@ -308,6 +318,72 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 		// Process each tool call
 		for _, toolCall := range toolCalls {
+
+			if toolCall.Function.Name == "parallel_tool_use" {
+				c.logger.Info(ctx, "Parallel tool call", map[string]interface{}{"toolName": toolCall.Function.Name})
+
+				arguments := toolCall.Function.Arguments
+				var toolUsesWrapper struct {
+					ToolUses []map[string]interface{} `json:"tool_uses"`
+				}
+				err := json.Unmarshal([]byte(arguments), &toolUsesWrapper)
+				if err != nil {
+					c.logger.Error(ctx, "Error unmarshalling tool uses", map[string]interface{}{"error": err.Error()})
+					continue
+				}
+				toolsResults := []string{}
+
+				for _, toolUse := range toolUsesWrapper.ToolUses {
+					toolName := toolUse["recipient_name"].(string)
+					parameters := toolUse["parameters"].(map[string]interface{})
+
+					c.logger.Info(ctx, "Parallel tool use", map[string]interface{}{"toolName": toolName, "parameters": parameters})
+
+					// Convert parameters to JSON string
+					paramsBytes, err := json.Marshal(parameters)
+					if err != nil {
+						c.logger.Error(ctx, "Error marshaling parameters", map[string]interface{}{"error": err.Error()})
+						messages = append(messages, openai.ChatCompletionMessage{
+							Role:       "tool",
+							Content:    fmt.Sprintf("Error: failed to marshal parameters: %v", err),
+							Name:       toolName,
+							ToolCallID: toolCall.ID,
+						})
+						continue
+					}
+
+					// Find the correct tool for this operation
+					var tool interfaces.Tool
+					for _, t := range tools {
+						if t.Name() == toolName {
+							tool = t
+							break
+						}
+					}
+
+					if tool == nil {
+						c.logger.Error(ctx, "Tool not found in parallel execution", map[string]interface{}{"toolName": toolName})
+						return "", fmt.Errorf("tool not found: %s", toolName)
+					}
+
+					c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": toolName, "parameters": string(paramsBytes)})
+
+					toolResult, err := tool.Execute(ctx, string(paramsBytes))
+					toolsResults = append(toolsResults, toolResult)
+					if err != nil {
+						c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": toolName, "error": err.Error()})
+						return "", fmt.Errorf("error executing tool: %s", err.Error())
+					}
+				}
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:       "tool",
+					Content:    strings.Join(toolsResults, "\n"),
+					ToolCallID: toolCall.ID,
+					Name:       "parallel_tool_use",
+				})
+				continue
+			}
+
 			// Find the requested tool
 			var selectedTool interfaces.Tool
 			for _, tool := range tools {
@@ -323,13 +399,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					"toolcall": toolCall,
 					"resp":     resp,
 				})
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:       "tool",
-					Content:    fmt.Sprintf("Error: Tool not found: %s", toolCall.Function.Name),
-					Name:       toolCall.Function.Name,
-					ToolCallID: toolCall.ID,
-				})
-				continue
+				return "", fmt.Errorf("tool not found: %s", toolCall.Function.Name)
 			}
 
 			// Execute the tool
@@ -383,7 +453,9 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 		finalCompletion, err := c.Client.CreateChatCompletion(ctx, req)
 		if err != nil {
-			c.logger.Error(ctx, "Error from final OpenAI API call", map[string]interface{}{"error": err.Error()})
+			c.logger.Error(ctx, "Error from final OpenAI API call", map[string]interface{}{
+				"error": err.Error(),
+			})
 			return "", fmt.Errorf("failed to create final chat completion: %w", err)
 		}
 
