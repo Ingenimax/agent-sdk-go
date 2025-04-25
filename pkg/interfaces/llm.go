@@ -19,12 +19,16 @@ type GenerateOption func(options *GenerateOptions)
 
 // GenerateOptions contains configuration for text generation
 type GenerateOptions struct {
+	LLMConfig      *LLMConfig      // For multi-tenancy
+	OrgID          string          // For multi-tenancy
+	SystemMessage  string          // System message for chat models
+	ResponseFormat *ResponseFormat // Optional expected response format
+}
+
+type LLMConfig struct {
 	Temperature      float64
 	TopP             float64
 	FrequencyPenalty float64
 	PresencePenalty  float64
 	StopSequences    []string
-	OrgID            string          // For multi-tenancy
-	SystemMessage    string          // System message for chat models
-	ResponseFormat   *ResponseFormat // Optional expected response format
 }

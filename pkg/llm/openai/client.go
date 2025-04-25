@@ -64,7 +64,9 @@ func NewClient(apiKey string, options ...Option) *OpenAIClient {
 func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
 	// Apply options
 	params := &interfaces.GenerateOptions{
-		Temperature: 0.7,
+		LLMConfig: &interfaces.LLMConfig{
+			Temperature: 0.7,
+		},
 	}
 
 	for _, option := range options {
@@ -97,13 +99,16 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 
 	// Create request
 	req := openai.ChatCompletionRequest{
-		Model:            c.Model,
-		Messages:         messages,
-		Temperature:      float32(params.Temperature),
-		TopP:             float32(params.TopP),
-		FrequencyPenalty: float32(params.FrequencyPenalty),
-		PresencePenalty:  float32(params.PresencePenalty),
-		Stop:             params.StopSequences,
+		Model:    c.Model,
+		Messages: messages,
+	}
+
+	if params.LLMConfig != nil {
+		req.Temperature = float32(params.LLMConfig.Temperature)
+		req.TopP = float32(params.LLMConfig.TopP)
+		req.FrequencyPenalty = float32(params.LLMConfig.FrequencyPenalty)
+		req.PresencePenalty = float32(params.LLMConfig.PresencePenalty)
+		req.Stop = params.LLMConfig.StopSequences
 	}
 
 	// Set response format if provided
@@ -125,6 +130,16 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 	}
 
 	// Send request
+	c.logger.Debug(ctx, "Sending request to OpenAI", map[string]interface{}{
+		"model":             c.Model,
+		"temperature":       req.Temperature,
+		"top_p":             req.TopP,
+		"frequency_penalty": req.FrequencyPenalty,
+		"presence_penalty":  req.PresencePenalty,
+		"stop_sequences":    req.Stop,
+		"messages":          len(req.Messages),
+		"response_format":   req.ResponseFormat != nil,
+	})
 	resp, err := c.Client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
@@ -166,6 +181,15 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 	}
 
 	// Send request
+	c.logger.Debug(ctx, "Sending chat request to OpenAI", map[string]interface{}{
+		"model":             c.Model,
+		"temperature":       req.Temperature,
+		"top_p":             req.TopP,
+		"frequency_penalty": req.FrequencyPenalty,
+		"presence_penalty":  req.PresencePenalty,
+		"stop_sequences":    req.Stop,
+		"messages":          len(req.Messages),
+	})
 	resp, err := c.Client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to create chat completion: %w", err)
@@ -181,12 +205,20 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 // GenerateWithTools implements interfaces.LLM.GenerateWithTools
 func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
 	// Convert options to params
-	params := &interfaces.GenerateOptions{
-		Temperature: 0.7,
-	}
+	params := &interfaces.GenerateOptions{}
 	for _, opt := range options {
 		if opt != nil {
 			opt(params)
+		}
+	}
+
+	// Set default values only if they're not provided
+	if params.LLMConfig == nil {
+		params.LLMConfig = &interfaces.LLMConfig{
+			Temperature:      0.7,
+			TopP:             1.0,
+			FrequencyPenalty: 0.0,
+			PresencePenalty:  0.0,
 		}
 	}
 
@@ -264,11 +296,11 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Model:             c.Model,
 		Messages:          messages,
 		Tools:             openaiTools,
-		Temperature:       float32(params.Temperature),
-		TopP:              float32(params.TopP),
-		FrequencyPenalty:  float32(params.FrequencyPenalty),
-		PresencePenalty:   float32(params.PresencePenalty),
-		Stop:              params.StopSequences,
+		Temperature:       float32(params.LLMConfig.Temperature),
+		TopP:              float32(params.LLMConfig.TopP),
+		FrequencyPenalty:  float32(params.LLMConfig.FrequencyPenalty),
+		PresencePenalty:   float32(params.LLMConfig.PresencePenalty),
+		Stop:              params.LLMConfig.StopSequences,
 		ParallelToolCalls: true,
 	}
 
@@ -285,6 +317,18 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Send request
+	c.logger.Debug(ctx, "Sending request with tools to OpenAI", map[string]interface{}{
+		"model":             c.Model,
+		"temperature":       req.Temperature,
+		"top_p":             req.TopP,
+		"frequency_penalty": req.FrequencyPenalty,
+		"presence_penalty":  req.PresencePenalty,
+		"stop_sequences":    req.Stop,
+		"messages":          len(req.Messages),
+		"tools":             len(req.Tools),
+		"response_format":   req.ResponseFormat != nil,
+		"parallel_tools":    req.ParallelToolCalls,
+	})
 	resp, err := c.Client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
@@ -426,11 +470,11 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		req := openai.ChatCompletionRequest{
 			Model:            c.Model,
 			Messages:         messages,
-			Temperature:      float32(params.Temperature),
-			TopP:             float32(params.TopP),
-			FrequencyPenalty: float32(params.FrequencyPenalty),
-			PresencePenalty:  float32(params.PresencePenalty),
-			Stop:             params.StopSequences,
+			Temperature:      float32(params.LLMConfig.Temperature),
+			TopP:             float32(params.LLMConfig.TopP),
+			FrequencyPenalty: float32(params.LLMConfig.FrequencyPenalty),
+			PresencePenalty:  float32(params.LLMConfig.PresencePenalty),
+			Stop:             params.LLMConfig.StopSequences,
 		}
 
 		// Set response format for final request if provided
@@ -474,35 +518,35 @@ func (c *OpenAIClient) Name() string {
 // WithTemperature creates a GenerateOption to set the temperature
 func WithTemperature(temperature float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
-		options.Temperature = temperature
+		options.LLMConfig.Temperature = temperature
 	}
 }
 
 // WithTopP creates a GenerateOption to set the top_p
 func WithTopP(topP float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
-		options.TopP = topP
+		options.LLMConfig.TopP = topP
 	}
 }
 
 // WithFrequencyPenalty creates a GenerateOption to set the frequency penalty
 func WithFrequencyPenalty(frequencyPenalty float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
-		options.FrequencyPenalty = frequencyPenalty
+		options.LLMConfig.FrequencyPenalty = frequencyPenalty
 	}
 }
 
 // WithPresencePenalty creates a GenerateOption to set the presence penalty
 func WithPresencePenalty(presencePenalty float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
-		options.PresencePenalty = presencePenalty
+		options.LLMConfig.PresencePenalty = presencePenalty
 	}
 }
 
 // WithStopSequences creates a GenerateOption to set the stop sequences
 func WithStopSequences(stopSequences []string) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
-		options.StopSequences = stopSequences
+		options.LLMConfig.StopSequences = stopSequences
 	}
 }
 

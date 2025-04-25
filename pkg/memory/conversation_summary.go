@@ -178,7 +178,7 @@ func (c *ConversationSummary) summarize(ctx context.Context, messages []interfac
 
 	// Generate summary with default options instead of nil
 	summary, err := c.llmClient.Generate(ctx, sb.String(), func(o *interfaces.GenerateOptions) {
-		o.Temperature = 0.7
+		o.LLMConfig.Temperature = 0.7
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate summary: %w", err)

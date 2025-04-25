@@ -29,6 +29,7 @@ type Agent struct {
 	generatedAgentConfig *AgentConfig
 	generatedTaskConfigs TaskConfigs
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
+	llmConfig            *interfaces.LLMConfig
 }
 
 // Option represents an option for configuring an agent
@@ -109,6 +110,12 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
 	return func(a *Agent) {
 		a.responseFormat = &formatType
+	}
+}
+
+func WithLLMConfig(config interfaces.LLMConfig) Option {
+	return func(a *Agent) {
+		a.llmConfig = &config
 	}
 }
 
@@ -440,6 +447,12 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 	// Add response format as a generate option if available
 	if a.responseFormat != nil {
 		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
+	}
+
+	if a.llmConfig != nil {
+		generateOptions = append(generateOptions, func(options *interfaces.GenerateOptions) {
+			options.LLMConfig = a.llmConfig
+		})
 	}
 
 	if len(a.tools) > 0 {
