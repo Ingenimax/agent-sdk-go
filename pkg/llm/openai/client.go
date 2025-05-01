@@ -10,6 +10,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/retry"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -21,9 +22,10 @@ const organizationKey contextKey = "organization"
 
 // OpenAIClient implements the LLM interface for OpenAI
 type OpenAIClient struct {
-	Client *openai.Client
-	Model  string
-	logger logging.Logger
+	Client        *openai.Client
+	Model         string
+	logger        logging.Logger
+	retryExecutor *retry.Executor
 }
 
 // Option represents an option for configuring the OpenAI client
@@ -40,6 +42,13 @@ func WithModel(model string) Option {
 func WithLogger(logger logging.Logger) Option {
 	return func(c *OpenAIClient) {
 		c.logger = logger
+	}
+}
+
+// WithRetry configures retry policy for the client
+func WithRetry(opts ...retry.Option) Option {
+	return func(c *OpenAIClient) {
+		c.retryExecutor = retry.NewExecutor(retry.NewPolicy(opts...))
 	}
 }
 
@@ -123,31 +132,55 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
 	}
 
-	//c.logger.Debug(ctx, "Sending request to OpenAI", map[string]interface{}{"request": req})
 	// Set organization ID if available
 	if orgID, ok := ctx.Value(organizationKey).(string); ok && orgID != "" {
 		req.User = orgID
 	}
 
-	// Send request
-	c.logger.Debug(ctx, "Sending request to OpenAI", map[string]interface{}{
-		"model":             c.Model,
-		"temperature":       req.Temperature,
-		"top_p":             req.TopP,
-		"frequency_penalty": req.FrequencyPenalty,
-		"presence_penalty":  req.PresencePenalty,
-		"stop_sequences":    req.Stop,
-		"messages":          len(req.Messages),
-		"response_format":   req.ResponseFormat != nil,
-	})
-	resp, err := c.Client.CreateChatCompletion(ctx, req)
+	var resp openai.ChatCompletionResponse
+	var err error
+
+	operation := func() error {
+		c.logger.Debug(ctx, "Executing OpenAI API request", map[string]interface{}{
+			"model":             c.Model,
+			"temperature":       req.Temperature,
+			"top_p":             req.TopP,
+			"frequency_penalty": req.FrequencyPenalty,
+			"presence_penalty":  req.PresencePenalty,
+			"stop_sequences":    req.Stop,
+			"messages":          len(req.Messages),
+			"response_format":   req.ResponseFormat != nil,
+		})
+
+		resp, err = c.Client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{
+				"error": err.Error(),
+				"model": c.Model,
+			})
+			return fmt.Errorf("failed to generate text: %w", err)
+		}
+		return nil
+	}
+
+	if c.retryExecutor != nil {
+		c.logger.Debug(ctx, "Using retry mechanism for OpenAI request", map[string]interface{}{
+			"model": c.Model,
+		})
+		err = c.retryExecutor.Execute(ctx, operation)
+	} else {
+		err = operation()
+	}
+
 	if err != nil {
-		c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
-		return "", fmt.Errorf("failed to generate text: %w", err)
+		return "", err
 	}
 
 	// Return response
 	if len(resp.Choices) > 0 {
+		c.logger.Debug(ctx, "Successfully received response from OpenAI", map[string]interface{}{
+			"model": c.Model,
+		})
 		return resp.Choices[0].Message.Content, nil
 	}
 
@@ -180,26 +213,53 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		Stop:             params.StopSequences,
 	}
 
-	// Send request
-	c.logger.Debug(ctx, "Sending chat request to OpenAI", map[string]interface{}{
-		"model":             c.Model,
-		"temperature":       req.Temperature,
-		"top_p":             req.TopP,
-		"frequency_penalty": req.FrequencyPenalty,
-		"presence_penalty":  req.PresencePenalty,
-		"stop_sequences":    req.Stop,
-		"messages":          len(req.Messages),
-	})
-	resp, err := c.Client.CreateChatCompletion(ctx, req)
+	var resp openai.ChatCompletionResponse
+	var err error
+
+	operation := func() error {
+		c.logger.Debug(ctx, "Executing OpenAI Chat API request", map[string]interface{}{
+			"model":             c.Model,
+			"temperature":       req.Temperature,
+			"top_p":             req.TopP,
+			"frequency_penalty": req.FrequencyPenalty,
+			"presence_penalty":  req.PresencePenalty,
+			"stop_sequences":    req.Stop,
+			"messages":          len(req.Messages),
+		})
+
+		resp, err = c.Client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			c.logger.Error(ctx, "Error from OpenAI Chat API", map[string]interface{}{
+				"error": err.Error(),
+				"model": c.Model,
+			})
+			return fmt.Errorf("failed to create chat completion: %w", err)
+		}
+		return nil
+	}
+
+	if c.retryExecutor != nil {
+		c.logger.Debug(ctx, "Using retry mechanism for OpenAI Chat request", map[string]interface{}{
+			"model": c.Model,
+		})
+		err = c.retryExecutor.Execute(ctx, operation)
+	} else {
+		err = operation()
+	}
+
 	if err != nil {
-		return "", fmt.Errorf("failed to create chat completion: %w", err)
+		return "", err
 	}
 
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no completions returned")
 	}
 
-	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
+	c.logger.Debug(ctx, "Successfully received chat response from OpenAI", map[string]interface{}{
+		"model": c.Model,
+	})
+
+	return resp.Choices[0].Message.Content, nil
 }
 
 // GenerateWithTools implements interfaces.LLM.GenerateWithTools
