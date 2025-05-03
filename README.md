@@ -21,7 +21,7 @@ A Go-based SDK for building AI agents with various capabilities like memory, too
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.23+
 - Redis (optional, for distributed memory)
 
 ### Installation
@@ -37,7 +37,7 @@ go get github.com/Ingenimax/agent-sdk-go
 The SDK uses environment variables for configuration. Key variables include:
 
 - `OPENAI_API_KEY`: Your OpenAI API key
-- `OPENAI_MODEL`: The model to use (e.g., gpt-4-turbo)
+- `OPENAI_MODEL`: The model to use (e.g., gpt-4o-mini)
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 - `REDIS_ADDRESS`: Redis server address (if using Redis for memory)
 
@@ -55,120 +55,182 @@ import (
 	"fmt"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/config"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
-)
-
-func main() {
-	// Create OpenAI client
-	openaiClient := openai.NewClient("your-api-key")
-
-	// Create a memory store
-	memoryStore := memory.NewConversationBuffer()
-
-	// Create a new agent
-	agentInstance, err := agent.NewAgent(
-		agent.WithLLM(openaiClient),
-		agent.WithMemory(memoryStore),
-		agent.WithSystemPrompt("You are a helpful AI assistant."),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	// Run the agent
-	response, err := agentInstance.Run(context.Background(), "What is the capital of France?")
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(response)
-}
-```
-
-### Adding Tools to an Agent
-
-```go
-import (
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/websearch"
 )
 
-// Create a tools registry
-toolRegistry := tools.NewRegistry()
+func main() {
+	// Create a logger
+	logger := logging.New()
 
-// Add the web search tool
-searchTool := websearch.New(
-	"your-google-api-key",
-	"your-search-engine-id",
-)
-toolRegistry.Register(searchTool)
+	// Get configuration
+	cfg := config.Get()
 
-// Create agent with tools
-agent, err := agent.NewAgent(
-	agent.WithLLM(openaiClient),
-	agent.WithMemory(memoryStore),
-	agent.WithTools(toolRegistry.List()...),
-	agent.WithSystemPrompt("You are a helpful AI assistant with web search abilities."),
-)
+	// Create a new agent with OpenAI
+	openaiClient := openai.NewClient(cfg.LLM.OpenAI.APIKey,
+		openai.WithLogger(logger))
+
+	agent, err := agent.NewAgent(
+		agent.WithLLM(openaiClient),
+		agent.WithMemory(memory.NewConversationBuffer()),
+		agent.WithTools(createTools(logger).List()...),
+		agent.WithSystemPrompt("You are a helpful AI assistant. When you don't know the answer or need real-time information, use the available tools to find the information."),
+		agent.WithName("ResearchAssistant"),
+	)
+	if err != nil {
+		logger.Error(context.Background(), "Failed to create agent", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	// Create a context with organization ID and conversation ID
+	ctx := context.Background()
+	ctx = multitenancy.WithOrgID(ctx, "default-org")
+	ctx = context.WithValue(ctx, memory.ConversationIDKey, "conversation-123")
+
+	// Run the agent
+	response, err := agent.Run(ctx, "What's the weather in San Francisco?")
+	if err != nil {
+		logger.Error(ctx, "Failed to run agent", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	fmt.Println(response)
+}
+
+func createTools(logger logging.Logger) *tools.Registry {
+	// Get configuration
+	cfg := config.Get()
+
+	// Create tools registry
+	toolRegistry := tools.NewRegistry()
+
+	// Add web search tool if API keys are available
+	if cfg.Tools.WebSearch.GoogleAPIKey != "" && cfg.Tools.WebSearch.GoogleSearchEngineID != "" {
+		searchTool := websearch.New(
+			cfg.Tools.WebSearch.GoogleAPIKey,
+			cfg.Tools.WebSearch.GoogleSearchEngineID,
+		)
+		toolRegistry.Register(searchTool)
+	}
+
+	return toolRegistry
+}
 ```
 
 ### Creating an Agent with YAML Configuration
 
 ```go
-// Load agent configurations from YAML file
-agentConfigs, err := agent.LoadAgentConfigsFromFile("agent_config.yaml")
-if err != nil {
-    panic(err)
-}
+package main
 
-// Load task configurations from YAML file
-taskConfigs, err := agent.LoadTaskConfigsFromFile("task_config.yaml")
-if err != nil {
-    panic(err)
-}
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 
-// Variables for template substitution
-variables := map[string]string{
-    "topic": "Climate Change",
-}
-
-// Create agent from YAML configuration
-agent, err := agent.NewAgentFromConfig(
-    "Research Assistant",
-    agentConfigs,
-    variables,
-    agent.WithLLM(openaiClient),
+	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 )
-if err != nil {
-    panic(err)
-}
 
-// Execute a task defined in YAML
-result, err := agent.ExecuteTaskFromConfig(context.Background(), "research_task", taskConfigs, variables)
-if err != nil {
-    panic(err)
+func main() {
+	// Get OpenAI API key from environment
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("OpenAI API key not provided. Set OPENAI_API_KEY environment variable.")
+	}
+
+	// Create the LLM client
+	llm := openai.NewClient(apiKey)
+
+	// Load agent configurations
+	agentConfigs, err := agent.LoadAgentConfigsFromFile("agents.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load agent configurations: %v", err)
+	}
+
+	// Load task configurations
+	taskConfigs, err := agent.LoadTaskConfigsFromFile("tasks.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load task configurations: %v", err)
+	}
+
+	// Create variables map for template substitution
+	variables := map[string]string{
+		"topic": "Artificial Intelligence",
+	}
+
+	// Create the agent for a specific task
+	taskName := "research_task"
+	agent, err := agent.CreateAgentForTask(taskName, agentConfigs, taskConfigs, variables, agent.WithLLM(llm))
+	if err != nil {
+		log.Fatalf("Failed to create agent for task: %v", err)
+	}
+
+	// Execute the task
+	fmt.Printf("Executing task '%s' with topic '%s'...\n", taskName, variables["topic"])
+	result, err := agent.ExecuteTaskFromConfig(context.Background(), taskName, taskConfigs, variables)
+	if err != nil {
+		log.Fatalf("Failed to execute task: %v", err)
+	}
+
+	// Print the result
+	fmt.Println("\nTask Result:")
+	fmt.Println(result)
 }
-fmt.Println(result)
 ```
 
 Example YAML configurations:
 
-**agent_config.yaml**:
+**agents.yaml**:
 ```yaml
-Research Assistant:
-  role: "{topic} Research Specialist"
-  goal: "To gather, analyze, and summarize information about {topic}"
-  backstory: "You are an expert researcher with years of experience in {topic} studies."
+researcher:
+  role: >
+    {topic} Senior Data Researcher
+  goal: >
+    Uncover cutting-edge developments in {topic}
+  backstory: >
+    You're a seasoned researcher with a knack for uncovering the latest
+    developments in {topic}. Known for your ability to find the most relevant
+    information and present it in a clear and concise manner.
+
+reporting_analyst:
+  role: >
+    {topic} Reporting Analyst
+  goal: >
+    Create detailed reports based on {topic} data analysis and research findings
+  backstory: >
+    You're a meticulous analyst with a keen eye for detail. You're known for
+    your ability to turn complex data into clear and concise reports, making
+    it easy for others to understand and act on the information you provide.
 ```
 
-**task_config.yaml**:
+**tasks.yaml**:
 ```yaml
 research_task:
-  description: "Find the latest research papers on {topic} and summarize their key findings."
-  expected_output: "A concise summary of recent research findings on {topic}."
-  agent: "Research Assistant"
-  output_file: "research_summary_{topic}.md"
+  description: >
+    Conduct a thorough research about {topic}
+    Make sure you find any interesting and relevant information given
+    the current year is 2025.
+  expected_output: >
+    A list with 10 bullet points of the most relevant information about {topic}
+  agent: researcher
+
+reporting_task:
+  description: >
+    Review the context you got and expand each topic into a full section for a report.
+    Make sure the report is detailed and contains any and all relevant information.
+  expected_output: >
+    A fully fledged report with the main topics, each with a full section of information.
+    Formatted as markdown without '```'
+  agent: reporting_analyst
+  output_file: "{topic}_report.md"
 ```
 
 ### Auto-Generating Agent Configurations
@@ -248,80 +310,7 @@ Check out the `cmd/examples` directory for complete examples:
 - **YAML Configuration**: Defining agents and tasks in YAML
 - **Auto-Configuration**: Generating agent configurations from system prompts
 - **Agent Config Wizard**: Interactive CLI for creating and using agents
-- **Combined Config Example**: Shows both YAML and auto-configuration approaches
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-# StarOps Agent
-
-A PlatformOps assistant that helps with deployment and management tasks.
-
-## Features
-
-- Interactive command-line interface
-- Natural language understanding for deployment requests
-- Multi-agent architecture with specialist agents
-- Detailed deployment planning
-- Task management system with approval workflow
-
-## Task Management
-
-The StarOps Agent includes a task management system that provides tracking and approval for deployment tasks:
-
-### Task Commands
-
-- `task list` - List all your tasks
-- `task get <task-id>` - View details of a specific task
-- `task approve <task-id>` - Approve a task's execution plan
-- `task reject <task-id> <feedback>` - Reject a task's plan with feedback for improvement
-
-### Task Workflow
-
-1. Create a task by asking the agent to deploy something (e.g., "deploy llama 3.3 on kserve")
-2. The agent will create a task and provide you with the task ID
-3. Check the status with `task get <task-id>`
-4. Once planning is complete, review the plan and either:
-   - Approve it with `task approve <task-id>`
-   - Reject it with `task reject <task-id> The plan needs more security measures`
-5. If approved, the task will be executed
-6. If rejected, the task will be replanned with your feedback
-
-### Task Statuses
-
-- `pending` - Task has been created but planning hasn't started
-- `planning` - Task plan is being created
-- `awaiting_approval` - Plan is ready for your review
-- `executing` - Plan is being executed
-- `completed` - Task has been completed successfully
-- `failed` - Task has failed
-
-## Usage
-
-1. Run the application:
-   ```
-   go run main.go
-   ```
-
-2. Ask the agent to deploy something:
-   ```
-   Enter your query: deploy llama 3.3 on kserve
-   ```
-
-3. Follow the task workflow described above to manage your deployment.
-
-## Development
-
-The StarOps Agent is built with a modular architecture:
-
-- `internal/agent` - Agent implementation and factory
-- `internal/planning` - Deployment planning and project management
-- `internal/services` - Task management and other services
-- `internal/models` - Data models for tasks and plans
-- `internal/conversation` - Session handling and user interaction
-- `internal/prompts` - System prompts for different agents
-
-## License
-
-Copyright © 2025 Ingenimax Inc.

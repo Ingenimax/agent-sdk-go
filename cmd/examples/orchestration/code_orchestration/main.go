@@ -352,7 +352,7 @@ func createMathTools() *tools.Registry {
 	toolRegistry := tools.NewRegistry()
 
 	// Add calculator tool
-	calcTool := calculator.NewCalculator()
+	calcTool := calculator.New()
 	toolRegistry.Register(calcTool)
 
 	return toolRegistry

@@ -70,7 +70,7 @@ func main() {
 
 	// Create tools
 	toolRegistry := tools.NewRegistry()
-	calcTool := calculator.NewCalculator()
+	calcTool := calculator.New()
 	toolRegistry.Register(calcTool)
 	searchTool := websearch.New(
 		os.Getenv("GOOGLE_API_KEY"),

@@ -7,7 +7,7 @@ This document lists all environment variables used by the Agent SDK.
 ### OpenAI
 
 - `OPENAI_API_KEY`: API key for OpenAI
-- `OPENAI_MODEL`: Model to use (default: "gpt-4")
+- `OPENAI_MODEL`: Model to use (default: "gpt-4o-mini")
 - `OPENAI_TEMPERATURE`: Temperature for generation (default: 0.7)
 - `OPENAI_MAX_TOKENS`: Maximum tokens to generate (default: 2048)
 - `OPENAI_BASE_URL`: Base URL for API calls (default: "https://api.openai.com/v1")
@@ -16,7 +16,7 @@ This document lists all environment variables used by the Agent SDK.
 ### Anthropic
 
 - `ANTHROPIC_API_KEY`: API key for Anthropic
-- `ANTHROPIC_MODEL`: Model to use (default: "claude-3-opus-20240229")
+- `ANTHROPIC_MODEL`: Model to use (default: "claude-3-haiku-20240307")
 - `ANTHROPIC_TEMPERATURE`: Temperature for generation (default: 0.7)
 - `ANTHROPIC_MAX_TOKENS`: Maximum tokens to generate (default: 2048)
 - `ANTHROPIC_BASE_URL`: Base URL for API calls (default: "https://api.anthropic.com")

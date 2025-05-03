@@ -15,6 +15,7 @@ type GenerateParams struct {
 	StopSequences    []string // Stop generation at these sequences
 	TopK             int      // Limit vocabulary to top K tokens
 	RepeatPenalty    float64  // Penalize token repetition
+	Reasoning        string   // Reasoning mode for Claude models (none, minimal, comprehensive)
 }
 
 // DefaultGenerateParams returns default generation parameters

@@ -28,16 +28,6 @@ type Config struct {
 			BaseURL     string
 			Timeout     time.Duration
 		}
-
-		// Azure OpenAI configuration
-		AzureOpenAI struct {
-			APIKey      string
-			Endpoint    string
-			Deployment  string
-			APIVersion  string
-			Temperature float64
-			Timeout     time.Duration
-		}
 	}
 
 	// Memory configuration
@@ -60,13 +50,6 @@ type Config struct {
 			Host      string
 			ClassName string
 		}
-
-		// Pinecone configuration
-		Pinecone struct {
-			APIKey      string
-			Environment string
-			Index       string
-		}
 	}
 
 	// DataStore configuration
@@ -86,20 +69,6 @@ type Config struct {
 			GoogleAPIKey         string
 			GoogleSearchEngineID string
 		}
-
-		// AWS configuration
-		AWS struct {
-			AccessKeyID     string
-			SecretAccessKey string
-			Region          string
-		}
-
-		// Kubernetes configuration
-		Kubernetes struct {
-			KubeConfig string
-			Context    string
-		}
-
 		// GitHub configuration
 		GitHub struct {
 			Token string
@@ -156,16 +125,6 @@ type AnthropicConfig struct {
 	Timeout     time.Duration
 }
 
-// AzureOpenAIConfig contains Azure OpenAI-specific configuration
-type AzureOpenAIConfig struct {
-	APIKey      string
-	Endpoint    string
-	Deployment  string
-	APIVersion  string
-	Temperature float64
-	Timeout     time.Duration
-}
-
 // LoadFromEnv loads configuration from environment variables
 func LoadFromEnv() *Config {
 	config := &Config{}
@@ -193,13 +152,6 @@ func LoadFromEnv() *Config {
 	// Tools configuration
 	config.Tools.WebSearch.GoogleAPIKey = getEnv("GOOGLE_API_KEY", "")
 	config.Tools.WebSearch.GoogleSearchEngineID = getEnv("GOOGLE_SEARCH_ENGINE_ID", "")
-
-	config.Tools.AWS.AccessKeyID = getEnv("AWS_ACCESS_KEY_ID", "")
-	config.Tools.AWS.SecretAccessKey = getEnv("AWS_SECRET_ACCESS_KEY", "")
-	config.Tools.AWS.Region = getEnv("AWS_REGION", "us-west-2")
-
-	config.Tools.Kubernetes.KubeConfig = getEnv("KUBECONFIG", "")
-	config.Tools.Kubernetes.Context = getEnv("KUBE_CONTEXT", "")
 
 	config.Tools.GitHub.Token = getEnv("GITHUB_TOKEN", "")
 
@@ -236,18 +188,10 @@ func initLLMConfig(config *Config) {
 
 	// Anthropic defaults
 	config.LLM.Anthropic.APIKey = getEnvString("ANTHROPIC_API_KEY", "")
-	config.LLM.Anthropic.Model = getEnvString("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+	config.LLM.Anthropic.Model = getEnvString("ANTHROPIC_MODEL", "claude-3-7-sonnet-20240307")
 	config.LLM.Anthropic.Temperature = getEnvFloat("ANTHROPIC_TEMPERATURE", 0.7)
 	config.LLM.Anthropic.BaseURL = getEnvString("ANTHROPIC_BASE_URL", "")
 	config.LLM.Anthropic.Timeout = time.Duration(getEnvInt("ANTHROPIC_TIMEOUT", 60)) * time.Second
-
-	// Azure OpenAI defaults
-	config.LLM.AzureOpenAI.APIKey = getEnvString("AZURE_OPENAI_API_KEY", "")
-	config.LLM.AzureOpenAI.Endpoint = getEnvString("AZURE_OPENAI_ENDPOINT", "")
-	config.LLM.AzureOpenAI.Deployment = getEnvString("AZURE_OPENAI_DEPLOYMENT", "")
-	config.LLM.AzureOpenAI.APIVersion = getEnvString("AZURE_OPENAI_API_VERSION", "2023-05-15")
-	config.LLM.AzureOpenAI.Temperature = getEnvFloat("AZURE_OPENAI_TEMPERATURE", 0.7)
-	config.LLM.AzureOpenAI.Timeout = time.Duration(getEnvInt("AZURE_OPENAI_TIMEOUT", 60)) * time.Second
 }
 
 // getEnv gets an environment variable or returns a default value

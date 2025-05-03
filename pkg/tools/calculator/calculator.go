@@ -4,143 +4,215 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
+	"math"
 	"strconv"
 	"strings"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
-// Calculator is a tool for performing mathematical calculations
+// Calculator implements a simple calculator tool
 type Calculator struct{}
 
-// Name returns the name of the tool
+// Input represents the input for the calculator tool
+type Input struct {
+	Expression string `json:"expression"`
+}
+
+// New creates a new calculator tool
+func New() *Calculator {
+	return &Calculator{}
+}
+
+// Name implements interfaces.Tool.Name
 func (c *Calculator) Name() string {
 	return "calculator"
 }
 
-// Description returns the description of the tool
+// Description implements interfaces.Tool.Description
 func (c *Calculator) Description() string {
-	return "Performs mathematical calculations. Input should be a valid mathematical expression."
+	return "Perform mathematical calculations (add, subtract, multiply, divide, exponents)"
 }
 
-// Execute performs the calculation
-func (c *Calculator) Execute(ctx context.Context, input string) (string, error) {
-	// Clean the input
-	input = strings.TrimSpace(input)
-
-	// If the input looks like JSON, attempt to unmarshal and extract the "expression" field
-	if strings.HasPrefix(input, "{") {
-		var data map[string]string
-		err := json.Unmarshal([]byte(input), &data)
-		if err == nil {
-			if expr, ok := data["expression"]; ok {
-				input = strings.TrimSpace(expr)
-				fmt.Printf("DEBUG - Extracted expression from JSON: %s\n", input)
-			}
-		}
-	}
-
-	// Debug: Log the input before parsing
-	fmt.Printf("DEBUG - Parsing expression: %s\n", input)
-
-	// Parse the expression
-	expr, err := parser.ParseExpr(input)
-	if err != nil {
-		fmt.Printf("DEBUG - Parse error: %v\n", err)
-		return "", fmt.Errorf("failed to parse expression: %w", err)
-	}
-
-	// Debug: Log the parsed expression
-	fmt.Printf("DEBUG - Parsed expression: %v\n", expr)
-
-	// Evaluate the expression
-	result, err := evaluateExpr(expr)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%v", result), nil
-}
-
-// evaluateExpr evaluates an AST expression
-func evaluateExpr(expr ast.Expr) (float64, error) {
-	switch e := expr.(type) {
-	case *ast.BasicLit:
-		if e.Kind == token.INT || e.Kind == token.FLOAT {
-			return strconv.ParseFloat(e.Value, 64)
-		}
-		return 0, fmt.Errorf("unsupported literal type: %v", e.Kind)
-
-	case *ast.BinaryExpr:
-		x, err := evaluateExpr(e.X)
-		if err != nil {
-			return 0, err
-		}
-
-		y, err := evaluateExpr(e.Y)
-		if err != nil {
-			return 0, err
-		}
-
-		switch e.Op {
-		case token.ADD:
-			return x + y, nil
-		case token.SUB:
-			return x - y, nil
-		case token.MUL:
-			return x * y, nil
-		case token.QUO:
-			if y == 0 {
-				return 0, fmt.Errorf("division by zero")
-			}
-			return x / y, nil
-		default:
-			return 0, fmt.Errorf("unsupported operator: %v", e.Op)
-		}
-
-	case *ast.ParenExpr:
-		return evaluateExpr(e.X)
-
-	case *ast.UnaryExpr:
-		x, err := evaluateExpr(e.X)
-		if err != nil {
-			return 0, err
-		}
-
-		switch e.Op {
-		case token.SUB:
-			return -x, nil
-		case token.ADD:
-			return x, nil
-		default:
-			return 0, fmt.Errorf("unsupported unary operator: %v", e.Op)
-		}
-
-	default:
-		return 0, fmt.Errorf("unsupported expression type: %T", expr)
-	}
-}
-
-// Parameters returns the parameters for the calculator tool
+// Parameters implements interfaces.Tool.Parameters
 func (c *Calculator) Parameters() map[string]interfaces.ParameterSpec {
 	return map[string]interfaces.ParameterSpec{
 		"expression": {
-			Description: "The mathematical expression to evaluate",
-			Required:    true,
 			Type:        "string",
+			Description: "The mathematical expression to evaluate (e.g., '2 + 2', '10 * 5', '7 / 3')",
+			Required:    true,
 		},
 	}
 }
 
-// Run executes the calculator tool with the given parameters
+// Run implements interfaces.Tool.Run
 func (c *Calculator) Run(ctx context.Context, input string) (string, error) {
-	return c.Execute(ctx, input)
+	// Simplify the input and evaluate
+	input = strings.TrimSpace(input)
+	// Handle simple operations with basic parsing
+	return c.evaluateExpression(input)
 }
 
-// NewCalculator creates a new calculator tool
-func NewCalculator() interfaces.Tool {
-	return &Calculator{}
+// Execute implements interfaces.Tool.Execute
+func (c *Calculator) Execute(ctx context.Context, args string) (string, error) {
+	var input Input
+	if err := json.Unmarshal([]byte(args), &input); err != nil {
+		return "", fmt.Errorf("failed to parse input: %w", err)
+	}
+
+	return c.evaluateExpression(input.Expression)
+}
+
+// evaluateExpression evaluates a simple mathematical expression
+func (c *Calculator) evaluateExpression(expr string) (string, error) {
+	// Remove all spaces
+	expr = strings.ReplaceAll(expr, " ", "")
+
+	// Try to handle common operations
+	if strings.Contains(expr, "+") {
+		return c.handleAddition(expr)
+	} else if strings.Contains(expr, "-") {
+		return c.handleSubtraction(expr)
+	} else if strings.Contains(expr, "*") {
+		return c.handleMultiplication(expr)
+	} else if strings.Contains(expr, "/") {
+		return c.handleDivision(expr)
+	} else if strings.Contains(expr, "^") {
+		return c.handleExponent(expr)
+	}
+
+	// Try to parse as a single number
+	if num, err := strconv.ParseFloat(expr, 64); err == nil {
+		return fmt.Sprintf("%g", num), nil
+	}
+
+	return "", fmt.Errorf("unsupported expression: %s", expr)
+}
+
+// handleAddition handles addition expressions
+func (c *Calculator) handleAddition(expr string) (string, error) {
+	parts := strings.Split(expr, "+")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid addition format: %s", expr)
+	}
+
+	a, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid first operand: %s", parts[0])
+	}
+
+	b, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid second operand: %s", parts[1])
+	}
+
+	result := a + b
+	return fmt.Sprintf("%g", result), nil
+}
+
+// handleSubtraction handles subtraction expressions
+func (c *Calculator) handleSubtraction(expr string) (string, error) {
+	parts := strings.Split(expr, "-")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid subtraction format: %s", expr)
+	}
+
+	// Handle negative first number
+	if parts[0] == "" {
+		if len(parts) < 3 {
+			return "", fmt.Errorf("invalid subtraction format with negative: %s", expr)
+		}
+		a, err := strconv.ParseFloat("-"+parts[1], 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid first operand: -%s", parts[1])
+		}
+
+		b, err := strconv.ParseFloat(parts[2], 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid second operand: %s", parts[2])
+		}
+
+		result := a - b
+		return fmt.Sprintf("%g", result), nil
+	}
+
+	a, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid first operand: %s", parts[0])
+	}
+
+	b, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid second operand: %s", parts[1])
+	}
+
+	result := a - b
+	return fmt.Sprintf("%g", result), nil
+}
+
+// handleMultiplication handles multiplication expressions
+func (c *Calculator) handleMultiplication(expr string) (string, error) {
+	parts := strings.Split(expr, "*")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid multiplication format: %s", expr)
+	}
+
+	a, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid first operand: %s", parts[0])
+	}
+
+	b, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid second operand: %s", parts[1])
+	}
+
+	result := a * b
+	return fmt.Sprintf("%g", result), nil
+}
+
+// handleDivision handles division expressions
+func (c *Calculator) handleDivision(expr string) (string, error) {
+	parts := strings.Split(expr, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid division format: %s", expr)
+	}
+
+	a, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid first operand: %s", parts[0])
+	}
+
+	b, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid second operand: %s", parts[1])
+	}
+
+	if b == 0 {
+		return "", fmt.Errorf("division by zero")
+	}
+
+	result := a / b
+	return fmt.Sprintf("%g", result), nil
+}
+
+// handleExponent handles exponent expressions
+func (c *Calculator) handleExponent(expr string) (string, error) {
+	parts := strings.Split(expr, "^")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid exponent format: %s", expr)
+	}
+
+	base, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid base: %s", parts[0])
+	}
+
+	exp, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid exponent: %s", parts[1])
+	}
+
+	result := math.Pow(base, exp)
+	return fmt.Sprintf("%g", result), nil
 }

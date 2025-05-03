@@ -228,7 +228,7 @@ func createMathAgent(llm interfaces.LLM) (*agent.Agent, error) {
 
 	// Create tools
 	toolRegistry := tools.NewRegistry()
-	calcTool := calculator.NewCalculator()
+	calcTool := calculator.New()
 	toolRegistry.Register(calcTool)
 
 	// Create agent
