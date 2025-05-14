@@ -7,7 +7,7 @@
 *.go    @Ingenimax/go-reviewers
 
 # CI/CD and GitHub Actions
-.github/workflows/    @Ingenimax/devops
+.github/workflows/    @Ingenimax/engineering
 
 # Documentation
 /docs/               @Ingenimax/docs-team
