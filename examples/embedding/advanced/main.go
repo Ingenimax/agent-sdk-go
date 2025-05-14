@@ -507,8 +507,8 @@ func searchWithWeaviateFilters(ctx context.Context, logger logging.Logger,
 						content, _ := resultMap["content"].(string)
 						additional, _ := resultMap["_additional"].(map[string]interface{})
 
-						var certainty float64 = 0
-						var id string = ""
+						var certainty float64
+						var id string
 
 						if additional != nil {
 							certainty, _ = additional["certainty"].(float64)
@@ -668,7 +668,7 @@ func searchWithManualFiltering(ctx context.Context, logger logging.Logger,
 						content, _ := resultMap["content"].(string)
 						additional, _ := resultMap["_additional"].(map[string]interface{})
 
-						var id string = ""
+						var id = ""
 						if additional != nil {
 							id, _ = additional["id"].(string)
 						}
@@ -789,8 +789,8 @@ func searchWithVectorAndWeaviateFilters(ctx context.Context, logger logging.Logg
 						content, _ := resultMap["content"].(string)
 						additional, _ := resultMap["_additional"].(map[string]interface{})
 
-						var certainty float64 = 0
-						var id string = ""
+						var certainty float64
+						var id string
 
 						if additional != nil {
 							certainty, _ = additional["certainty"].(float64)
@@ -922,8 +922,8 @@ func searchWithDirectWeaviateFilter(ctx context.Context, logger logging.Logger, 
 						content, _ := resultMap["content"].(string)
 						additional, _ := resultMap["_additional"].(map[string]interface{})
 
-						var certainty float64 = 0
-						var id string = ""
+						var certainty float64
+						var id string
 
 						if additional != nil {
 							certainty, _ = additional["certainty"].(float64)
@@ -974,7 +974,11 @@ func validateWeaviateConnection(url string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = fmt.Errorf("failed to close response body: %w", closeErr)
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("received status code %d from Weaviate", resp.StatusCode)

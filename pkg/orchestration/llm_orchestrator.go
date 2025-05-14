@@ -318,9 +318,10 @@ func (o *LLMOrchestrator) executePlan(ctx context.Context, plan *Plan) (map[stri
 			results[step.AgentID] = result
 
 			// Log character count for research and summary agents
-			if step.AgentID == "research" {
+			switch step.AgentID {
+			case "research":
 				o.logger.Info(ctx, "Research agent output", map[string]interface{}{"length": len(result)})
-			} else if step.AgentID == "summary" {
+			case "summary":
 				o.logger.Info(ctx, "Summary agent output", map[string]interface{}{"length": len(result)})
 			}
 		}

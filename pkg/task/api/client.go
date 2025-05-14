@@ -104,7 +104,12 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() {
+		if closeErr := httpResp.Body.Close(); closeErr != nil {
+			// Log error or merge with existing error
+			err = fmt.Errorf("failed to close response body: %w", closeErr)
+		}
+	}()
 
 	// Read response body
 	respBody, err := io.ReadAll(httpResp.Body)

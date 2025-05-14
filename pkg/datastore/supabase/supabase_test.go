@@ -48,7 +48,11 @@ func setupTestClient(t *testing.T) *supabase.Client {
 
 func TestInsertAndGet(t *testing.T) {
 	client := setupTestClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	ctx := multitenancy.WithOrgID(context.Background(), "test-org")
 
@@ -86,7 +90,11 @@ func TestInsertAndGet(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	client := setupTestClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	ctx := multitenancy.WithOrgID(context.Background(), "test-org")
 
@@ -129,7 +137,11 @@ func TestUpdate(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	client := setupTestClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	ctx := multitenancy.WithOrgID(context.Background(), "test-org")
 
@@ -199,7 +211,11 @@ func TestQuery(t *testing.T) {
 
 func TestTransaction(t *testing.T) {
 	client := setupTestClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	ctx := multitenancy.WithOrgID(context.Background(), "test-org")
 

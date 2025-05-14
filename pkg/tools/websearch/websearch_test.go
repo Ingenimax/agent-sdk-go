@@ -28,7 +28,7 @@ func TestWebSearch(t *testing.T) {
 		// Send response with status 200
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"items": []map[string]interface{}{
 				{
 					"title":       "Test Result 1",
@@ -44,6 +44,9 @@ func TestWebSearch(t *testing.T) {
 				},
 			},
 		})
+		if err != nil {
+			t.Fatalf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

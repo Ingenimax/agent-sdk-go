@@ -137,7 +137,11 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = fmt.Errorf("failed to close response body: %w", closeErr)
+		}
+	}()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {

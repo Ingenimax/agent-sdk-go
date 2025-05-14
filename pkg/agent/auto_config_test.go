@@ -62,13 +62,14 @@ func TestGenerateConfigFromSystemPrompt(t *testing.T) {
 
 	// The order may vary due to map iteration, so we need to find the tasks by description
 	for _, task := range taskConfigs {
-		if task.Description == "Run a test suite and report results" {
+		switch task.Description {
+		case "Run a test suite and report results":
 			assert.Equal(t, "A summary of test results with pass/fail status", task.ExpectedOutput)
 			assert.Empty(t, task.OutputFile)
-		} else if task.Description == "Generate test cases for a new feature" {
+		case "Generate test cases for a new feature":
 			assert.Equal(t, "A list of test cases in a structured format", task.ExpectedOutput)
 			assert.Equal(t, "test_cases.md", task.OutputFile)
-		} else {
+		default:
 			t.Errorf("Unexpected task description: %s", task.Description)
 		}
 	}
@@ -108,9 +109,10 @@ func TestNewAgentWithAutoConfig(t *testing.T) {
 			// Task agent should be set to the agent name
 			assert.Equal(t, "Auto-Configured Agent", task.Agent)
 
-			if task.Description == "Run a test suite and report results" {
+			switch task.Description {
+			case "Run a test suite and report results":
 				found1 = true
-			} else if task.Description == "Generate test cases for a new feature" {
+			case "Generate test cases for a new feature":
 				found2 = true
 			}
 		}

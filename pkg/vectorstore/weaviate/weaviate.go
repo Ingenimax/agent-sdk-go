@@ -158,7 +158,7 @@ func (s *Store) Store(ctx context.Context, documents []interfaces.Document, opti
 			Properties: properties,
 			Vector:     vector, // Use the generated vector
 		}
-		batch.WithObject(obj)
+		batch.WithObjects(obj)
 		batchCount++
 
 		// Execute batch when it reaches the batch size

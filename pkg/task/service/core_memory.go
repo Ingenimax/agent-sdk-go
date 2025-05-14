@@ -257,10 +257,11 @@ func (s *CoreMemoryService) UpdateTask(ctx context.Context, taskID string, updat
 		case "status":
 			if statusStr, ok := update.Value.(string); ok {
 				task.Status = core.Status(statusStr)
-				if task.Status == core.StatusExecuting {
+				switch task.Status {
+				case core.StatusExecuting:
 					now := time.Now()
 					task.UpdatedAt = now
-				} else if task.Status == core.StatusCompleted || task.Status == core.StatusFailed {
+				case core.StatusCompleted, core.StatusFailed:
 					now := time.Now()
 					task.CompletedAt = &now
 					task.UpdatedAt = now
@@ -302,14 +303,15 @@ func (s *CoreMemoryService) UpdateTask(ctx context.Context, taskID string, updat
 						if status, ok := stepData["status"].(string); ok {
 							task.Steps[i].Status = core.Status(status)
 
-							if task.Steps[i].Status == core.StatusExecuting {
+							switch task.Steps[i].Status {
+							case core.StatusExecuting:
 								now := time.Now()
 								task.Steps[i].UpdatedAt = now
-							} else if task.Steps[i].Status == core.StatusCompleted {
+							case core.StatusCompleted:
 								now := time.Now()
 								task.Steps[i].CompletedAt = &now
 								task.Steps[i].UpdatedAt = now
-							} else if task.Steps[i].Status == core.StatusFailed {
+							case core.StatusFailed:
 								now := time.Now()
 								task.Steps[i].FailedAt = &now
 								task.Steps[i].UpdatedAt = now

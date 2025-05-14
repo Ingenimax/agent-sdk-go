@@ -591,7 +591,8 @@ func (s *SimpleMemoryService) UpdateTask(ctx context.Context, taskID string, upd
 	}
 
 	for _, update := range coreUpdates {
-		if update.Field == "add_step" {
+		switch update.Field {
+		case "add_step":
 			if stepData, ok := update.Value.(map[string]interface{}); ok {
 				step := &core.Step{
 					ID:          "step-" + fmt.Sprintf("%d", time.Now().UnixNano()),
@@ -604,7 +605,7 @@ func (s *SimpleMemoryService) UpdateTask(ctx context.Context, taskID string, upd
 				}
 				task.Steps = append(task.Steps, step)
 			}
-		} else if update.Field == "status" {
+		case "status":
 			if status, ok := update.Value.(string); ok {
 				task.Status = core.Status(status)
 			}

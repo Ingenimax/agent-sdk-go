@@ -134,10 +134,14 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to make request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = fmt.Errorf("failed to close response body: %w", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Hugging Face API returned non-200 status code: %d", resp.StatusCode)
+		return "", fmt.Errorf("hugging Face API returned non-200 status code: %d", resp.StatusCode)
 	}
 
 	var models []HuggingFaceModel

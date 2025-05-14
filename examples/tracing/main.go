@@ -39,7 +39,11 @@ func main() {
 		logger.Error(ctx, "Failed to initialize Langfuse tracer", map[string]interface{}{"error": err.Error()})
 		os.Exit(1)
 	}
-	defer langfuseTracer.Flush()
+	defer func() {
+		if err := langfuseTracer.Flush(); err != nil {
+			logger.Error(ctx, "Failed to flush Langfuse tracer", map[string]interface{}{"error": err.Error()})
+		}
+	}()
 	logger.Info(ctx, "Langfuse tracer initialized", nil)
 
 	// Initialize OpenTelemetry tracer

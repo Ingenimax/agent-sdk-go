@@ -542,7 +542,14 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 	if err != nil {
 		return nil, fmt.Errorf("failed to query documents: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			// Merge with existing error or set if none
+			if err == nil {
+				err = fmt.Errorf("failed to close rows: %w", cerr)
+			}
+		}
+	}()
 
 	// Parse results
 	columns, err := rows.Columns()

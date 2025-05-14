@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,7 +175,7 @@ func (s *FileStore) Get(ctx context.Context, id string, version string) (*Templa
 	}
 
 	// Read file
-	data, err := ioutil.ReadFile(filePath) // #nosec G304 - Path is validated with isPathSafe() before use
+	data, err := os.ReadFile(filePath) // #nosec G304 - Path is validated with isPathSafe() before use
 	if err != nil {
 		return nil, fmt.Errorf("failed to read template file: %w", err)
 	}
@@ -224,7 +223,7 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 		version := parts[1]
 
 		// Read file
-		data, err := ioutil.ReadFile(file) // #nosec G304 - Path is validated with isPathSafe() before use
+		data, err := os.ReadFile(file) // #nosec G304 - Path is validated with isPathSafe() before use
 		if err != nil {
 			continue
 		}
@@ -270,7 +269,7 @@ func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
 	}
 
 	// Write file with secure permissions
-	err = ioutil.WriteFile(filePath, []byte(data), 0600)
+	err = os.WriteFile(filePath, []byte(data), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write template file: %w", err)
 	}

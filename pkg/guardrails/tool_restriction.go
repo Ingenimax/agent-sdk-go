@@ -60,11 +60,10 @@ func (t *ToolRestriction) CheckRequest(ctx context.Context, request string) (boo
 
 		if !allowed {
 			triggered = true
-			modified = strings.Replace(
+			modified = strings.ReplaceAll(
 				modified,
 				match[0],
 				fmt.Sprintf("use tool [RESTRICTED TOOL: %s is not allowed]", toolName),
-				-1,
 			)
 		}
 	}

@@ -199,8 +199,15 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		option(params)
 	}
 
-	// Get organization ID from context if available
-	orgID, _ := multitenancy.GetOrgID(ctx)
+	// Check for organization ID in context, and add a default one if missing
+	defaultOrgID := "default"
+	if id, err := multitenancy.GetOrgID(ctx); err == nil {
+		// Organization ID found in context, use it
+		ctx = multitenancy.WithOrgID(ctx, id) // Ensure consistency in context
+	} else {
+		// Add default organization ID to context to prevent errors in tool execution
+		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
+	}
 
 	// Create request with messages
 	messages := []Message{
@@ -234,11 +241,6 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		if len(params.LLMConfig.StopSequences) > 0 {
 			req.StopSequences = params.LLMConfig.StopSequences
 		}
-	}
-
-	// Set organization ID if available
-	if orgID != "" {
-		c.logger.Debug(ctx, "Organization ID ignored in current API version", map[string]interface{}{"organization": orgID})
 	}
 
 	var resp CompletionResponse
@@ -284,7 +286,13 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 			})
 			return fmt.Errorf("failed to send request: %w", err)
 		}
-		defer httpResp.Body.Close()
+		defer func() {
+			if closeErr := httpResp.Body.Close(); closeErr != nil {
+				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
+			}
+		}()
 
 		// Read response body
 		respBody, err := io.ReadAll(httpResp.Body)
@@ -368,9 +376,10 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 
 		// Map role names (Anthropic uses "assistant" and "user")
 		role := msg.Role
-		if role == "assistant" || role == "user" {
+		switch role {
+		case "assistant", "user":
 			// These roles are the same in Anthropic
-		} else if role == "tool" {
+		case "tool":
 			// Tool messages need special handling
 			// For simplicity, we'll convert them to assistant messages
 			role = "assistant"
@@ -453,7 +462,13 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 			})
 			return fmt.Errorf("failed to send request: %w", err)
 		}
-		defer httpResp.Body.Close()
+		defer func() {
+			if closeErr := httpResp.Body.Close(); closeErr != nil {
+				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
+			}
+		}()
 
 		// Read response body
 		respBody, err := io.ReadAll(httpResp.Body)
@@ -534,12 +549,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	}
 
 	// Check for organization ID in context, and add a default one if missing
-	orgID := "default"
+	defaultOrgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
-		orgID = id
+		// Organization ID found in context, use it
+		ctx = multitenancy.WithOrgID(ctx, id) // Ensure consistency in context
 	} else {
 		// Add default organization ID to context to prevent errors in tool execution
-		ctx = multitenancy.WithOrgID(ctx, orgID)
+		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
 	}
 
 	// Convert tools to Anthropic format
@@ -661,7 +677,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		})
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() {
+		if closeErr := httpResp.Body.Close(); closeErr != nil {
+			c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+				"error": closeErr.Error(),
+			})
+		}
+	}()
 
 	// Read response body
 	respBody, err := io.ReadAll(httpResp.Body)
@@ -785,22 +807,14 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 			// Get parameters - could be in either Input or Parameters field
 			var parameters map[string]interface{}
-			if toolCall.Input != nil && len(toolCall.Input) > 0 {
+			if len(toolCall.Input) > 0 {
 				parameters = toolCall.Input
-			} else if toolCall.Parameters != nil && len(toolCall.Parameters) > 0 {
+			} else if len(toolCall.Parameters) > 0 {
 				parameters = toolCall.Parameters
-			} else {
-				c.logger.Error(ctx, "Tool parameters missing", map[string]interface{}{"toolName": toolName})
-				toolResults = append(toolResults, ToolResult{
-					Type:     "tool_result",
-					Content:  "Error: Tool parameters are missing",
-					ToolName: toolName,
-				})
-				continue
 			}
 
 			// Convert parameters to JSON string
-			paramsBytes, err := json.Marshal(parameters)
+			toolCallJSON, err := json.Marshal(parameters)
 			if err != nil {
 				c.logger.Error(ctx, "Error marshalling parameters", map[string]interface{}{
 					"error":      err.Error(),
@@ -812,12 +826,12 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			// Log parameters for debugging
 			c.logger.Debug(ctx, "Tool parameters", map[string]interface{}{
 				"toolName":   toolName,
-				"parameters": string(paramsBytes),
+				"parameters": string(toolCallJSON),
 			})
 
 			// Execute the tool
 			c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": selectedTool.Name()})
-			toolResult, err := selectedTool.Execute(ctx, string(paramsBytes))
+			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
 			if err != nil {
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
 				// Return error as tool result
@@ -901,7 +915,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			})
 			return "", fmt.Errorf("failed to send final request: %w", err)
 		}
-		defer httpResp.Body.Close()
+		defer func() {
+			if closeErr := httpResp.Body.Close(); closeErr != nil {
+				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
+			}
+		}()
 
 		// Read response body
 		respBody, err := io.ReadAll(httpResp.Body)
