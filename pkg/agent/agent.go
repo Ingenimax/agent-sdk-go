@@ -30,6 +30,7 @@ type Agent struct {
 	generatedTaskConfigs TaskConfigs
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 	llmConfig            *interfaces.LLMConfig
+	currentPlan          *executionplan.ExecutionPlan
 }
 
 // Option represents an option for configuring an agent
@@ -246,7 +247,11 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	// Check if the input is related to an existing plan
 	taskID, action, planInput := a.extractPlanAction(input)
 	if taskID != "" {
-		return a.handlePlanAction(ctx, taskID, action, planInput)
+		result, err := a.handlePlanAction(ctx, taskID, action, planInput)
+		if err != nil {
+			return "", err
+		}
+		return result, nil
 	}
 
 	// Check if the user is asking about the agent's role or identity
@@ -268,56 +273,90 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 
 	// If tools are available and plan approval is required, generate an execution plan
 	if len(a.tools) > 0 && a.requirePlanApproval {
-		return a.runWithExecutionPlan(ctx, input)
+		result, err := a.runWithExecutionPlan(ctx, input)
+		if err != nil {
+			return "", err
+		}
+		return result, nil
 	}
 
 	// Otherwise, run without an execution plan
-	return a.runWithoutExecutionPlan(ctx, input)
+	result, err := a.runWithoutExecutionPlan(ctx, input)
+	if err != nil {
+		return "", err
+	}
+
+	return result, nil
 }
 
-// extractPlanAction attempts to extract a plan action from the user input
-// Returns taskID, action, and remaining input
+// extractPlanAction extracts plan-related actions from user input
 func (a *Agent) extractPlanAction(input string) (string, string, string) {
-	// This is a placeholder implementation
-	// In a real implementation, you would use NLP or pattern matching to extract plan actions
-	return "", "", input
+	// Check if the input is a plan action
+	if strings.HasPrefix(input, "approve plan ") {
+		taskID := strings.TrimPrefix(input, "approve plan ")
+		return taskID, "approve", ""
+	}
+
+	if strings.HasPrefix(input, "modify plan ") {
+		parts := strings.SplitN(strings.TrimPrefix(input, "modify plan "), " ", 2)
+		if len(parts) != 2 {
+			return "", "", ""
+		}
+		return parts[0], "modify", parts[1]
+	}
+
+	return "", "", ""
 }
 
-// handlePlanAction handles actions related to an existing plan
-func (a *Agent) handlePlanAction(ctx context.Context, taskID, action, input string) (string, error) {
+// handlePlanAction handles a plan-related action
+func (a *Agent) handlePlanAction(ctx context.Context, taskID, action, planInput string) (string, error) {
+	// Get the plan from the store
 	plan, exists := a.planStore.GetPlanByTaskID(taskID)
 	if !exists {
 		return "", fmt.Errorf("plan with task ID %s not found", taskID)
 	}
 
+	// Handle the action
 	switch action {
 	case "approve":
 		return a.approvePlan(ctx, plan)
 	case "modify":
-		return a.modifyPlan(ctx, plan, input)
-	case "cancel":
-		return a.cancelPlan(plan)
-	case "status":
-		return a.getPlanStatus(plan)
+		// Parse the plan input
+		modifiedPlan, err := executionplan.ParseExecutionPlanFromResponse(planInput)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse modified plan: %w", err)
+		}
+
+		// Update the plan
+		plan = modifiedPlan
+		plan.Status = executionplan.StatusPendingApproval
+
+		// Store the updated plan
+		a.planStore.StorePlan(plan)
+
+		// Format the plan for display
+		formattedPlan := executionplan.FormatExecutionPlan(plan)
+
+		// Add a message to memory asking for user approval
+		if a.memory != nil {
+			if err := a.memory.AddMessage(ctx, interfaces.Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("I've updated the execution plan. Please review it and let me know if you'd like to proceed:\n\n%s", formattedPlan),
+			}); err != nil {
+				return "", fmt.Errorf("failed to add plan message to memory: %w", err)
+			}
+		}
+
+		return formattedPlan, nil
 	default:
-		return "", fmt.Errorf("unknown plan action: %s", action)
+		return "", fmt.Errorf("unknown action: %s", action)
 	}
 }
 
-// approvePlan approves and executes a plan
+// approvePlan approves an execution plan for execution
 func (a *Agent) approvePlan(ctx context.Context, plan *executionplan.ExecutionPlan) (string, error) {
-	plan.UserApproved = true
+	// Update the plan status to approved
 	plan.Status = executionplan.StatusApproved
-
-	// Add the approval to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    "user",
-			Content: "I approve the plan. Please proceed with execution.",
-		}); err != nil {
-			return "", fmt.Errorf("failed to add approval to memory: %w", err)
-		}
-	}
 
 	// Execute the plan
 	result, err := a.planExecutor.ExecutePlan(ctx, plan)
@@ -325,35 +364,38 @@ func (a *Agent) approvePlan(ctx context.Context, plan *executionplan.ExecutionPl
 		return "", fmt.Errorf("failed to execute plan: %w", err)
 	}
 
-	// Add the execution result to memory
+	// Format the result
+	formattedResult := fmt.Sprintf("Plan executed successfully:\n\n%s", result)
+
+	// Add the result to memory if available
 	if a.memory != nil {
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
 			Role:    "assistant",
-			Content: result,
+			Content: formattedResult,
 		}); err != nil {
-			return "", fmt.Errorf("failed to add execution result to memory: %w", err)
+			return "", fmt.Errorf("failed to add result to memory: %w", err)
 		}
 	}
 
-	return result, nil
+	return formattedResult, nil
 }
 
 // modifyPlan modifies a plan based on user input
-func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPlan, input string) (string, error) {
+func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPlan, input string) (interface{}, error) {
 	// Add the modification request to memory
 	if a.memory != nil {
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
 			Role:    "user",
 			Content: "I'd like to modify the plan: " + input,
 		}); err != nil {
-			return "", fmt.Errorf("failed to add modification request to memory: %w", err)
+			return nil, fmt.Errorf("failed to add modification request to memory: %w", err)
 		}
 	}
 
 	// Modify the plan
 	modifiedPlan, err := a.planGenerator.ModifyExecutionPlan(ctx, plan, input)
 	if err != nil {
-		return "", fmt.Errorf("failed to modify plan: %w", err)
+		return nil, fmt.Errorf("failed to modify plan: %w", err)
 	}
 
 	// Update the plan in the store
@@ -368,7 +410,7 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPla
 			Role:    "assistant",
 			Content: "I've updated the execution plan based on your feedback:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it further if needed.",
 		}); err != nil {
-			return "", fmt.Errorf("failed to add modified plan to memory: %w", err)
+			return nil, fmt.Errorf("failed to add modified plan to memory: %w", err)
 		}
 	}
 
@@ -376,14 +418,14 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPla
 }
 
 // cancelPlan cancels a plan
-func (a *Agent) cancelPlan(plan *executionplan.ExecutionPlan) (string, error) {
+func (a *Agent) cancelPlan(plan *executionplan.ExecutionPlan) (interface{}, error) {
 	a.planExecutor.CancelPlan(plan)
 
 	return "Plan cancelled. What would you like to do instead?", nil
 }
 
 // getPlanStatus returns the status of a plan
-func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (string, error) {
+func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (interface{}, error) {
 	status := a.planExecutor.GetPlanStatus(plan)
 	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
@@ -392,30 +434,29 @@ func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (string, error)
 
 // runWithExecutionPlan runs the agent with an execution plan
 func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string, error) {
-	// Generate an execution plan
-	plan, err := a.planGenerator.GenerateExecutionPlan(ctx, input)
+	// Generate execution plan
+	plan, err := a.GenerateExecutionPlan(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate execution plan: %w", err)
 	}
 
 	// Store the plan
-	a.planStore.StorePlan(plan)
+	a.currentPlan = plan
 
 	// Format the plan for display
 	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
-	// Add the plan to memory
+	// Add a message to memory asking for user approval
 	if a.memory != nil {
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
 			Role:    "assistant",
-			Content: "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.",
+			Content: fmt.Sprintf("I've created an execution plan. Please review it and let me know if you'd like to proceed:\n\n%s", formattedPlan),
 		}); err != nil {
-			return "", fmt.Errorf("failed to add plan to memory: %w", err)
+			return "", fmt.Errorf("failed to add plan message to memory: %w", err)
 		}
 	}
 
-	// Return the plan for user approval
-	return "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.", nil
+	return formattedPlan, nil
 }
 
 // runWithoutExecutionPlan runs the agent without an execution plan
@@ -434,10 +475,6 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 		prompt = input
 	}
 
-	// Generate response with tools if available
-	var response string
-	var err error
-
 	// Add system prompt as a generate option
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
@@ -455,19 +492,21 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 		})
 	}
 
+	// Generate response with tools if available
+	var response string
+	var err error
 	if len(a.tools) > 0 {
 		response, err = a.llm.GenerateWithTools(ctx, prompt, a.tools, generateOptions...)
 	} else {
 		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
 	}
-
 	if err != nil {
 		return "", fmt.Errorf("failed to generate response: %w", err)
 	}
 
 	// Apply guardrails to output if available
 	if a.guardrails != nil {
-		guardedResponse, err := a.guardrails.ProcessOutput(ctx, response)
+		guardedResponse, err := a.guardrails.ProcessOutput(ctx, fmt.Sprintf("%v", response))
 		if err != nil {
 			return "", fmt.Errorf("guardrails error: %w", err)
 		}
@@ -478,7 +517,7 @@ func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (stri
 	if a.memory != nil {
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
 			Role:    "assistant",
-			Content: response,
+			Content: fmt.Sprintf("%v", response),
 		}); err != nil {
 			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
 		}
@@ -499,23 +538,22 @@ func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
 
 // formatHistoryIntoPrompt formats conversation history into a prompt
 func formatHistoryIntoPrompt(history []interfaces.Message) string {
-	// Implementation depends on the LLM's expected format
-	var prompt string
+	var prompt strings.Builder
 
-	// Simple implementation that concatenates messages
 	for _, msg := range history {
-		role := msg.Role
-		content := msg.Content
-
-		prompt += role + ": " + content + "\n"
+		prompt.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
 	}
 
-	return prompt
+	return prompt.String()
 }
 
 // ApproveExecutionPlan approves an execution plan for execution
 func (a *Agent) ApproveExecutionPlan(ctx context.Context, plan *executionplan.ExecutionPlan) (string, error) {
-	return a.approvePlan(ctx, plan)
+	result, err := a.approvePlan(ctx, plan)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%v", result), nil
 }
 
 // ModifyExecutionPlan modifies an execution plan based on user input
@@ -528,37 +566,32 @@ func (a *Agent) GenerateExecutionPlan(ctx context.Context, input string) (*execu
 	return a.planGenerator.GenerateExecutionPlan(ctx, input)
 }
 
-// isAskingAboutRole determines if the user is asking about the agent's role or identity
+// isAskingAboutRole checks if the user is asking about the agent's role
 func (a *Agent) isAskingAboutRole(input string) bool {
 	// Convert input to lowercase for case-insensitive matching
-	lowerInput := strings.ToLower(input)
+	input = strings.ToLower(input)
 
-	// Common phrases that indicate a user asking about the agent's role
-	roleQueries := []string{
-		"what are you",
+	// Check for common role-related questions
+	roleQuestions := []string{
 		"who are you",
+		"what are you",
 		"what is your role",
 		"what do you do",
 		"what can you do",
-		"what is your purpose",
-		"what is your function",
-		"tell me about yourself",
-		"introduce yourself",
 		"what are your capabilities",
-		"what are you designed to do",
-		"what's your job",
-		"what kind of assistant are you",
-		"your role",
-		"your expertise",
-		"what are you expert in",
-		"what are you specialized in",
-		"your specialty",
-		"what's your specialty",
+		"what are your skills",
+		"what are your functions",
+		"what are your responsibilities",
+		"what is your purpose",
+		"what is your job",
+		"what is your task",
+		"what is your mission",
+		"what is your goal",
+		"what is your objective",
 	}
 
-	// Check if any of the role query phrases are in the input
-	for _, query := range roleQueries {
-		if strings.Contains(lowerInput, query) {
+	for _, question := range roleQuestions {
+		if strings.Contains(input, question) {
 			return true
 		}
 	}
@@ -566,60 +599,35 @@ func (a *Agent) isAskingAboutRole(input string) bool {
 	return false
 }
 
-// generateRoleResponse creates a response based on the agent's system prompt
+// generateRoleResponse generates a response about the agent's role
 func (a *Agent) generateRoleResponse() string {
-	// If the prompt is empty, return a generic response
-	if a.systemPrompt == "" || a.llm == nil {
-		return "I'm an AI assistant designed to help you with various tasks and answer your questions. How can I assist you today?"
+	// If no system prompt is set, return a generic response
+	if a.systemPrompt == "" {
+		return "I am an AI assistant designed to help you with various tasks. I can understand and respond to your questions, and I'm here to assist you in any way I can."
 	}
 
-	// Create a prompt that asks the LLM to generate a role description based on the system prompt
-	agentName := "an AI assistant"
-	if a.name != "" {
-		agentName = a.name
-	}
-
-	prompt := fmt.Sprintf(`Based on the following system prompt that defines your role and capabilities, 
-generate a brief, natural-sounding response (3-5 sentences) introducing yourself to a user who asked what you can do.
-You are named "%s".
-Do not directly quote from the system prompt, but create a conversational first-person response that captures your 
-purpose, expertise, and how you can help. The response should feel like a natural conversation, not like reading documentation.
-
-System prompt: 
-%s
-
-Your response should:
-1. Introduce yourself using first-person perspective, mentioning your name ("%s")
-2. Briefly explain your specialization or purpose
-3. Mention 2-3 key areas you can help with
-4. End with a friendly question about how you can assist the user
-
-Response:`, agentName, a.systemPrompt, agentName)
-
-	// Generate a response using the LLM with the system prompt as context
-	generateOptions := []interfaces.GenerateOption{}
-
-	// Use the same system prompt to ensure consistent persona
-	generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
-
-	// Generate the response
-	response, err := a.llm.Generate(context.Background(), prompt, generateOptions...)
-	if err != nil {
-		// Fallback to a simple response in case of errors
-		if a.name != "" {
-			return fmt.Sprintf("I'm %s, an AI assistant based on the role defined in my system prompt. How can I help you today?", a.name)
+	// Extract the first sentence or paragraph from the system prompt
+	// This is typically where the role is defined
+	lines := strings.Split(a.systemPrompt, "\n")
+	if len(lines) > 0 {
+		// Get the first non-empty line
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				return line
+			}
 		}
-		return "I'm an AI assistant based on the role defined in my system prompt. How can I help you today?"
 	}
 
-	return response
+	// Fallback to the full system prompt if no suitable line is found
+	return a.systemPrompt
 }
 
 // ExecuteTaskFromConfig executes a task using its YAML configuration
-func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, taskConfigs TaskConfigs, variables map[string]string) (string, error) {
+func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, taskConfigs TaskConfigs, variables map[string]string) (interface{}, error) {
 	taskConfig, exists := taskConfigs[taskName]
 	if !exists {
-		return "", fmt.Errorf("task configuration for %s not found", taskName)
+		return nil, fmt.Errorf("task configuration for %s not found", taskName)
 	}
 
 	// Replace variables in the task description
@@ -632,7 +640,7 @@ func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, task
 	// Run the agent with the task description
 	result, err := a.Run(ctx, description)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute task %s: %w", taskName, err)
+		return nil, fmt.Errorf("failed to execute task %s: %w", taskName, err)
 	}
 
 	// If an output file is specified, write the result to the file
@@ -643,9 +651,9 @@ func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, task
 			outputPath = strings.ReplaceAll(outputPath, placeholder, value)
 		}
 
-		err := os.WriteFile(outputPath, []byte(result), 0644)
+		err := os.WriteFile(outputPath, []byte(fmt.Sprintf("%v", result)), 0644)
 		if err != nil {
-			return result, fmt.Errorf("failed to write output to file %s: %w", outputPath, err)
+			return nil, fmt.Errorf("failed to write output to file %s: %w", outputPath, err)
 		}
 	}
 
@@ -660,4 +668,21 @@ func (a *Agent) GetGeneratedAgentConfig() *AgentConfig {
 // GetGeneratedTaskConfigs returns the automatically generated task configurations, if any
 func (a *Agent) GetGeneratedTaskConfigs() TaskConfigs {
 	return a.generatedTaskConfigs
+}
+
+// SetSystemPrompt sets the system prompt for the agent
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.systemPrompt = prompt
+}
+
+// SetResponseFormat sets the response format for the agent
+func (a *Agent) SetResponseFormat(format interface{}) {
+	if rf, ok := format.(interfaces.ResponseFormat); ok {
+		a.responseFormat = &rf
+	}
+}
+
+// AddTool adds a tool to the agent
+func (a *Agent) AddTool(tool interfaces.Tool) {
+	a.tools = append(a.tools, tool)
 }
