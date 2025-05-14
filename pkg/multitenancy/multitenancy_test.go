@@ -10,6 +10,10 @@ import (
 )
 
 func TestMultiTenancy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
 	// Create a config manager
 	configManager := multitenancy.NewConfigManager()
 

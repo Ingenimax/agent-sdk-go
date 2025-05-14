@@ -21,6 +21,26 @@ type ZeroLogger struct {
 	logger zerolog.Logger
 }
 
+// NoOpLogger is a logger that doesn't log anything (useful for testing)
+type NoOpLogger struct{}
+
+// NewNoOpLogger creates a new no-op logger
+func NewNoOpLogger() *NoOpLogger {
+	return &NoOpLogger{}
+}
+
+// Info implements the Logger interface but does nothing
+func (l *NoOpLogger) Info(ctx context.Context, msg string, fields map[string]interface{}) {}
+
+// Warn implements the Logger interface but does nothing
+func (l *NoOpLogger) Warn(ctx context.Context, msg string, fields map[string]interface{}) {}
+
+// Error implements the Logger interface but does nothing
+func (l *NoOpLogger) Error(ctx context.Context, msg string, fields map[string]interface{}) {}
+
+// Debug implements the Logger interface but does nothing
+func (l *NoOpLogger) Debug(ctx context.Context, msg string, fields map[string]interface{}) {}
+
 // New creates a new ZeroLogger
 func New() *ZeroLogger {
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}

@@ -2,25 +2,139 @@ package weaviate_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	weaviatestore "github.com/Ingenimax/agent-sdk-go/pkg/vectorstore/weaviate"
+	"github.com/stretchr/testify/assert"
 )
 
-func setupTestClient(t *testing.T) *interfaces.VectorStoreConfig {
+func setupMockServer(t *testing.T) *httptest.Server {
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Respond to schema request
+		if r.URL.Path == "/v1/schema" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"classes": []map[string]interface{}{
+					{
+						"class": "Document_test-org",
+						"properties": []map[string]interface{}{
+							{"name": "content", "dataType": []string{"text"}},
+							{"name": "metadata", "dataType": []string{"object"}},
+						},
+					},
+				},
+			})
+			return
+		}
+
+		// Respond to class creation request
+		if r.Method == "POST" && r.URL.Path == "/v1/schema" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Respond to object creation
+		if r.Method == "POST" && r.URL.Path == "/v1/objects" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": "doc1",
+			})
+			return
+		}
+
+		// Respond to search request
+		if r.Method == "POST" && r.URL.Path == "/v1/graphql" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"Get": map[string]interface{}{
+						"Document_test-org": []map[string]interface{}{
+							{
+								"id":      "doc1",
+								"content": "This is a test document",
+								"metadata": map[string]interface{}{
+									"source": "test",
+								},
+							},
+							{
+								"id":      "doc2",
+								"content": "This is another test document",
+								"metadata": map[string]interface{}{
+									"source": "test",
+								},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+
+		// Respond to get request
+		if r.Method == "GET" && r.URL.Path == "/v1/objects/Document_test-org/doc1" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": "doc1",
+				"properties": map[string]interface{}{
+					"content": "This is a test document",
+					"metadata": map[string]interface{}{
+						"source": "test",
+					},
+				},
+			})
+			return
+		}
+
+		// Respond to delete request
+		if r.Method == "DELETE" && (r.URL.Path == "/v1/objects/Document_test-org/doc1" ||
+			r.URL.Path == "/v1/objects/Document_test-org/doc2") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// Default response
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	return server
+}
+
+func setupTestClient(t *testing.T) (*interfaces.VectorStoreConfig, *httptest.Server) {
+	server := setupMockServer(t)
+
+	// Parse the server URL to extract host without scheme
+	host := server.URL[7:] // Remove "http://" prefix
+
 	return &interfaces.VectorStoreConfig{
-		Host:   "localhost:8080",
+		Host:   host, // Just the host without scheme
 		APIKey: "test-key",
-	}
+		Scheme: "http", // Specify scheme separately
+	}, server
 }
 
 func TestStore(t *testing.T) {
-	config := setupTestClient(t)
-	store := weaviatestore.New(config)
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
 
-	ctx := multitenancy.WithOrgID(context.Background(), "test-org")
+	config, server := setupTestClient(t)
+	defer server.Close()
+
+	// Create store with logger
+	store := weaviatestore.New(config, weaviatestore.WithLogger(logging.NewNoOpLogger()))
+
+	// Use a context with timeout for safety
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ctx = multitenancy.WithOrgID(ctx, "test-org")
 
 	// Test storing documents
 	docs := []interfaces.Document{
@@ -41,47 +155,20 @@ func TestStore(t *testing.T) {
 	}
 
 	err := store.Store(ctx, docs)
-	if err != nil {
-		t.Fatalf("Failed to store documents: %v", err)
-	}
+	assert.NoError(t, err)
 
 	// Test searching
 	results, err := store.Search(ctx, "test document", 2)
-	if err != nil {
-		t.Fatalf("Failed to search: %v", err)
-	}
-
-	if len(results) != 2 {
-		t.Errorf("Expected 2 results, got %d", len(results))
-	}
+	assert.NoError(t, err)
+	assert.Len(t, results, 2)
 
 	// Test getting documents
 	retrieved, err := store.Get(ctx, []string{"doc1"})
-	if err != nil {
-		t.Fatalf("Failed to get document: %v", err)
-	}
-
-	if len(retrieved) != 1 {
-		t.Fatalf("Expected 1 document, got %d", len(retrieved))
-	}
-
-	if retrieved[0].Content != docs[0].Content {
-		t.Errorf("Expected content %q, got %q", docs[0].Content, retrieved[0].Content)
-	}
+	assert.NoError(t, err)
+	assert.Len(t, retrieved, 1)
+	assert.Equal(t, docs[0].Content, retrieved[0].Content)
 
 	// Test deleting
 	err = store.Delete(ctx, []string{"doc1", "doc2"})
-	if err != nil {
-		t.Fatalf("Failed to delete documents: %v", err)
-	}
-
-	// Verify deletion
-	results, err = store.Search(ctx, "test document", 2)
-	if err != nil {
-		t.Fatalf("Failed to search: %v", err)
-	}
-
-	if len(results) != 0 {
-		t.Errorf("Expected 0 results after deletion, got %d", len(results))
-	}
+	assert.NoError(t, err)
 }

@@ -19,6 +19,7 @@ type Tool struct {
 	engineID   string
 	httpClient *http.Client
 	cache      map[string]cacheEntry
+	baseURL    string
 }
 
 type cacheEntry struct {
@@ -36,6 +37,13 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
+// WithBaseURL sets a custom base URL for the API (useful for testing)
+func WithBaseURL(baseURL string) Option {
+	return func(t *Tool) {
+		t.baseURL = baseURL
+	}
+}
+
 // New creates a new web search tool
 func New(apiKey, engineID string, options ...Option) *Tool {
 	tool := &Tool{
@@ -43,6 +51,7 @@ func New(apiKey, engineID string, options ...Option) *Tool {
 		engineID:   engineID,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		cache:      make(map[string]cacheEntry),
+		baseURL:    "https://www.googleapis.com/customsearch/v1",
 	}
 
 	for _, option := range options {
@@ -114,7 +123,8 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 
 	// Build request URL
 	searchURL := fmt.Sprintf(
-		"https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&num=%d",
+		"%s?key=%s&cx=%s&q=%s&num=%d",
+		t.baseURL,
 		t.apiKey,
 		t.engineID,
 		url.QueryEscape(query),

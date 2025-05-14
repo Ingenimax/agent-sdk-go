@@ -21,6 +21,14 @@ func TestWebSearch(t *testing.T) {
 		}
 
 		// Check query parameters
+		if !strings.Contains(r.URL.String(), "key=test-key") {
+			t.Errorf("Expected API key parameter, not found in URL: %s", r.URL.String())
+		}
+
+		if !strings.Contains(r.URL.String(), "cx=test-engine") {
+			t.Errorf("Expected search engine ID parameter, not found in URL: %s", r.URL.String())
+		}
+
 		query := r.URL.Query().Get("q")
 		if query != "test query" {
 			t.Errorf("Expected query 'test query', got '%s'", query)
@@ -33,6 +41,7 @@ func TestWebSearch(t *testing.T) {
 		}
 
 		// Send response
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"items": []map[string]interface{}{
 				{
@@ -52,11 +61,12 @@ func TestWebSearch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create tool
+	// Create tool with custom base URL
 	tool := websearch.New(
 		"test-key",
 		"test-engine",
 		websearch.WithHTTPClient(server.Client()),
+		websearch.WithBaseURL(server.URL), // Add this option to override the Google API URL
 	)
 
 	// Create context with organization ID
