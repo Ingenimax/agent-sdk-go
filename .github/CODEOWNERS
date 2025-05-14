@@ -1,0 +1,17 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# they will be requested for review when someone opens a pull request.
+*       @Ingenimax/maintainers
+
+# Go source files
+*.go    @Ingenimax/go-reviewers
+
+# CI/CD and GitHub Actions
+.github/workflows/    @Ingenimax/devops
+
+# Documentation
+/docs/               @Ingenimax/docs-team
+*.md                 @Ingenimax/docs-team
+
+# Security-related files
+SECURITY.md          @Ingenimax/security-team 

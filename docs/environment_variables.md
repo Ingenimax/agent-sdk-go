@@ -22,16 +22,6 @@ This document lists all environment variables used by the Agent SDK.
 - `ANTHROPIC_BASE_URL`: Base URL for API calls (default: "https://api.anthropic.com")
 - `ANTHROPIC_TIMEOUT_SECONDS`: Timeout in seconds (default: 60)
 
-### Azure OpenAI
-
-- `AZURE_OPENAI_API_KEY`: API key for Azure OpenAI
-- `AZURE_OPENAI_ENDPOINT`: Endpoint for Azure OpenAI
-- `AZURE_OPENAI_DEPLOYMENT`: Deployment name
-- `AZURE_OPENAI_API_VERSION`: API version (default: "2023-05-15")
-- `AZURE_OPENAI_TEMPERATURE`: Temperature for generation (default: 0.7)
-- `AZURE_OPENAI_MAX_TOKENS`: Maximum tokens to generate (default: 2048)
-- `AZURE_OPENAI_TIMEOUT_SECONDS`: Timeout in seconds (default: 60)
-
 ## Memory Configuration
 
 ### Redis
@@ -50,12 +40,6 @@ This document lists all environment variables used by the Agent SDK.
 - `WEAVIATE_HOST`: Weaviate host (default: "localhost:8080")
 - `WEAVIATE_CLASS_NAME`: Weaviate class name (default: "Document")
 
-### Pinecone
-
-- `PINECONE_API_KEY`: Pinecone API key
-- `PINECONE_ENVIRONMENT`: Pinecone environment
-- `PINECONE_INDEX`: Pinecone index name
-
 ## DataStore Configuration
 
 ### Supabase
@@ -70,17 +54,6 @@ This document lists all environment variables used by the Agent SDK.
 
 - `GOOGLE_API_KEY`: Google API key for web search
 - `GOOGLE_SEARCH_ENGINE_ID`: Google Search Engine ID
-
-### AWS
-
-- `AWS_ACCESS_KEY_ID`: AWS access key ID
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key
-- `AWS_REGION`: AWS region (default: "us-east-1")
-
-### Kubernetes
-
-- `KUBECONFIG`: Path to kubeconfig file
-- `KUBE_CONTEXT`: Kubernetes context to use
 
 ## Tracing Configuration
 

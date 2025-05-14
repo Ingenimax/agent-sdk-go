@@ -2,20 +2,24 @@
 
 # Agent Go SDK
 
-A Go-based SDK for building AI agents with various capabilities like memory, tools, LLM integration, and more.
+A powerful Go framework for building production-ready AI agents that seamlessly integrates memory management, tool execution, multi-LLM support, and enterprise features into a flexible, extensible architecture.
 
 ## Features
 
-- 🧠 **Multiple LLM Providers**: Integration with OpenAI, Anthropic, and more
-- 🔧 **Extensible Tools System**: Easily add capabilities to your agents
-- 📝 **Memory Management**: Store and retrieve conversation history
-- 🔍 **Vector Store Integration**: Semantic search capabilities
-- 🛠️ **Task Execution**: Plan and execute complex tasks
-- 🚦 **Guardrails**: Safety mechanisms for responsible AI
-- 📈 **Observability**: Tracing and logging for debugging
-- 🏢 **Multi-tenancy**: Support for multiple organizations
-- 📄 **YAML Configuration**: Define agents and tasks using YAML files
-- 🧙 **Auto-Configuration**: Generate agent configurations from system prompts
+### Core Capabilities
+- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and other leading LLM providers
+- 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
+- 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
+
+### Enterprise-Ready
+- 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
+- 📈 **Complete Observability**: Integrated tracing and logging for monitoring and debugging
+- 🏢 **Enterprise Multi-tenancy**: Securely support multiple organizations with isolated resources
+
+### Development Experience
+- 🛠️ **Structured Task Framework**: Plan, approve, and execute complex multi-step operations
+- 📄 **Declarative Configuration**: Define sophisticated agents and tasks using intuitive YAML definitions
+- 🧙 **Zero-Effort Bootstrapping**: Auto-generate complete agent configurations from simple system prompts
 
 ## Getting Started
 
@@ -236,58 +240,82 @@ reporting_task:
 ### Auto-Generating Agent Configurations
 
 ```go
-// Create agent with auto-configuration from system prompt
-agent, err := agent.NewAgentWithAutoConfig(
-    context.Background(),
-    agent.WithLLM(openaiClient),
-    agent.WithSystemPrompt("You are a travel advisor who helps users plan trips and vacations."),
-    agent.WithName("Travel Assistant"),
-)
-if err != nil {
-    panic(err)
-}
+package main
 
-// Access the generated configurations
-agentConfig := agent.GetGeneratedAgentConfig()
-taskConfigs := agent.GetGeneratedTaskConfigs()
+import (
+	"context"
+	"fmt"
+	"os"
 
-// Save the generated configurations to YAML files
-agentConfigMap := map[string]agent.AgentConfig{
-    "Travel Assistant": *agentConfig,
-}
-
-// Save agent configs
-agentYaml, _ := os.Create("agent_config.yaml")
-defer agentYaml.Close()
-agent.SaveAgentConfigsToFile(agentConfigMap, agentYaml)
-
-// Save task configs
-taskYaml, _ := os.Create("task_config.yaml")
-defer taskYaml.Close()
-agent.SaveTaskConfigsToFile(taskConfigs, taskYaml)
-```
-
-### Using Execution Plans with Approval
-
-```go
-// Create an agent that requires plan approval
-agent, err := agent.NewAgent(
-	agent.WithLLM(openaiClient),
-	agent.WithMemory(memoryStore),
-	agent.WithTools(toolRegistry.List()...),
-	agent.WithSystemPrompt("You can help with complex tasks that require planning."),
-	agent.WithRequirePlanApproval(true), // Enable execution plan workflow
+	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/config"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 )
 
-// When the agent generates a plan, you can get it using ListTasks
-plans := agent.ListTasks()
+func main() {
+	// Load configuration
+	cfg := config.Get()
 
-// Approve a plan by task ID
-response, err := agent.ApproveExecutionPlan(ctx, plans[0])
+	// Create LLM client
+	openaiClient := openai.NewClient(cfg.LLM.OpenAI.APIKey)
 
-// Or modify a plan with user feedback
-modifiedPlan, err := agent.ModifyExecutionPlan(ctx, plans[0], "Change step 2 to use a different tool")
+	// Create agent with auto-configuration from system prompt
+	agent, err := agent.NewAgentWithAutoConfig(
+		context.Background(),
+		agent.WithLLM(openaiClient),
+		agent.WithSystemPrompt("You are a travel advisor who helps users plan trips and vacations. You specialize in finding hidden gems and creating personalized itineraries based on travelers' preferences."),
+		agent.WithName("Travel Assistant"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// Access the generated configurations
+	agentConfig := agent.GetGeneratedAgentConfig()
+	taskConfigs := agent.GetGeneratedTaskConfigs()
+
+	// Print generated agent details
+	fmt.Printf("Generated Agent Role: %s\n", agentConfig.Role)
+	fmt.Printf("Generated Agent Goal: %s\n", agentConfig.Goal)
+	fmt.Printf("Generated Agent Backstory: %s\n", agentConfig.Backstory)
+
+	// Print generated tasks
+	fmt.Println("\nGenerated Tasks:")
+	for taskName, taskConfig := range taskConfigs {
+		fmt.Printf("- %s: %s\n", taskName, taskConfig.Description)
+	}
+
+	// Save the generated configurations to YAML files
+	agentConfigMap := map[string]agent.AgentConfig{
+		"Travel Assistant": *agentConfig,
+	}
+
+	// Save agent configs to file
+	agentYaml, _ := os.Create("agent_config.yaml")
+	defer agentYaml.Close()
+	agent.SaveAgentConfigsToFile(agentConfigMap, agentYaml)
+
+	// Save task configs to file
+	taskYaml, _ := os.Create("task_config.yaml")
+	defer taskYaml.Close()
+	agent.SaveTaskConfigsToFile(taskConfigs, taskYaml)
+
+	// Use the auto-configured agent
+	response, err := agent.Run(context.Background(), "I want to plan a 3-day trip to Tokyo.")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(response)
+}
 ```
+
+The auto-configuration feature uses LLM reasoning to derive a complete agent profile and associated tasks from a simple system prompt. The generated configurations include:
+
+- **Agent Profile**: Role, goal, and backstory that define the agent's persona
+- **Task Definitions**: Specialized tasks the agent can perform, with descriptions and expected outputs
+- **Reusable YAML**: Save configurations for reuse in other applications
+
+This approach dramatically reduces the effort needed to create specialized agents while ensuring consistency and quality.
 
 ## Architecture
 
@@ -314,3 +342,19 @@ Check out the `cmd/examples` directory for complete examples:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Documentation
+
+For more detailed information, refer to the following documents:
+
+- [Environment Variables](docs/environment_variables.md)
+- [Memory](docs/memory.md)
+- [Tracing](docs/tracing.md)
+- [Vector Store](docs/vectorstore.md)
+- [LLM](docs/llm.md)
+- [Multitenancy](docs/multitenancy.md)
+- [Task](docs/task.md)
+- [Tools](docs/tools.md)
+- [Agent](docs/agent.md)
+- [Execution Plan](docs/execution_plan.md)
+- [Guardrails](docs/guardrails.md)

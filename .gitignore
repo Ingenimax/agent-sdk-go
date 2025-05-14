@@ -15,7 +15,7 @@
 *.out
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+vendor/
 
 # Backup directory
 backup/
@@ -24,8 +24,39 @@ backup/
 go.work
 go.work.sum
 
-# env file
+# env files
 .env
+.env.*
+!.env.example
 
 # Local files
 agg_code.py
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Debug files
+debug
+*.debug
+debug.test
+
+# Binary files
+bin/
+dist/

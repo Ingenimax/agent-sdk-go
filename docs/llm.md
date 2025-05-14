@@ -203,17 +203,6 @@ anthropic.WithBaseURL("https://api.anthropic.com")
 // Timeout specifies the request timeout
 anthropic.WithTimeout(60 * time.Second)
 ```
-
-#### Azure OpenAI
-
-```go
-// APIVersion specifies the API version to use
-azure.WithAPIVersion("2023-05-15")
-
-// Timeout specifies the request timeout
-azure.WithTimeout(60 * time.Second)
-```
-
 ## Multi-tenancy with LLM Providers
 
 When using LLM providers with multi-tenancy, you can specify the organization ID:
