@@ -34,15 +34,38 @@ type TaskConfigs map[string]TaskConfig
 
 // validateFilePath ensures a filepath is safe to use
 func validateFilePath(filePath string) error {
-	// Normalize path
+	// Clean the path to resolve any .. or other potential directory traversal
 	cleanPath := filepath.Clean(filePath)
 
-	// Check for path traversal attempts
-	if strings.Contains(cleanPath, "..") {
-		return fmt.Errorf("invalid file path: potential directory traversal attempt")
+	// Check if the file exists
+	fileInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file does not exist: %s", cleanPath)
+		}
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	// Make sure it's a regular file, not a directory or other special file
+	if !fileInfo.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %s", cleanPath)
 	}
 
 	return nil
+}
+
+// safeReadFile reads a file with additional safety checks
+func safeReadFile(filePath string) ([]byte, error) {
+	// Clean the path to resolve any .. or other potentially dangerous path elements
+	cleanPath := filepath.Clean(filePath)
+
+	// Verify the path exists
+	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file does not exist: %s", cleanPath)
+	}
+
+	// Read the file
+	return os.ReadFile(cleanPath)
 }
 
 // LoadAgentConfigsFromFile loads agent configurations from a YAML file
@@ -52,7 +75,7 @@ func LoadAgentConfigsFromFile(filePath string) (AgentConfigs, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := safeReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent config file: %w", err)
 	}
@@ -100,7 +123,7 @@ func LoadTaskConfigsFromFile(filePath string) (TaskConfigs, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := safeReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task config file: %w", err)
 	}

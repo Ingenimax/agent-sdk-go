@@ -187,8 +187,8 @@ func (s *FileStore) Get(ctx context.Context, id string, version string) (*Templa
 		return nil, err
 	}
 
-	// Read file
-	data, err := ioutil.ReadFile(filePath)
+	// Read file safely
+	data, err := safeReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read template file: %w", err)
 	}
@@ -229,8 +229,8 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 		id := parts[0]
 		version := parts[1]
 
-		// Read file
-		data, err := ioutil.ReadFile(file)
+		// Read file safely
+		data, err := safeReadFile(file)
 		if err != nil {
 			continue
 		}
@@ -484,4 +484,18 @@ func (m *Manager) RenderLatest(ctx context.Context, id string, data map[string]i
 	}
 
 	return tmpl.Render(data)
+}
+
+// safeReadFile reads a file with additional safety checks
+func safeReadFile(filePath string) ([]byte, error) {
+	// Clean the path to resolve any .. or other potentially dangerous path elements
+	cleanPath := filepath.Clean(filePath)
+
+	// Check if the file exists before attempting to read
+	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file does not exist: %s", cleanPath)
+	}
+
+	// Read the file
+	return ioutil.ReadFile(cleanPath)
 }

@@ -368,12 +368,10 @@ func (c *TransactionCollection) Insert(ctx context.Context, data map[string]inte
 		return "", fmt.Errorf("invalid table name: %s", c.name)
 	}
 
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		c.name,
-		strings.Join(columns, ", "),
-		strings.Join(placeholders, ", "),
-	)
+	query, err := createInsertQuery(c.name, columns, placeholders)
+	if err != nil {
+		return "", err
+	}
 
 	// Execute query
 	var returnedID string
@@ -399,10 +397,10 @@ func (c *TransactionCollection) Get(ctx context.Context, id string) (map[string]
 	}
 
 	// Build query
-	query := fmt.Sprintf(
-		"SELECT * FROM %s WHERE id = $1 AND org_id = $2",
-		c.name,
-	)
+	query, err := createGetQuery(c.name)
+	if err != nil {
+		return nil, err
+	}
 
 	// Execute query
 	var result map[string]interface{}
@@ -444,13 +442,10 @@ func (c *TransactionCollection) Update(ctx context.Context, id string, data map[
 		i++
 	}
 
-	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE id = $%d AND org_id = $%d",
-		c.name,
-		strings.Join(setStatements, ", "),
-		i,
-		i+1,
-	)
+	query, err := createUpdateQuery(c.name, setStatements, i, i+1)
+	if err != nil {
+		return err
+	}
 
 	values = append(values, id, orgID)
 
@@ -486,10 +481,10 @@ func (c *TransactionCollection) Delete(ctx context.Context, id string) error {
 	}
 
 	// Build query
-	query := fmt.Sprintf(
-		"DELETE FROM %s WHERE id = $1 AND org_id = $2",
-		c.name,
-	)
+	query, err := createDeleteQuery(c.name)
+	if err != nil {
+		return err
+	}
 
 	// Execute query
 	result, err := c.tx.ExecContext(ctx, query, id, orgID)
@@ -539,11 +534,10 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 		i++
 	}
 
-	query := fmt.Sprintf(
-		"SELECT * FROM %s WHERE %s",
-		c.name,
-		strings.Join(whereStatements, " AND "),
-	)
+	query, err := createQueryBase(c.name, whereStatements)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add order by
 	if opts.OrderBy != "" {
@@ -600,6 +594,68 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 	}
 
 	return results, nil
+}
+
+// Helper functions to create SQL queries safely
+func createInsertQuery(tableName string, columns []string, placeholders []string) (string, error) {
+	if !isValidTableName(tableName) {
+		return "", fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
+		tableName,
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+	), nil
+}
+
+func createGetQuery(tableName string) (string, error) {
+	if !isValidTableName(tableName) {
+		return "", fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return fmt.Sprintf(
+		"SELECT * FROM %s WHERE id = $1 AND org_id = $2",
+		tableName,
+	), nil
+}
+
+func createUpdateQuery(tableName string, setStatements []string, idParam, orgIdParam int) (string, error) {
+	if !isValidTableName(tableName) {
+		return "", fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return fmt.Sprintf(
+		"UPDATE %s SET %s WHERE id = $%d AND org_id = $%d",
+		tableName,
+		strings.Join(setStatements, ", "),
+		idParam,
+		orgIdParam,
+	), nil
+}
+
+func createDeleteQuery(tableName string) (string, error) {
+	if !isValidTableName(tableName) {
+		return "", fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return fmt.Sprintf(
+		"DELETE FROM %s WHERE id = $1 AND org_id = $2",
+		tableName,
+	), nil
+}
+
+func createQueryBase(tableName string, whereStatements []string) (string, error) {
+	if !isValidTableName(tableName) {
+		return "", fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return fmt.Sprintf(
+		"SELECT * FROM %s WHERE %s",
+		tableName,
+		strings.Join(whereStatements, " AND "),
+	), nil
 }
 
 // isValidTableName checks if a table name contains only allowed characters (letters, numbers, underscores)
