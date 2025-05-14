@@ -134,7 +134,7 @@ func main() {
 	// Create client with config from environment variables
 	// Note that we always specify the model explicitly
 	client := anthropic.NewClient(
-		apiKey, 
+		apiKey,
 		anthropic.WithModel(model), // Model is required
 		anthropic.WithBaseURL(baseURL),
 		anthropic.WithHTTPClient(&http.Client{Timeout: time.Duration(timeout) * time.Second}),
@@ -143,7 +143,7 @@ func main() {
 	// Generate text
 	ctx := context.Background()
 	response, err := client.Generate(
-		ctx, 
+		ctx,
 		"Explain quantum computing in simple terms",
 		anthropic.WithTemperature(temperature),
 	)
@@ -162,10 +162,10 @@ While the "reasoning" parameter is not officially supported in the current API v
 
 ```go
 response, err := client.Generate(
-    ctx, 
+    ctx,
     "How would you solve this equation: 3x + 7 = 22?",
     // WithReasoning is maintained for backward compatibility but not officially supported
-    anthropic.WithReasoning("comprehensive") 
+    anthropic.WithReasoning("comprehensive")
 )
 ```
 
@@ -251,4 +251,3 @@ Options for generate requests:
 - `WithFrequencyPenalty(penalty float64)` - Set frequency penalty
 - `WithPresencePenalty(penalty float64)` - Set presence penalty
 - `WithReasoning(reasoning string)` - Maintained for compatibility but not officially supported
-

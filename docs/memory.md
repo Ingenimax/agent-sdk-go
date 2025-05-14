@@ -228,10 +228,10 @@ func NewCustomMemory() *CustomMemory {
 func (m *CustomMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Add message to the conversation
     m.messages[convID] = append(m.messages[convID], message)
-    
+
     return nil
 }
 
@@ -239,22 +239,22 @@ func (m *CustomMemory) AddMessage(ctx context.Context, message interfaces.Messag
 func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Apply options
     opts := &interfaces.GetMessagesOptions{}
     for _, option := range options {
         option(opts)
     }
-    
+
     // Get messages for the conversation
     messages := m.messages[convID]
-    
+
     // Apply limit if specified
     if opts.Limit > 0 && opts.Limit < len(messages) {
         start := len(messages) - opts.Limit
         messages = messages[start:]
     }
-    
+
     // Filter by role if specified
     if len(opts.Roles) > 0 {
         filtered := make([]interfaces.Message, 0)
@@ -268,7 +268,7 @@ func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.Ge
         }
         messages = filtered
     }
-    
+
     return messages, nil
 }
 
@@ -276,10 +276,10 @@ func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.Ge
 func (m *CustomMemory) Clear(ctx context.Context) error {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Clear messages for the conversation
     delete(m.messages, convID)
-    
+
     return nil
 }
 
@@ -292,7 +292,7 @@ func getConversationID(ctx context.Context) string {
             orgID = s
         }
     }
-    
+
     // Get conversation ID
     convID := "default"
     if id := ctx.Value(memory.ConversationIDKey); id != nil {
@@ -300,7 +300,7 @@ func getConversationID(ctx context.Context) string {
             convID = s
         }
     }
-    
+
     // Combine org ID and conversation ID
     return orgID + ":" + convID
 }
@@ -374,4 +374,4 @@ func main() {
         log.Fatalf("Failed to run agent: %v", err)
     }
     fmt.Println("Response 2:", response2)
-} 
+}

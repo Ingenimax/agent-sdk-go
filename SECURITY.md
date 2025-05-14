@@ -34,4 +34,4 @@ We prefer all communications to be in English.
 
 ## Policy
 
-We follow the principle of [Responsible Disclosure](https://en.wikipedia.org/wiki/Responsible_disclosure). 
+We follow the principle of [Responsible Disclosure](https://en.wikipedia.org/wiki/Responsible_disclosure).

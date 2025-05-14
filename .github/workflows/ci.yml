@@ -15,40 +15,40 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: ${{ matrix.go-version }}
-        
+
     - name: Install dependencies
       run: go mod download
-        
+
     - name: Build
       run: go build -v ./...
-      
+
     - name: Test
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-      
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
         file: ./coverage.txt
-        
+
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v3
       with:
         version: latest
-        
+
   security:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Run Gosec Security Scanner
       uses: securego/gosec@master
       with:
         args: ./...
-        
+
     - name: Run dependency vulnerability scan
-      uses: golang/govulncheck-action@v1 
+      uses: golang/govulncheck-action@v1

@@ -51,7 +51,7 @@ func main() {
 		agent.WithTools(toolRegistry.List()...),
 		agent.WithRequirePlanApproval(false),
 		agent.WithSystemPrompt(`
-		You are a helpful AI assistant that can help users find and learn about machine learning models. 
+		You are a helpful AI assistant that can help users find and learn about machine learning models.
 		When users ask about models, use the Hugging Face search tool to find relevant information.
 		You should always use the Hugging Face search tool to find relevant information.
 		`),

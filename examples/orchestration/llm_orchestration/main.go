@@ -184,8 +184,8 @@ func createAndRegisterAgents(registry *orchestration.AgentRegistry, llm interfac
 	summaryAgent, err := agent.NewAgent(
 		agent.WithLLM(llm),
 		agent.WithMemory(memory.NewConversationBuffer()),
-		agent.WithSystemPrompt(`You are a summarization agent specialized in condensing information. 
-You excel at extracting key points and creating concise summaries. 
+		agent.WithSystemPrompt(`You are a summarization agent specialized in condensing information.
+You excel at extracting key points and creating concise summaries.
 
 CRITICAL INSTRUCTIONS:
 1. Your summaries MUST be significantly shorter than the original content

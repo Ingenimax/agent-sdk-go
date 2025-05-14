@@ -67,20 +67,20 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     // Create a traced agent
     agent, err := tracing.CreateTracedAgent(ctx)
     if err != nil {
         log.Fatalf("Failed to create agent: %v", err)
     }
-    
+
     // Use the agent
     response, err := agent.Run(ctx, "Your query here")
     if err != nil {
         log.Printf("Error: %v", err)
         return
     }
-    
+
     fmt.Println(response)
 }
 ```
@@ -114,4 +114,4 @@ The example demonstrates:
 2. **OpenTelemetry**
    - Use tools like Jaeger, Zipkin, or your preferred observability platform
    - Connect to your OpenTelemetry collector endpoint
-   - View distributed traces and metrics 
+   - View distributed traces and metrics

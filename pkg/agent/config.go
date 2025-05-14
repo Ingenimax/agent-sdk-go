@@ -260,7 +260,7 @@ tasks:
       [Description of the first task]
     expected_output: >
       [Expected output format and content]
-  
+
   task2_name:
     description: >
       [Description of the second task]

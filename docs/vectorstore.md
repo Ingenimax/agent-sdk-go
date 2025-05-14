@@ -233,7 +233,7 @@ func (s *CustomVectorStore) Search(ctx context.Context, query string, options ..
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your search logic
     return []interfaces.SearchResult{
         {
@@ -388,4 +388,4 @@ func main() {
         fmt.Printf("   Content: %s\n", result.Content)
         fmt.Printf("   Metadata: %v\n", result.Metadata)
     }
-} 
+}

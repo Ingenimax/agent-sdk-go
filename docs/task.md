@@ -104,7 +104,7 @@ You can configure task execution with the following options:
 options := &interfaces.TaskOptions{
     // Timeout specifies the maximum duration for task execution
     Timeout: &timeout,
-    
+
     // RetryPolicy specifies the retry policy for the task
     RetryPolicy: &interfaces.RetryPolicy{
         MaxRetries:        3,
@@ -112,7 +112,7 @@ options := &interfaces.TaskOptions{
         MaxBackoff:        1 * time.Second,
         BackoffMultiplier: 2.0,
     },
-    
+
     // Metadata contains additional information for the task execution
     Metadata: map[string]interface{}{
         "purpose": "example",
@@ -128,11 +128,11 @@ The task result contains the following information:
 type TaskResult struct {
     // Data contains the result data
     Data interface{}
-    
+
     // Error contains any error that occurred during task execution
     Error error
-    
+
     // Metadata contains additional information about the task execution
     Metadata map[string]interface{}
 }
-``` 
+```

@@ -160,7 +160,7 @@ func main() {
 
     // Switch to a different organization
     ctx = multitenancy.WithOrgID(context.Background(), "org-456")
-    
+
     // Run the agent with the new organization context
     response, err = agent.Run(ctx, "What is the capital of Germany?")
     if err != nil {

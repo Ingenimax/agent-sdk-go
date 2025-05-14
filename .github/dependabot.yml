@@ -22,4 +22,4 @@ updates:
       - "automerge"
     commit-message:
       prefix: "ci"
-      include: "scope" 
+      include: "scope"

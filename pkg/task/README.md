@@ -95,20 +95,20 @@ import (
 func main() {
     ctx := context.Background()
     logger := logging.New()
-    
+
     // Create the SDK task service
     sdkTaskService := task.NewInMemoryTaskService(logger, nil, nil)
-    
+
     // Create the default adapter
     adapter := task.NewDefaultTaskAdapter(logger)
-    
+
     // Create the agent task service with default models
     taskService := task.NewAgentTaskService(
         logger,
         sdkTaskService,
         adapter,
     )
-    
+
     // Create a task using the default models
     newTask, err := taskService.CreateTask(ctx, task.DefaultCreateRequest{
         Description: "Deploy a new service",
@@ -116,11 +116,11 @@ func main() {
         Title:       "Service Deployment",
         TaskKind:    "deployment",
     })
-    
+
     if err != nil {
         panic(err)
     }
-    
+
     fmt.Printf("Created task: %s\n", newTask.ID)
 }
 ```
@@ -199,7 +199,7 @@ func (a *MyTaskAdapter) ConvertTask(sdkTask *task.Task) MyTask {
     if sdkTask == nil {
         return MyTask{}
     }
-    
+
     return MyTask{
         ID:          sdkTask.ID,
         Name:        sdkTask.Description,
@@ -234,13 +234,13 @@ func NewMyTaskService(sdkService task.Service, adapter task.TaskAdapter[MyTask, 
 func (s *MyTaskService) CreateTask(ctx context.Context, req MyCreateRequest) (MyTask, error) {
     // Convert to SDK request
     sdkReq := s.adapter.ConvertCreateRequest(req)
-    
+
     // Create task using SDK service
     sdkTask, err := s.sdkService.CreateTask(ctx, sdkReq)
     if err != nil {
         return MyTask{}, err
     }
-    
+
     // Convert back to your model
     return s.adapter.ConvertTask(sdkTask), nil
 }
@@ -327,7 +327,7 @@ You can configure task execution with the following options:
 options := &interfaces.TaskOptions{
     // Timeout specifies the maximum duration for task execution
     Timeout: &timeout,
-    
+
     // RetryPolicy specifies the retry policy for the task
     RetryPolicy: &interfaces.RetryPolicy{
         MaxRetries:        3,
@@ -335,7 +335,7 @@ options := &interfaces.TaskOptions{
         MaxBackoff:        1 * time.Second,
         BackoffMultiplier: 2.0,
     },
-    
+
     // Metadata contains additional information for the task execution
     Metadata: map[string]interface{}{
         "purpose": "example",
@@ -351,10 +351,10 @@ The task result contains the following information:
 type TaskResult struct {
     // Data contains the result data
     Data interface{}
-    
+
     // Error contains any error that occurred during task execution
     Error error
-    
+
     // Metadata contains additional information about the task execution
     Metadata map[string]interface{}
 }

@@ -160,7 +160,7 @@ executor := agent.NewToolExecutor(func(ctx context.Context, toolName string, inp
         // Do something special
         return "Custom result", nil
     }
-    
+
     // Fall back to default execution for other tools
     tool, found := toolRegistry.Get(toolName)
     if !found {
@@ -262,4 +262,4 @@ func main() {
 
     fmt.Println(response)
 }
-``` 
+```

@@ -62,7 +62,7 @@ func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*E
 func (g *Generator) ModifyExecutionPlan(ctx context.Context, plan *ExecutionPlan, modifications string) (*ExecutionPlan, error) {
 	// Create a prompt for the LLM to modify the execution plan
 	prompt := fmt.Sprintf(`
-You are an AI assistant that modifies execution plans based on user feedback. 
+You are an AI assistant that modifies execution plans based on user feedback.
 Here is the current execution plan:
 
 %s

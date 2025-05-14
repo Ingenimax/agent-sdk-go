@@ -579,13 +579,13 @@ func (a *Agent) generateRoleResponse() string {
 		agentName = a.name
 	}
 
-	prompt := fmt.Sprintf(`Based on the following system prompt that defines your role and capabilities, 
+	prompt := fmt.Sprintf(`Based on the following system prompt that defines your role and capabilities,
 generate a brief, natural-sounding response (3-5 sentences) introducing yourself to a user who asked what you can do.
 You are named "%s".
-Do not directly quote from the system prompt, but create a conversational first-person response that captures your 
+Do not directly quote from the system prompt, but create a conversational first-person response that captures your
 purpose, expertise, and how you can help. The response should feel like a natural conversation, not like reading documentation.
 
-System prompt: 
+System prompt:
 %s
 
 Your response should:

@@ -2,7 +2,7 @@
 
 *Generated on: combined_docs.md*
 
-## 
+##
 
 ### File: CONTRIBUTING.md
 
@@ -82,7 +82,7 @@ When reporting bugs, please include:
 
 By contributing to this project, you agree that your contributions will be licensed under the project's license.
 
-Thank you for contributing to the Agent SDK! 
+Thank you for contributing to the Agent SDK!
 
 ---
 
@@ -578,7 +578,7 @@ executor := agent.NewToolExecutor(func(ctx context.Context, toolName string, inp
         // Do something special
         return "Custom result", nil
     }
-    
+
     // Fall back to default execution for other tools
     tool, found := toolRegistry.Get(toolName)
     if !found {
@@ -680,7 +680,7 @@ func main() {
 
     fmt.Println(response)
 }
-``` 
+```
 
 ---
 
@@ -796,7 +796,7 @@ This document lists all environment variables used by the Agent SDK.
 ##### Guardrails Configuration
 
 - `GUARDRAILS_ENABLED`: Enable guardrails (default: false)
-- `GUARDRAILS_CONFIG_PATH`: Path to guardrails configuration file 
+- `GUARDRAILS_CONFIG_PATH`: Path to guardrails configuration file
 
 ---
 
@@ -1003,7 +1003,7 @@ package main
 import (
     "context"
     "fmt"
-    
+
     "github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
     "github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
     "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
@@ -1012,38 +1012,38 @@ import (
 func main() {
     // Create an LLM client
     llmClient := openai.NewClient("your-api-key")
-    
+
     // Create some tools
     tools := []interfaces.Tool{
         // Your tools here
     }
-    
+
     // Create a generator
     generator := executionplan.NewGenerator(llmClient, tools, "You are a helpful assistant")
-    
+
     // Generate a plan
     plan, err := generator.GenerateExecutionPlan(context.Background(), "Deploy a web application")
     if err != nil {
         panic(err)
     }
-    
+
     // Format the plan for display
     formattedPlan := executionplan.FormatExecutionPlan(plan)
     fmt.Println(formattedPlan)
-    
+
     // Create an executor
     executor := executionplan.NewExecutor(tools)
-    
+
     // Execute the plan (after user approval)
     plan.UserApproved = true
     result, err := executor.ExecutePlan(context.Background(), plan)
     if err != nil {
         panic(err)
     }
-    
+
     fmt.Println(result)
 }
-``` 
+```
 
 ---
 
@@ -1335,7 +1335,7 @@ func NewCustomGuardrails() *CustomGuardrails {
 // Check checks content against guardrails
 func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfaces.GuardrailsResult, error) {
     // Implement your logic to check content
-    
+
     // Example: Block content containing "forbidden"
     if strings.Contains(strings.ToLower(content), "forbidden") {
         return &interfaces.GuardrailsResult{
@@ -1343,7 +1343,7 @@ func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfac
             Message: "This content is not allowed.",
         }, nil
     }
-    
+
     // Example: Redact email addresses
     emailRegex := regexp.MustCompile(`(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
     if emailRegex.MatchString(content) {
@@ -1353,7 +1353,7 @@ func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfac
             Content:  modified,
         }, nil
     }
-    
+
     // Content passed guardrails
     return &interfaces.GuardrailsResult{
         Content: content,
@@ -1403,7 +1403,7 @@ func main() {
 
     // Run the agent
     ctx := context.Background()
-    
+
     // Safe query
     response1, err := agent.Run(ctx, "What is the capital of France?")
     if err != nil {
@@ -1417,7 +1417,7 @@ func main() {
         log.Fatalf("Failed to run agent: %v", err)
     }
     fmt.Println("Unsafe query response:", response2)
-} 
+}
 
 ---
 
@@ -1686,7 +1686,7 @@ func (l *CustomLLM) Generate(ctx context.Context, prompt string, options ...inte
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your generation logic here
     return "Generated text", nil
 }
@@ -1698,7 +1698,7 @@ func (l *CustomLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your generation with tools logic here
     return "Generated text with tools", nil
 }
@@ -1783,7 +1783,7 @@ func main() {
         log.Fatalf("Failed to generate chat completion: %v", err)
     }
     fmt.Println("Chat response:", chatResponse)
-} 
+}
 
 ---
 
@@ -2021,10 +2021,10 @@ func NewCustomMemory() *CustomMemory {
 func (m *CustomMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Add message to the conversation
     m.messages[convID] = append(m.messages[convID], message)
-    
+
     return nil
 }
 
@@ -2032,22 +2032,22 @@ func (m *CustomMemory) AddMessage(ctx context.Context, message interfaces.Messag
 func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Apply options
     opts := &interfaces.GetMessagesOptions{}
     for _, option := range options {
         option(opts)
     }
-    
+
     // Get messages for the conversation
     messages := m.messages[convID]
-    
+
     // Apply limit if specified
     if opts.Limit > 0 && opts.Limit < len(messages) {
         start := len(messages) - opts.Limit
         messages = messages[start:]
     }
-    
+
     // Filter by role if specified
     if len(opts.Roles) > 0 {
         filtered := make([]interfaces.Message, 0)
@@ -2061,7 +2061,7 @@ func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.Ge
         }
         messages = filtered
     }
-    
+
     return messages, nil
 }
 
@@ -2069,10 +2069,10 @@ func (m *CustomMemory) GetMessages(ctx context.Context, options ...interfaces.Ge
 func (m *CustomMemory) Clear(ctx context.Context) error {
     // Get conversation ID from context
     convID := getConversationID(ctx)
-    
+
     // Clear messages for the conversation
     delete(m.messages, convID)
-    
+
     return nil
 }
 
@@ -2085,7 +2085,7 @@ func getConversationID(ctx context.Context) string {
             orgID = s
         }
     }
-    
+
     // Get conversation ID
     convID := "default"
     if id := ctx.Value(memory.ConversationIDKey); id != nil {
@@ -2093,7 +2093,7 @@ func getConversationID(ctx context.Context) string {
             convID = s
         }
     }
-    
+
     // Combine org ID and conversation ID
     return orgID + ":" + convID
 }
@@ -2167,7 +2167,7 @@ func main() {
         log.Fatalf("Failed to run agent: %v", err)
     }
     fmt.Println("Response 2:", response2)
-} 
+}
 
 ---
 
@@ -2337,7 +2337,7 @@ func main() {
 
     // Switch to a different organization
     ctx = multitenancy.WithOrgID(context.Background(), "org-456")
-    
+
     // Run the agent with the new organization context
     response, err = agent.Run(ctx, "What is the capital of Germany?")
     if err != nil {
@@ -2461,7 +2461,7 @@ You can configure task execution with the following options:
 options := &interfaces.TaskOptions{
     // Timeout specifies the maximum duration for task execution
     Timeout: &timeout,
-    
+
     // RetryPolicy specifies the retry policy for the task
     RetryPolicy: &interfaces.RetryPolicy{
         MaxRetries:        3,
@@ -2469,7 +2469,7 @@ options := &interfaces.TaskOptions{
         MaxBackoff:        1 * time.Second,
         BackoffMultiplier: 2.0,
     },
-    
+
     // Metadata contains additional information for the task execution
     Metadata: map[string]interface{}{
         "purpose": "example",
@@ -2485,14 +2485,14 @@ The task result contains the following information:
 type TaskResult struct {
     // Data contains the result data
     Data interface{}
-    
+
     // Error contains any error that occurred during task execution
     Error error
-    
+
     // Metadata contains additional information about the task execution
     Metadata map[string]interface{}
 }
-``` 
+```
 
 ---
 
@@ -2709,10 +2709,10 @@ func (t *AuthenticatedTool) Run(ctx context.Context, input string) (string, erro
     if err != nil {
         return "", err
     }
-    
+
     // Add authentication header
     req.Header.Add("Authorization", "Bearer "+t.apiKey)
-    
+
     // Make the request
     resp, err := client.Do(req)
     // ...
@@ -2748,7 +2748,7 @@ func (t *RateLimitedTool) Run(ctx context.Context, input string) (string, error)
     if err := t.limiter.Wait(ctx); err != nil {
         return "", err
     }
-    
+
     // Run the underlying tool
     return t.tool.Run(ctx, input)
 }
@@ -2823,7 +2823,7 @@ func main() {
 }
 
 // WeatherTool implementation (as shown in the custom tool example)
-``` 
+```
 
 ---
 
@@ -3161,7 +3161,7 @@ func main() {
     span.SetAttribute("response", response)
 
     fmt.Println(response)
-} 
+}
 
 ---
 
@@ -3404,7 +3404,7 @@ func (s *CustomVectorStore) Search(ctx context.Context, query string, options ..
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your search logic
     return []interfaces.SearchResult{
         {
@@ -3559,7 +3559,7 @@ func main() {
         fmt.Printf("   Content: %s\n", result.Content)
         fmt.Printf("   Metadata: %v\n", result.Metadata)
     }
-} 
+}
 
 ---
 
@@ -3683,7 +3683,7 @@ filterGroup.AddSubGroup(subGroup)
 filterMap := embedding.FilterToMap(filterGroup)
 
 // Use with vector store search
-results, err := store.Search(ctx, "query", 10, 
+results, err := store.Search(ctx, "query", 10,
     interfaces.WithEmbedding(true),
     interfaces.WithFilters(filterMap),
 )
@@ -3741,7 +3741,7 @@ Specify the dimensionality of the embedding vectors. Only supported by some mode
 
 - `cosine`: Cosine similarity (default)
 - `euclidean`: Euclidean distance (converted to similarity score)
-- `dot_product`: Dot product 
+- `dot_product`: Dot product
 
 ---
 
@@ -3887,7 +3887,7 @@ func main() {
 	// Create client with config from environment variables
 	// Note that we always specify the model explicitly
 	client := anthropic.NewClient(
-		apiKey, 
+		apiKey,
 		anthropic.WithModel(model), // Model is required
 		anthropic.WithBaseURL(baseURL),
 		anthropic.WithHTTPClient(&http.Client{Timeout: time.Duration(timeout) * time.Second}),
@@ -3896,7 +3896,7 @@ func main() {
 	// Generate text
 	ctx := context.Background()
 	response, err := client.Generate(
-		ctx, 
+		ctx,
 		"Explain quantum computing in simple terms",
 		anthropic.WithTemperature(temperature),
 	)
@@ -3915,10 +3915,10 @@ While the "reasoning" parameter is not officially supported in the current API v
 
 ```go
 response, err := client.Generate(
-    ctx, 
+    ctx,
     "How would you solve this equation: 3x + 7 = 22?",
     // WithReasoning is maintained for backward compatibility but not officially supported
-    anthropic.WithReasoning("comprehensive") 
+    anthropic.WithReasoning("comprehensive")
 )
 ```
 
@@ -4118,7 +4118,7 @@ agent, err := agent.NewAgent(
     agent.WithLLM(openaiClient),
     // ... other options
 )
-``` 
+```
 
 ---
 
@@ -4225,20 +4225,20 @@ import (
 func main() {
     ctx := context.Background()
     logger := logging.New()
-    
+
     // Create the SDK task service
     sdkTaskService := task.NewInMemoryTaskService(logger, nil, nil)
-    
+
     // Create the default adapter
     adapter := task.NewDefaultTaskAdapter(logger)
-    
+
     // Create the agent task service with default models
     taskService := task.NewAgentTaskService(
         logger,
         sdkTaskService,
         adapter,
     )
-    
+
     // Create a task using the default models
     newTask, err := taskService.CreateTask(ctx, task.DefaultCreateRequest{
         Description: "Deploy a new service",
@@ -4246,11 +4246,11 @@ func main() {
         Title:       "Service Deployment",
         TaskKind:    "deployment",
     })
-    
+
     if err != nil {
         panic(err)
     }
-    
+
     fmt.Printf("Created task: %s\n", newTask.ID)
 }
 ```
@@ -4329,7 +4329,7 @@ func (a *MyTaskAdapter) ConvertTask(sdkTask *task.Task) MyTask {
     if sdkTask == nil {
         return MyTask{}
     }
-    
+
     return MyTask{
         ID:          sdkTask.ID,
         Name:        sdkTask.Description,
@@ -4364,13 +4364,13 @@ func NewMyTaskService(sdkService task.Service, adapter task.TaskAdapter[MyTask, 
 func (s *MyTaskService) CreateTask(ctx context.Context, req MyCreateRequest) (MyTask, error) {
     // Convert to SDK request
     sdkReq := s.adapter.ConvertCreateRequest(req)
-    
+
     // Create task using SDK service
     sdkTask, err := s.sdkService.CreateTask(ctx, sdkReq)
     if err != nil {
         return MyTask{}, err
     }
-    
+
     // Convert back to your model
     return s.adapter.ConvertTask(sdkTask), nil
 }
@@ -4457,7 +4457,7 @@ You can configure task execution with the following options:
 options := &interfaces.TaskOptions{
     // Timeout specifies the maximum duration for task execution
     Timeout: &timeout,
-    
+
     // RetryPolicy specifies the retry policy for the task
     RetryPolicy: &interfaces.RetryPolicy{
         MaxRetries:        3,
@@ -4465,7 +4465,7 @@ options := &interfaces.TaskOptions{
         MaxBackoff:        1 * time.Second,
         BackoffMultiplier: 2.0,
     },
-    
+
     // Metadata contains additional information for the task execution
     Metadata: map[string]interface{}{
         "purpose": "example",
@@ -4481,10 +4481,10 @@ The task result contains the following information:
 type TaskResult struct {
     // Data contains the result data
     Data interface{}
-    
+
     // Error contains any error that occurred during task execution
     Error error
-    
+
     // Metadata contains additional information about the task execution
     Metadata map[string]interface{}
 }
@@ -4573,4 +4573,3 @@ type TaskAdapter[AgentTask any, AgentCreateRequest any, AgentApprovalRequest any
 ```
 
 ---
-

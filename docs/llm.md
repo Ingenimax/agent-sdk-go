@@ -248,7 +248,7 @@ func (l *CustomLLM) Generate(ctx context.Context, prompt string, options ...inte
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your generation logic here
     return "Generated text", nil
 }
@@ -260,7 +260,7 @@ func (l *CustomLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
     for _, option := range options {
         option(opts)
     }
-    
+
     // Implement your generation with tools logic here
     return "Generated text with tools", nil
 }
@@ -345,4 +345,4 @@ func main() {
         log.Fatalf("Failed to generate chat completion: %v", err)
     }
     fmt.Println("Chat response:", chatResponse)
-} 
+}

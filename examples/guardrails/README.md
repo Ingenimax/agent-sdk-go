@@ -123,4 +123,4 @@ type Guardrail interface {
     ProcessToolRequest(ctx context.Context, request *ToolRequest) (*ToolRequest, error)
     ProcessToolResponse(ctx context.Context, response *ToolResponse) (*ToolResponse, error)
 }
-``` 
+```

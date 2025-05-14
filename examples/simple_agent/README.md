@@ -17,23 +17,23 @@ export GOOGLE_API_KEY=your_google_api_key
 export GOOGLE_SEARCH_ENGINE_ID=your_google_search_engine_id
 ```
 Create custom google eninge:
-To get a Google Search API key and create a Google Search Engine, you'll need to first create a project in the Google Cloud Console, then enable the Custom Search API, and finally create an API key. You'll also need to create a Programmable Search Engine to get the Search Engine ID. 
+To get a Google Search API key and create a Google Search Engine, you'll need to first create a project in the Google Cloud Console, then enable the Custom Search API, and finally create an API key. You'll also need to create a Programmable Search Engine to get the Search Engine ID.
 Here's a step-by-step guide:
 1. Create a Google Cloud Project:
 If you don't have one, create a Google Cloud project.
 Go to the Google Cloud Console.
-Select or create a project. 
+Select or create a project.
 2. Enable the Custom Search API:
 Navigate to the "APIs & Services" section.
-Search for "Custom Search API" and enable it. 
+Search for "Custom Search API" and enable it.
 3. Create an API Key:
 Go to the "Credentials" section within the APIs & Services.
 Click "Create credentials" and select "API key".
-Copy and securely store the API key. 
+Copy and securely store the API key.
 4. Create a Programmable Search Engine:
 Go to https://programmablesearchengine.google.com/controlpanel/create.
 Create a new search engine.
-Find the Search Engine ID in the Overview page's Basic section. 
+Find the Search Engine ID in the Overview page's Basic section.
 
 
 2. Build the example:

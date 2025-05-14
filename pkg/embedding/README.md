@@ -112,7 +112,7 @@ filterGroup.AddSubGroup(subGroup)
 filterMap := embedding.FilterToMap(filterGroup)
 
 // Use with vector store search
-results, err := store.Search(ctx, "query", 10, 
+results, err := store.Search(ctx, "query", 10,
     interfaces.WithEmbedding(true),
     interfaces.WithFilters(filterMap),
 )
@@ -170,4 +170,4 @@ Specify the dimensionality of the embedding vectors. Only supported by some mode
 
 - `cosine`: Cosine similarity (default)
 - `euclidean`: Euclidean distance (converted to similarity score)
-- `dot_product`: Dot product 
+- `dot_product`: Dot product

@@ -185,4 +185,4 @@ You can customize this example by:
 - Adding more complex metadata filters
 - Using different similarity metrics
 - Implementing custom vector stores
-- Adding more advanced search capabilities 
+- Adding more advanced search capabilities

@@ -27,7 +27,7 @@ tasks:
   test_task_1:
     description: Run a test suite and report results
     expected_output: A summary of test results with pass/fail status
-  
+
   test_task_2:
     description: Generate test cases for a new feature
     expected_output: A list of test cases in a structured format

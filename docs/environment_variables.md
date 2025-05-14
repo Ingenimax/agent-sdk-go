@@ -79,4 +79,4 @@ This document lists all environment variables used by the Agent SDK.
 ## Guardrails Configuration
 
 - `GUARDRAILS_ENABLED`: Enable guardrails (default: false)
-- `GUARDRAILS_CONFIG_PATH`: Path to guardrails configuration file 
+- `GUARDRAILS_CONFIG_PATH`: Path to guardrails configuration file

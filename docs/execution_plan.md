@@ -197,7 +197,7 @@ package main
 import (
     "context"
     "fmt"
-    
+
     "github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
     "github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
     "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
@@ -206,35 +206,35 @@ import (
 func main() {
     // Create an LLM client
     llmClient := openai.NewClient("your-api-key")
-    
+
     // Create some tools
     tools := []interfaces.Tool{
         // Your tools here
     }
-    
+
     // Create a generator
     generator := executionplan.NewGenerator(llmClient, tools, "You are a helpful assistant")
-    
+
     // Generate a plan
     plan, err := generator.GenerateExecutionPlan(context.Background(), "Deploy a web application")
     if err != nil {
         panic(err)
     }
-    
+
     // Format the plan for display
     formattedPlan := executionplan.FormatExecutionPlan(plan)
     fmt.Println(formattedPlan)
-    
+
     // Create an executor
     executor := executionplan.NewExecutor(tools)
-    
+
     // Execute the plan (after user approval)
     plan.UserApproved = true
     result, err := executor.ExecutePlan(context.Background(), plan)
     if err != nil {
         panic(err)
     }
-    
+
     fmt.Println(result)
 }
-``` 
+```

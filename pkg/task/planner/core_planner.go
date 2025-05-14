@@ -34,7 +34,7 @@ func NewSimpleLLMPlanner(llm interfaces.LLM, logger logging.Logger) *SimpleLLMPl
 	return &SimpleLLMPlanner{
 		llm:    llm,
 		logger: logger,
-		systemPrompt: `You are an expert task planner. Your role is to create detailed, 
+		systemPrompt: `You are an expert task planner. Your role is to create detailed,
 structured plans for completing tasks based on task descriptions. Each plan should include:
 - An analysis phase to understand the requirements
 - An implementation phase with specific steps

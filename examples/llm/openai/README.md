@@ -76,4 +76,4 @@ The OpenAI client provides several option functions for configuring requests:
 
 ## Tool Integration
 
-The OpenAI client also supports tool calling with the `GenerateWithTools` method. See the agent examples for demonstrations of tool integration. 
+The OpenAI client also supports tool calling with the `GenerateWithTools` method. See the agent examples for demonstrations of tool integration.

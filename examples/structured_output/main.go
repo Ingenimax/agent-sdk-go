@@ -82,7 +82,7 @@ func main() {
 		agent.WithMemory(memory.NewConversationBuffer()),
 		agent.WithSystemPrompt(`
 			You are an AI assistant that provides accurate biographical information about people.
-            
+
             Guidelines:
             - Provide factual, verifiable information only
             - If a field's information is unknown, use null instead of making assumptions
@@ -91,7 +91,7 @@ func main() {
             - Focus on the person's most significant achievements and contributions
 			- Provide the list of companies the person has worked for, with the country where the company is headquartered and a description of the company.
 			- Provide curiosities or hobbies about the person.
-            
+
             If the person is not a real historical or contemporary figure, or if you're unsure about their existence, return all fields as null.
 		`),
 		agent.WithName("StructuredResponseAgent"),

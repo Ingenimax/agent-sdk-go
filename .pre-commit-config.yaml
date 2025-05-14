@@ -1,0 +1,58 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+    -   id: check-merge-conflict
+
+# Use this style for golangci-lint
+-   repo: local
+    hooks:
+    -   id: golangci-lint
+        name: golangci-lint
+        description: Fast linters runner for Go
+        entry: golangci-lint run --timeout=5m
+        types: [go]
+        language: system
+        pass_filenames: false
+
+    -   id: go-fmt
+        name: go fmt
+        description: Run go fmt on files
+        entry: gofmt -l -w
+        types: [go]
+        language: system
+
+    -   id: go-imports
+        name: go imports
+        description: Run goimports on files
+        entry: /Users/meidad/go/bin/goimports -l -w
+        types: [go]
+        language: system
+
+    -   id: go-unit-tests
+        name: go test
+        description: Run go tests
+        entry: go test ./...
+        types: [go]
+        language: system
+        pass_filenames: false
+
+    -   id: go-mod-tidy
+        name: go mod tidy
+        description: Run go mod tidy to clean up go.mod
+        entry: go mod tidy
+        types: [go]
+        language: system
+        pass_filenames: false
+
+    -   id: gosec
+        name: gosec
+        description: Runs gosec - Go security checker
+        entry: gosec -exclude=G104 ./...
+        types: [go]
+        language: system
+        pass_filenames: false

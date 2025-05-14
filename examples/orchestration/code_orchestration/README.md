@@ -162,4 +162,4 @@ ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 ```
 
 ### Missing Tool Errors
-If the research agent can't use web search, make sure you've set the Google API key and Search Engine ID environment variables. 
+If the research agent can't use web search, make sure you've set the Google API key and Search Engine ID environment variables.

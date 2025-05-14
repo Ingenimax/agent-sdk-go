@@ -207,10 +207,10 @@ func (t *AuthenticatedTool) Run(ctx context.Context, input string) (string, erro
     if err != nil {
         return "", err
     }
-    
+
     // Add authentication header
     req.Header.Add("Authorization", "Bearer "+t.apiKey)
-    
+
     // Make the request
     resp, err := client.Do(req)
     // ...
@@ -246,7 +246,7 @@ func (t *RateLimitedTool) Run(ctx context.Context, input string) (string, error)
     if err := t.limiter.Wait(ctx); err != nil {
         return "", err
     }
-    
+
     // Run the underlying tool
     return t.tool.Run(ctx, input)
 }
@@ -321,4 +321,4 @@ func main() {
 }
 
 // WeatherTool implementation (as shown in the custom tool example)
-``` 
+```

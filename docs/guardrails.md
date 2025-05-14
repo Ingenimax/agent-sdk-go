@@ -282,7 +282,7 @@ func NewCustomGuardrails() *CustomGuardrails {
 // Check checks content against guardrails
 func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfaces.GuardrailsResult, error) {
     // Implement your logic to check content
-    
+
     // Example: Block content containing "forbidden"
     if strings.Contains(strings.ToLower(content), "forbidden") {
         return &interfaces.GuardrailsResult{
@@ -290,7 +290,7 @@ func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfac
             Message: "This content is not allowed.",
         }, nil
     }
-    
+
     // Example: Redact email addresses
     emailRegex := regexp.MustCompile(`(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
     if emailRegex.MatchString(content) {
@@ -300,7 +300,7 @@ func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfac
             Content:  modified,
         }, nil
     }
-    
+
     // Content passed guardrails
     return &interfaces.GuardrailsResult{
         Content: content,
@@ -350,7 +350,7 @@ func main() {
 
     // Run the agent
     ctx := context.Background()
-    
+
     // Safe query
     response1, err := agent.Run(ctx, "What is the capital of France?")
     if err != nil {
@@ -364,4 +364,4 @@ func main() {
         log.Fatalf("Failed to run agent: %v", err)
     }
     fmt.Println("Unsafe query response:", response2)
-} 
+}
