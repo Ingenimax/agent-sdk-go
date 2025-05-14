@@ -42,7 +42,7 @@ func TestWebSearch(t *testing.T) {
 
 		// Send response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"items": []map[string]interface{}{
 				{
 					"title":       "Test Result 1",
@@ -57,7 +57,9 @@ func TestWebSearch(t *testing.T) {
 					"displayLink": "example.com",
 				},
 			},
-		})
+		}); err != nil {
+			t.Errorf("Failed to encode search response: %v", err)
+		}
 	}))
 	defer server.Close()
 

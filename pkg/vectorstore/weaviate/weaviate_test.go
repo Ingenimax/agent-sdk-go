@@ -22,7 +22,7 @@ func setupMockServer(t *testing.T) *httptest.Server {
 
 		// Respond to schema request
 		if r.URL.Path == "/v1/schema" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"classes": []map[string]interface{}{
 					{
 						"class": "Document_test-org",
@@ -32,7 +32,9 @@ func setupMockServer(t *testing.T) *httptest.Server {
 						},
 					},
 				},
-			})
+			}); err != nil {
+				t.Errorf("Failed to encode schema response: %v", err)
+			}
 			return
 		}
 
@@ -45,15 +47,17 @@ func setupMockServer(t *testing.T) *httptest.Server {
 		// Respond to object creation
 		if r.Method == "POST" && r.URL.Path == "/v1/objects" {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": "doc1",
-			})
+			}); err != nil {
+				t.Errorf("Failed to encode object creation response: %v", err)
+			}
 			return
 		}
 
 		// Respond to search request
 		if r.Method == "POST" && r.URL.Path == "/v1/graphql" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": map[string]interface{}{
 					"Get": map[string]interface{}{
 						"Document_test-org": []map[string]interface{}{
@@ -74,13 +78,15 @@ func setupMockServer(t *testing.T) *httptest.Server {
 						},
 					},
 				},
-			})
+			}); err != nil {
+				t.Errorf("Failed to encode search response: %v", err)
+			}
 			return
 		}
 
 		// Respond to get request
 		if r.Method == "GET" && r.URL.Path == "/v1/objects/Document_test-org/doc1" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"id": "doc1",
 				"properties": map[string]interface{}{
 					"content": "This is a test document",
@@ -88,7 +94,9 @@ func setupMockServer(t *testing.T) *httptest.Server {
 						"source": "test",
 					},
 				},
-			})
+			}); err != nil {
+				t.Errorf("Failed to encode get response: %v", err)
+			}
 			return
 		}
 

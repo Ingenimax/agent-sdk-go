@@ -34,13 +34,15 @@ func TestGenerate(t *testing.T) {
 		}
 
 		// Send response
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"text": "test response",
 				},
 			},
-		})
+		}); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -89,7 +91,7 @@ func TestChat(t *testing.T) {
 		}
 
 		// Send response
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"message": map[string]interface{}{
@@ -97,7 +99,9 @@ func TestChat(t *testing.T) {
 					},
 				},
 			},
-		})
+		}); err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

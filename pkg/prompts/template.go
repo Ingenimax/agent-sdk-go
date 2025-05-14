@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,7 +266,7 @@ func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
 	}
 
 	// Write file
-	err := ioutil.WriteFile(filePath, []byte(data), 0600)
+	err := os.WriteFile(filePath, []byte(data), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write template file: %w", err)
 	}
@@ -497,5 +496,5 @@ func safeReadFile(filePath string) ([]byte, error) {
 	}
 
 	// Read the file
-	return ioutil.ReadFile(cleanPath)
+	return os.ReadFile(cleanPath)
 }
