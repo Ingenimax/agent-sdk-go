@@ -34,7 +34,13 @@ type TaskConfigs map[string]TaskConfig
 
 // LoadAgentConfigsFromFile loads agent configurations from a YAML file
 func LoadAgentConfigsFromFile(filePath string) (AgentConfigs, error) {
-	data, err := os.ReadFile(filePath)
+	// Validate file path
+	if !isValidFilePath(filePath) {
+		return nil, fmt.Errorf("invalid file path")
+	}
+
+	// Read file safely
+	data, err := os.ReadFile(filePath) // #nosec G304 - Path is validated with isValidFilePath() before use
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent config file: %w", err)
 	}
@@ -47,8 +53,57 @@ func LoadAgentConfigsFromFile(filePath string) (AgentConfigs, error) {
 	return configs, nil
 }
 
+// isValidFilePath checks if a file path is valid and safe
+func isValidFilePath(filePath string) bool {
+	// Check for empty path
+	if filePath == "" {
+		return false
+	}
+
+	// Clean and normalize the path
+	cleanPath := filepath.Clean(filePath)
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return false
+	}
+
+	// Get absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return false
+	}
+
+	// On Unix systems, check if the path is absolute and doesn't start with /proc, /sys, etc.
+	// which could lead to sensitive information disclosure
+	if strings.HasPrefix(absPath, "/proc") ||
+		strings.HasPrefix(absPath, "/sys") ||
+		strings.HasPrefix(absPath, "/dev") {
+		return false
+	}
+
+	// Ensure the file exists
+	fileInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		return false
+	}
+
+	// Ensure it's a regular file, not a directory or symlink
+	return fileInfo.Mode().IsRegular()
+}
+
 // LoadAgentConfigsFromDir loads all agent configurations from YAML files in a directory
 func LoadAgentConfigsFromDir(dirPath string) (AgentConfigs, error) {
+	// Validate directory path
+	dirInfo, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access directory: %w", err)
+	}
+
+	if !dirInfo.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", dirPath)
+	}
+
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent config directory: %w", err)
@@ -61,6 +116,12 @@ func LoadAgentConfigsFromDir(dirPath string) (AgentConfigs, error) {
 		}
 
 		filePath := filepath.Join(dirPath, file.Name())
+
+		// Validate the file path before loading
+		if !isValidFilePath(filePath) {
+			continue // Skip invalid files but don't fail completely
+		}
+
 		fileConfigs, err := LoadAgentConfigsFromFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load agent configs from %s: %w", filePath, err)
@@ -77,7 +138,13 @@ func LoadAgentConfigsFromDir(dirPath string) (AgentConfigs, error) {
 
 // LoadTaskConfigsFromFile loads task configurations from a YAML file
 func LoadTaskConfigsFromFile(filePath string) (TaskConfigs, error) {
-	data, err := os.ReadFile(filePath)
+	// Validate file path
+	if !isValidFilePath(filePath) {
+		return nil, fmt.Errorf("invalid file path")
+	}
+
+	// Read file safely
+	data, err := os.ReadFile(filePath) // #nosec G304 - Path is validated with isValidFilePath() before use
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task config file: %w", err)
 	}
@@ -92,6 +159,16 @@ func LoadTaskConfigsFromFile(filePath string) (TaskConfigs, error) {
 
 // LoadTaskConfigsFromDir loads all task configurations from YAML files in a directory
 func LoadTaskConfigsFromDir(dirPath string) (TaskConfigs, error) {
+	// Validate directory path
+	dirInfo, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access directory: %w", err)
+	}
+
+	if !dirInfo.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", dirPath)
+	}
+
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task config directory: %w", err)
@@ -104,6 +181,12 @@ func LoadTaskConfigsFromDir(dirPath string) (TaskConfigs, error) {
 		}
 
 		filePath := filepath.Join(dirPath, file.Name())
+
+		// Validate the file path before loading
+		if !isValidFilePath(filePath) {
+			continue // Skip invalid files but don't fail completely
+		}
+
 		fileConfigs, err := LoadTaskConfigsFromFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load task configs from %s: %w", filePath, err)

@@ -146,7 +146,7 @@ type FileStore struct {
 // NewFileStore creates a new file store
 func NewFileStore(basePath string) (*FileStore, error) {
 	// Create directory if it doesn't exist
-	err := os.MkdirAll(basePath, 0755)
+	err := os.MkdirAll(basePath, 0750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -158,11 +158,25 @@ func NewFileStore(basePath string) (*FileStore, error) {
 
 // Get retrieves a template by ID and version
 func (s *FileStore) Get(ctx context.Context, id string, version string) (*Template, error) {
+	// Sanitize id and version to prevent path traversal
+	id = filepath.Base(id)
+	version = filepath.Base(version)
+
 	// Construct file path
 	filePath := filepath.Join(s.basePath, fmt.Sprintf("%s_%s.tmpl", id, version))
 
+	// Ensure the file is within the basePath
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	if !isPathSafe(filePath, absBasePath) {
+		return nil, fmt.Errorf("invalid template path")
+	}
+
 	// Read file
-	data, err := ioutil.ReadFile(filePath)
+	data, err := ioutil.ReadFile(filePath) // #nosec G304 - Path is validated with isPathSafe() before use
 	if err != nil {
 		return nil, fmt.Errorf("failed to read template file: %w", err)
 	}
@@ -185,9 +199,20 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 		return nil, fmt.Errorf("failed to list template files: %w", err)
 	}
 
+	// Get absolute base path for validation
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
 	// Parse each file
 	var templates []*Template
 	for _, file := range files {
+		// Verify file is within basePath
+		if !isPathSafe(file, absBasePath) {
+			continue
+		}
+
 		// Extract ID and version from filename
 		filename := filepath.Base(file)
 		parts := strings.Split(strings.TrimSuffix(filename, ".tmpl"), "_")
@@ -199,7 +224,7 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 		version := parts[1]
 
 		// Read file
-		data, err := ioutil.ReadFile(file)
+		data, err := ioutil.ReadFile(file) // #nosec G304 - Path is validated with isPathSafe() before use
 		if err != nil {
 			continue
 		}
@@ -221,6 +246,10 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 
 // Save stores a template
 func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
+	// Sanitize id and version to prevent path traversal
+	tmpl.ID = filepath.Base(tmpl.ID)
+	tmpl.Version = filepath.Base(tmpl.Version)
+
 	// Update timestamp
 	tmpl.UpdatedAt = time.Now()
 
@@ -230,8 +259,18 @@ func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
 	// Construct file path
 	filePath := filepath.Join(s.basePath, fmt.Sprintf("%s_%s.tmpl", tmpl.ID, tmpl.Version))
 
-	// Write file
-	err := ioutil.WriteFile(filePath, []byte(data), 0644)
+	// Ensure the file is within the basePath
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	if !isPathSafe(filePath, absBasePath) {
+		return fmt.Errorf("invalid template path")
+	}
+
+	// Write file with secure permissions
+	err = ioutil.WriteFile(filePath, []byte(data), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write template file: %w", err)
 	}
@@ -241,11 +280,25 @@ func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
 
 // Delete removes a template
 func (s *FileStore) Delete(ctx context.Context, id string, version string) error {
+	// Sanitize id and version to prevent path traversal
+	id = filepath.Base(id)
+	version = filepath.Base(version)
+
 	// Construct file path
 	filePath := filepath.Join(s.basePath, fmt.Sprintf("%s_%s.tmpl", id, version))
 
+	// Ensure the file is within the basePath
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	if !isPathSafe(filePath, absBasePath) {
+		return fmt.Errorf("invalid template path")
+	}
+
 	// Delete file
-	err := os.Remove(filePath)
+	err = os.Remove(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to delete template file: %w", err)
 	}
@@ -448,4 +501,16 @@ func (m *Manager) RenderLatest(ctx context.Context, id string, data map[string]i
 	}
 
 	return tmpl.Render(data)
+}
+
+// isPathSafe checks if a file path is safe to access
+func isPathSafe(filePath string, basePath string) bool {
+	// Get absolute path
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+
+	// Ensure path is within base directory
+	return strings.HasPrefix(absPath, basePath)
 }

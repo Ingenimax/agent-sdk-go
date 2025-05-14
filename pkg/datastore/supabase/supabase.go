@@ -15,6 +15,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/lib/pq"
 )
 
 // Client implements the DataStore interface for Supabase
@@ -356,15 +357,15 @@ func (c *TransactionCollection) Insert(ctx context.Context, data map[string]inte
 	i := 1
 
 	for k, v := range data {
-		columns = append(columns, k)
+		columns = append(columns, pq.QuoteIdentifier(k))
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i))
 		values = append(values, v)
 		i++
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		c.name,
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING id", // #nosec G201
+		pq.QuoteIdentifier(c.name),
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),
 	)
@@ -390,7 +391,7 @@ func (c *TransactionCollection) Get(ctx context.Context, id string) (map[string]
 	// Build query
 	query := fmt.Sprintf(
 		"SELECT * FROM %s WHERE id = $1 AND org_id = $2",
-		c.name,
+		pq.QuoteIdentifier(c.name),
 	)
 
 	// Execute query
@@ -423,14 +424,14 @@ func (c *TransactionCollection) Update(ctx context.Context, id string, data map[
 	i := 1
 
 	for k, v := range data {
-		setStatements = append(setStatements, fmt.Sprintf("%s = $%d", k, i))
+		setStatements = append(setStatements, fmt.Sprintf("%s = $%d", pq.QuoteIdentifier(k), i))
 		values = append(values, v)
 		i++
 	}
 
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE id = $%d AND org_id = $%d",
-		c.name,
+		"UPDATE %s SET %s WHERE id = $%d AND org_id = $%d", // #nosec G201
+		pq.QuoteIdentifier(c.name),
 		strings.Join(setStatements, ", "),
 		i,
 		i+1,
@@ -467,7 +468,7 @@ func (c *TransactionCollection) Delete(ctx context.Context, id string) error {
 	// Build query
 	query := fmt.Sprintf(
 		"DELETE FROM %s WHERE id = $1 AND org_id = $2",
-		c.name,
+		pq.QuoteIdentifier(c.name),
 	)
 
 	// Execute query
@@ -508,14 +509,14 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 	i := 2
 
 	for k, v := range filter {
-		whereStatements = append(whereStatements, fmt.Sprintf("%s = $%d", k, i))
+		whereStatements = append(whereStatements, fmt.Sprintf("%s = $%d", pq.QuoteIdentifier(k), i))
 		values = append(values, v)
 		i++
 	}
 
 	query := fmt.Sprintf(
-		"SELECT * FROM %s WHERE %s",
-		c.name,
+		"SELECT * FROM %s WHERE %s", // #nosec G201 - table name is sanitized with pq.QuoteIdentifier and WHERE conditions use parameterized queries
+		pq.QuoteIdentifier(c.name),
 		strings.Join(whereStatements, " AND "),
 	)
 
