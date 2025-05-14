@@ -32,8 +32,26 @@ type AgentConfigs map[string]AgentConfig
 // TaskConfigs represents a map of task configurations
 type TaskConfigs map[string]TaskConfig
 
+// validateFilePath ensures a filepath is safe to use
+func validateFilePath(filePath string) error {
+	// Normalize path
+	cleanPath := filepath.Clean(filePath)
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("invalid file path: potential directory traversal attempt")
+	}
+
+	return nil
+}
+
 // LoadAgentConfigsFromFile loads agent configurations from a YAML file
 func LoadAgentConfigsFromFile(filePath string) (AgentConfigs, error) {
+	// Validate file path
+	if err := validateFilePath(filePath); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent config file: %w", err)
@@ -77,6 +95,11 @@ func LoadAgentConfigsFromDir(dirPath string) (AgentConfigs, error) {
 
 // LoadTaskConfigsFromFile loads task configurations from a YAML file
 func LoadTaskConfigsFromFile(filePath string) (TaskConfigs, error) {
+	// Validate file path
+	if err := validateFilePath(filePath); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task config file: %w", err)

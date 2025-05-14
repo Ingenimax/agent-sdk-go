@@ -411,7 +411,12 @@ func (s *InMemoryTaskService) planTask(ctx context.Context, t *task.Task) {
 	})
 
 	// Add log entry
-	s.AddTaskLog(ctx, t.ID, "Starting task planning", "info")
+	if err := s.AddTaskLog(ctx, t.ID, "Starting task planning", "info"); err != nil {
+		s.logger.Error(ctx, "Failed to add task log", map[string]interface{}{
+			"task_id": t.ID,
+			"error":   err.Error(),
+		})
+	}
 
 	// Call the planner to create a plan
 	_, err := s.planner.CreatePlan(ctx, t)
@@ -469,7 +474,12 @@ func (s *InMemoryTaskService) replanTask(ctx context.Context, t *task.Task, feed
 	})
 
 	// Add log entry
-	s.AddTaskLog(ctx, t.ID, "Replanning task with feedback", "info")
+	if err := s.AddTaskLog(ctx, t.ID, "Replanning task with feedback", "info"); err != nil {
+		s.logger.Error(ctx, "Failed to add task log", map[string]interface{}{
+			"task_id": t.ID,
+			"error":   err.Error(),
+		})
+	}
 
 	// Call the planner to create a new plan
 	_, err := s.planner.CreatePlan(ctx, t)

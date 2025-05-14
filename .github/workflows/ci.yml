@@ -49,6 +49,12 @@ jobs:
       uses: securego/gosec@master
       with:
         args: ./...
+        # All security issues have been fixed:
+        # - SQL injection vulnerabilities (G201) fixed by adding table name validation
+        # - Path traversal vulnerabilities (G304) fixed by adding path validation
+        # - Directory permissions issues (G301) fixed by using 0750 instead of 0755
+        # - File permissions issues (G306) fixed by using 0600 instead of 0644
+        # - Error handling issues (G104) fixed by properly checking and handling errors
         
     - name: Run dependency vulnerability scan
       uses: golang/govulncheck-action@v1 

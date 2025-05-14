@@ -146,7 +146,7 @@ type FileStore struct {
 // NewFileStore creates a new file store
 func NewFileStore(basePath string) (*FileStore, error) {
 	// Create directory if it doesn't exist
-	err := os.MkdirAll(basePath, 0755)
+	err := os.MkdirAll(basePath, 0750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -156,10 +156,36 @@ func NewFileStore(basePath string) (*FileStore, error) {
 	}, nil
 }
 
+// validateFilePath ensures a filepath is inside the basePath and not trying to escape
+func (s *FileStore) validateFilePath(filePath string) error {
+	// Get absolute paths
+	absBasePath, err := filepath.Abs(s.basePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute base path: %w", err)
+	}
+
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute file path: %w", err)
+	}
+
+	// Make sure file path is within base path
+	if !strings.HasPrefix(absFilePath, absBasePath) {
+		return fmt.Errorf("invalid file path: outside of allowed directory")
+	}
+
+	return nil
+}
+
 // Get retrieves a template by ID and version
 func (s *FileStore) Get(ctx context.Context, id string, version string) (*Template, error) {
 	// Construct file path
 	filePath := filepath.Join(s.basePath, fmt.Sprintf("%s_%s.tmpl", id, version))
+
+	// Validate file path
+	if err := s.validateFilePath(filePath); err != nil {
+		return nil, err
+	}
 
 	// Read file
 	data, err := ioutil.ReadFile(filePath)
@@ -188,6 +214,11 @@ func (s *FileStore) List(ctx context.Context, filter map[string]interface{}) ([]
 	// Parse each file
 	var templates []*Template
 	for _, file := range files {
+		// Validate file path
+		if err := s.validateFilePath(file); err != nil {
+			continue
+		}
+
 		// Extract ID and version from filename
 		filename := filepath.Base(file)
 		parts := strings.Split(strings.TrimSuffix(filename, ".tmpl"), "_")
@@ -230,8 +261,13 @@ func (s *FileStore) Save(ctx context.Context, tmpl *Template) error {
 	// Construct file path
 	filePath := filepath.Join(s.basePath, fmt.Sprintf("%s_%s.tmpl", tmpl.ID, tmpl.Version))
 
+	// Validate file path
+	if err := s.validateFilePath(filePath); err != nil {
+		return err
+	}
+
 	// Write file
-	err := ioutil.WriteFile(filePath, []byte(data), 0644)
+	err := ioutil.WriteFile(filePath, []byte(data), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write template file: %w", err)
 	}

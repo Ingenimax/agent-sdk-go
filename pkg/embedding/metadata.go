@@ -339,7 +339,10 @@ func toFloat64(v interface{}) float64 {
 		return val.Float()
 	case reflect.String:
 		var f float64
-		fmt.Sscanf(val.String(), "%f", &f)
+		if _, err := fmt.Sscanf(val.String(), "%f", &f); err != nil {
+			// If conversion fails, return 0
+			return 0
+		}
 		return f
 	default:
 		return 0

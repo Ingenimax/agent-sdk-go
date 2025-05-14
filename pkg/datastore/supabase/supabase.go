@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -362,6 +363,11 @@ func (c *TransactionCollection) Insert(ctx context.Context, data map[string]inte
 		i++
 	}
 
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(c.name) {
+		return "", fmt.Errorf("invalid table name: %s", c.name)
+	}
+
 	query := fmt.Sprintf(
 		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
 		c.name,
@@ -385,6 +391,11 @@ func (c *TransactionCollection) Get(ctx context.Context, id string) (map[string]
 	orgID, err := multitenancy.GetOrgID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get organization ID: %w", err)
+	}
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(c.name) {
+		return nil, fmt.Errorf("invalid table name: %s", c.name)
 	}
 
 	// Build query
@@ -416,6 +427,11 @@ func (c *TransactionCollection) Update(ctx context.Context, id string, data map[
 
 	// Add updated_at to data
 	data["updated_at"] = time.Now()
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(c.name) {
+		return fmt.Errorf("invalid table name: %s", c.name)
+	}
 
 	// Build query
 	setStatements := make([]string, 0, len(data))
@@ -464,6 +480,11 @@ func (c *TransactionCollection) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to get organization ID: %w", err)
 	}
 
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(c.name) {
+		return fmt.Errorf("invalid table name: %s", c.name)
+	}
+
 	// Build query
 	query := fmt.Sprintf(
 		"DELETE FROM %s WHERE id = $1 AND org_id = $2",
@@ -500,6 +521,11 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 	opts := &interfaces.QueryOptions{}
 	for _, option := range options {
 		option(opts)
+	}
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(c.name) {
+		return nil, fmt.Errorf("invalid table name: %s", c.name)
 	}
 
 	// Build query
@@ -574,4 +600,12 @@ func (c *TransactionCollection) Query(ctx context.Context, filter map[string]int
 	}
 
 	return results, nil
+}
+
+// isValidTableName checks if a table name contains only allowed characters (letters, numbers, underscores)
+// This prevents SQL injection through table names
+func isValidTableName(name string) bool {
+	// Only allow alphanumeric characters and underscores in table names
+	validName := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+	return validName.MatchString(name)
 }

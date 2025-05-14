@@ -643,7 +643,7 @@ func (a *Agent) ExecuteTaskFromConfig(ctx context.Context, taskName string, task
 			outputPath = strings.ReplaceAll(outputPath, placeholder, value)
 		}
 
-		err := os.WriteFile(outputPath, []byte(result), 0644)
+		err := os.WriteFile(outputPath, []byte(result), 0600)
 		if err != nil {
 			return result, fmt.Errorf("failed to write output to file %s: %w", outputPath, err)
 		}
