@@ -85,13 +85,10 @@ func (t *LangfuseTracer) TraceGeneration(ctx context.Context, modelName string, 
 	}
 
 	// Get organization ID from context
-	orgID, _ := multitenancy.GetOrgID(ctx)
-
-	// Add organization ID to metadata
-	if metadata == nil {
-		metadata = make(map[string]interface{})
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err == nil && orgID != "" {
+		metadata["organization_id"] = orgID
 	}
-	metadata["org_id"] = orgID
 	metadata["environment"] = t.environment
 
 	// Convert metadata to model.M
@@ -133,13 +130,10 @@ func (t *LangfuseTracer) TraceSpan(ctx context.Context, name string, startTime t
 	}
 
 	// Get organization ID from context
-	orgID, _ := multitenancy.GetOrgID(ctx)
-
-	// Add organization ID to metadata
-	if metadata == nil {
-		metadata = make(map[string]interface{})
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err == nil && orgID != "" {
+		metadata["organization_id"] = orgID
 	}
-	metadata["org_id"] = orgID
 	metadata["environment"] = t.environment
 
 	// Create span
@@ -169,13 +163,10 @@ func (t *LangfuseTracer) TraceEvent(ctx context.Context, name string, input inte
 	}
 
 	// Get organization ID from context
-	orgID, _ := multitenancy.GetOrgID(ctx)
-
-	// Add organization ID to metadata
-	if metadata == nil {
-		metadata = make(map[string]interface{})
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err == nil && orgID != "" {
+		metadata["organization_id"] = orgID
 	}
-	metadata["org_id"] = orgID
 	metadata["environment"] = t.environment
 
 	// Create event

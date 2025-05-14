@@ -282,12 +282,16 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 	}
 
-	// Check for organization ID in context
+	// Check for organization ID in context, and add a default one if missing
 	orgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
 		orgID = id
+		c.logger.Debug(ctx, "Retrieved organization ID from context", map[string]interface{}{"org_id": id})
+	} else {
+		// Add default organization ID to context to prevent errors in tool execution
+		ctx = multitenancy.WithOrgID(ctx, orgID)
+		c.logger.Debug(ctx, "Using default organization ID", map[string]interface{}{"org_id": orgID})
 	}
-	ctx = context.WithValue(ctx, organizationKey, orgID)
 
 	// Convert tools to OpenAI format
 	openaiTools := make([]openai.Tool, len(tools))

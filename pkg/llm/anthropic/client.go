@@ -542,6 +542,9 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		ctx = multitenancy.WithOrgID(ctx, orgID)
 	}
 
+	// Log the organization ID for debugging
+	c.logger.Debug(ctx, "Using organization ID", map[string]interface{}{"organization_id": orgID})
+
 	// Convert tools to Anthropic format
 	anthropicTools := make([]Tool, len(tools))
 	for i, tool := range tools {
@@ -1013,47 +1016,4 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 	return func(options *interfaces.GenerateOptions) {
 		options.ResponseFormat = &format
 	}
-}
-
-// processToolCall processes a tool call
-func (c *AnthropicClient) processToolCall(ctx context.Context, tools []interfaces.Tool, toolCall ToolUse) (string, error) {
-	// Find the tool by name
-	var tool interfaces.Tool
-	for _, t := range tools {
-		if t.Name() == toolCall.Name {
-			tool = t
-			break
-		}
-	}
-
-	if tool == nil {
-		return "", fmt.Errorf("unknown tool: %s", toolCall.Name)
-	}
-
-	// Choose input format based on what's available
-	var inputJSON []byte
-	var err error
-	if len(toolCall.Input) > 0 {
-		// Use Input if available
-		inputJSON, err = json.Marshal(toolCall.Input)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal tool input: %w", err)
-		}
-	} else if len(toolCall.Parameters) > 0 {
-		// Otherwise use Parameters
-		inputJSON, err = json.Marshal(toolCall.Parameters)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal tool parameters: %w", err)
-		}
-	} else {
-		return "", fmt.Errorf("no input or parameters for tool call: %s", toolCall.Name)
-	}
-
-	// Execute the tool with the JSON input
-	result, err := tool.Execute(ctx, string(inputJSON))
-	if err != nil {
-		return "", fmt.Errorf("failed to execute tool %s: %w", toolCall.Name, err)
-	}
-
-	return result, nil
 }
