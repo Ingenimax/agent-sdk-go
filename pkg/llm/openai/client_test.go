@@ -9,6 +9,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	gopenai "github.com/sashabaranov/go-openai"
 )
 
@@ -30,13 +31,18 @@ func TestGenerate(t *testing.T) {
 		}
 
 		// Send response
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"choices": []map[string]interface{}{
+		w.Header().Set("Content-Type", "application/json")
+		response := gopenai.ChatCompletionResponse{
+			Choices: []gopenai.ChatCompletionChoice{
 				{
-					"text": "test response",
+					Message: gopenai.ChatCompletionMessage{
+						Content: "test response",
+						Role:    "assistant",
+					},
 				},
 			},
-		})
+		}
+		json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -53,14 +59,18 @@ func TestGenerate(t *testing.T) {
 	config.HTTPClient = customHTTPClient
 	openaiClient := gopenai.NewClientWithConfig(config)
 
-	// Create our wrapper client
-	client := openai.NewClient("test-key", openai.WithModel("gpt-4"))
+	// Create our wrapper client with a logger
+	logger := logging.New()
+	client := openai.NewClient("test-key",
+		openai.WithModel("gpt-4"),
+		openai.WithLogger(logger),
+	)
 
 	// Override the client with our test client
 	client.Client = openaiClient
 
 	// Test generation
-	resp, err := client.Generate(context.Background(), "test prompt", nil)
+	resp, err := client.Generate(context.Background(), "test prompt")
 	if err != nil {
 		t.Fatalf("Failed to generate: %v", err)
 	}
@@ -85,15 +95,18 @@ func TestChat(t *testing.T) {
 		}
 
 		// Send response
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"choices": []map[string]interface{}{
+		w.Header().Set("Content-Type", "application/json")
+		response := gopenai.ChatCompletionResponse{
+			Choices: []gopenai.ChatCompletionChoice{
 				{
-					"message": map[string]interface{}{
-						"content": "test response",
+					Message: gopenai.ChatCompletionMessage{
+						Content: "test response",
+						Role:    "assistant",
 					},
 				},
 			},
-		})
+		}
+		json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -110,8 +123,12 @@ func TestChat(t *testing.T) {
 	config.HTTPClient = customHTTPClient
 	openaiClient := gopenai.NewClientWithConfig(config)
 
-	// Create our wrapper client
-	client := openai.NewClient("test-key", openai.WithModel("gpt-4"))
+	// Create our wrapper client with a logger
+	logger := logging.New()
+	client := openai.NewClient("test-key",
+		openai.WithModel("gpt-4"),
+		openai.WithLogger(logger),
+	)
 
 	// Override the client with our test client
 	client.Client = openaiClient

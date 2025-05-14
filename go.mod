@@ -1,8 +1,6 @@
 module github.com/Ingenimax/agent-sdk-go
 
-go 1.23.0
-
-toolchain go1.23.7
+go 1.23.8
 
 require (
 	github.com/go-openapi/strfmt v0.23.0

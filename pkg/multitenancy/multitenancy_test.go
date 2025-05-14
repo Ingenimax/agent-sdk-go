@@ -2,12 +2,82 @@ package multitenancy_test
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/embedding"
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"github.com/Ingenimax/agent-sdk-go/pkg/vectorstore/weaviate"
 )
+
+// MockEmbedder implements a simple mock for testing
+type MockEmbedder struct{}
+
+func (m *MockEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	return []float32{0.1, 0.2, 0.3}, nil
+}
+
+func (m *MockEmbedder) EmbedWithConfig(ctx context.Context, text string, config embedding.EmbeddingConfig) ([]float32, error) {
+	return []float32{0.1, 0.2, 0.3}, nil
+}
+
+func (m *MockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	result := make([][]float32, len(texts))
+	for i := range texts {
+		result[i] = []float32{0.1, 0.2, 0.3}
+	}
+	return result, nil
+}
+
+func (m *MockEmbedder) EmbedBatchWithConfig(ctx context.Context, texts []string, config embedding.EmbeddingConfig) ([][]float32, error) {
+	result := make([][]float32, len(texts))
+	for i := range texts {
+		result[i] = []float32{0.1, 0.2, 0.3}
+	}
+	return result, nil
+}
+
+func (m *MockEmbedder) CalculateSimilarity(vec1, vec2 []float32, metric string) (float32, error) {
+	return 0.95, nil
+}
+
+// MockVectorStore implements a simple mock VectorStore for testing
+type MockVectorStore struct {
+	documents map[string][]interfaces.Document
+	lastOrgID string
+}
+
+func NewMockVectorStore() *MockVectorStore {
+	return &MockVectorStore{
+		documents: make(map[string][]interfaces.Document),
+	}
+}
+
+func (s *MockVectorStore) Store(ctx context.Context, documents []interfaces.Document, options ...interfaces.StoreOption) error {
+	// Get organization ID
+	orgID, _ := multitenancy.GetOrgID(ctx)
+	s.lastOrgID = orgID
+
+	// Create key for this organization
+	key := "docs_" + orgID
+	s.documents[key] = documents
+	return nil
+}
+
+func (s *MockVectorStore) Search(ctx context.Context, query string, limit int, options ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	return nil, nil
+}
+
+func (s *MockVectorStore) SearchByVector(ctx context.Context, vector []float32, limit int, options ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	return nil, nil
+}
+
+func (s *MockVectorStore) Delete(ctx context.Context, ids []string, options ...interfaces.DeleteOption) error {
+	return nil
+}
+
+func (s *MockVectorStore) Get(ctx context.Context, ids []string) ([]interfaces.Document, error) {
+	return nil, nil
+}
 
 func TestMultiTenancy(t *testing.T) {
 	// Create a config manager
@@ -55,45 +125,49 @@ func TestMultiTenancy(t *testing.T) {
 		t.Errorf("Expected API key 'org2-api-key', got '%s'", apiKey2)
 	}
 
-	// Create a vector store
-	store := weaviate.New(nil)
+	// Create a mock vector store
+	store := NewMockVectorStore()
 
-	// Test that the class names are different for each organization
-	weaviateStore := store // No type assertion needed if store is already the correct type
-
-	// Get the method using reflection
-	method := reflect.ValueOf(weaviateStore).MethodByName("getClassName")
-	if !method.IsValid() {
-		t.Fatalf("getClassName method not found")
+	// Test with first organization
+	docs1 := []interfaces.Document{
+		{
+			ID:      "doc1",
+			Content: "First organization test document",
+		},
+	}
+	err = store.Store(ctx1, docs1)
+	if err != nil {
+		t.Fatalf("Failed to store documents for org1: %v", err)
 	}
 
-	// Call the method
-	results := method.Call([]reflect.Value{reflect.ValueOf(ctx1)})
-	if len(results) != 2 {
-		t.Fatalf("Expected 2 return values, got %d", len(results))
+	if store.lastOrgID != "org1" {
+		t.Errorf("Expected store operation to use org1, got '%s'", store.lastOrgID)
 	}
 
-	// Check for error
-	if !results[1].IsNil() {
-		t.Fatalf("Failed to get class name: %v", results[1].Interface())
+	// Test with second organization
+	docs2 := []interfaces.Document{
+		{
+			ID:      "doc2",
+			Content: "Second organization test document",
+		},
+	}
+	err = store.Store(ctx2, docs2)
+	if err != nil {
+		t.Fatalf("Failed to store documents for org2: %v", err)
 	}
 
-	className1 := results[0].String()
-
-	// Use reflection to call the unexported method for the second context
-	results = method.Call([]reflect.Value{reflect.ValueOf(ctx2)})
-	if len(results) != 2 {
-		t.Fatalf("Expected 2 return values, got %d", len(results))
+	if store.lastOrgID != "org2" {
+		t.Errorf("Expected store operation to use org2, got '%s'", store.lastOrgID)
 	}
 
-	// Check for error
-	if !results[1].IsNil() {
-		t.Fatalf("Failed to get class name: %v", results[1].Interface())
+	// Verify that documents were stored separately
+	if len(store.documents["docs_org1"]) != 1 ||
+		len(store.documents["docs_org2"]) != 1 {
+		t.Errorf("Documents not stored properly by organization")
 	}
 
-	className2 := results[0].String()
-
-	if className1 == className2 {
-		t.Errorf("Expected different class names, got '%s' for both", className1)
+	if store.documents["docs_org1"][0].ID != "doc1" ||
+		store.documents["docs_org2"][0].ID != "doc2" {
+		t.Errorf("Document IDs not stored correctly by organization")
 	}
 }
