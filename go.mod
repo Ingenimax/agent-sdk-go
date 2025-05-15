@@ -10,7 +10,7 @@ require (
 	github.com/henomis/langfuse-go v0.0.3
 	github.com/lib/pq v1.10.9
 	github.com/rs/zerolog v1.33.0
-	github.com/sashabaranov/go-openai v1.38.0
+	github.com/sashabaranov/go-openai v1.40.0
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11
 	github.com/supabase-community/supabase-go v0.0.4
