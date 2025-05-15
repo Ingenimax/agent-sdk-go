@@ -77,3 +77,16 @@ The OpenAI client provides several option functions for configuring requests:
 ## Tool Integration
 
 The OpenAI client also supports tool calling with the `GenerateWithTools` method. See the agent examples for demonstrations of tool integration.
+
+## Additional Examples
+
+### Reasoning Support
+
+This package includes an example demonstrating how to use the reasoning capability:
+
+```bash
+cd reasoning
+go run main.go
+```
+
+The reasoning example shows how to control the verbosity and detail of the model's thought process through the `WithReasoning` option. See the [reasoning example README](reasoning/README.md) for more details.

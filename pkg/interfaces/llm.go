@@ -31,5 +31,5 @@ type LLMConfig struct {
 	FrequencyPenalty float64  // Frequency penalty for the generation
 	PresencePenalty  float64  // Presence penalty for the generation
 	StopSequences    []string // Stop sequences for the generation
-	Reasoning        string   // Reasoning mode for Claude models (none, minimal, comprehensive)
+	Reasoning        string   // Reasoning mode (none, minimal, comprehensive) to control explanation detail
 }
