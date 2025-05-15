@@ -124,8 +124,15 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("command cannot be empty")
 	}
 
+	// Additional validation of command and arguments
+	// Using LookPath to ensure the command exists in the system
+	commandPath, err := exec.LookPath(config.Command)
+	if err != nil {
+		return nil, fmt.Errorf("invalid command %q: %v", config.Command, err)
+	}
+
 	// Use CommandContext instead of Command to ensure process termination when context is done
-	cmd := exec.CommandContext(ctx, config.Command, config.Args...)
+	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
 	}
@@ -146,7 +153,10 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 
 	server, err := NewMCPServer(ctx, clientTransport)
 	if err != nil {
-		cmd.Process.Kill() // Clean up the process if server creation fails
+		killErr := cmd.Process.Kill() // Clean up the process if server creation fails
+		if killErr != nil {
+			return nil, fmt.Errorf("failed to create server: %v and failed to kill process: %v", err, killErr)
+		}
 		return nil, err
 	}
 
