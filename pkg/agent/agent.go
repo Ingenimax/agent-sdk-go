@@ -9,6 +9,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
@@ -30,6 +31,7 @@ type Agent struct {
 	generatedTaskConfigs TaskConfigs
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 	llmConfig            *interfaces.LLMConfig
+	mcpServers           []interfaces.MCPServer // MCP servers for the agent
 }
 
 // Option represents an option for configuring an agent
@@ -116,6 +118,13 @@ func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
 func WithLLMConfig(config interfaces.LLMConfig) Option {
 	return func(a *Agent) {
 		a.llmConfig = &config
+	}
+}
+
+// WithMCPServers sets the MCP servers for the agent
+func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
+	return func(a *Agent) {
+		a.mcpServers = mcpServers
 	}
 }
 
@@ -266,13 +275,130 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		return response, nil
 	}
 
+	allTools := a.tools
+
+	// Add MCP tools if available
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			// Log the error but continue with the agent tools
+			fmt.Printf("Failed to collect MCP tools: %v\n", err)
+		} else if len(mcpTools) > 0 {
+			allTools = append(allTools, mcpTools...)
+		}
+	}
 	// If tools are available and plan approval is required, generate an execution plan
-	if len(a.tools) > 0 && a.requirePlanApproval {
+	if (len(allTools) > 0) && a.requirePlanApproval {
+		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
 		return a.runWithExecutionPlan(ctx, input)
 	}
 
 	// Otherwise, run without an execution plan
-	return a.runWithoutExecutionPlan(ctx, input)
+	return a.runWithoutExecutionPlanWithTools(ctx, input, allTools)
+}
+
+// collectMCPTools collects tools from all MCP servers
+func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) {
+	var mcpTools []interfaces.Tool
+
+	for _, server := range a.mcpServers {
+		// List tools from this server
+		tools, err := server.ListTools(ctx)
+		if err != nil {
+			fmt.Printf("Failed to list tools from MCP server: %v\n", err)
+			continue
+		}
+
+		// Convert MCP tools to agent tools
+		for _, mcpTool := range tools {
+			// Create a new MCPTool
+			tool := mcp.NewMCPTool(mcpTool.Name, mcpTool.Description, mcpTool.Schema, server)
+			mcpTools = append(mcpTools, tool)
+		}
+	}
+
+	return mcpTools, nil
+}
+
+// runWithoutExecutionPlanWithTools runs the agent without an execution plan but with the specified tools
+func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
+	// Collect MCP tools if available
+	allTools := tools
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			// Log the error but continue with the agent tools
+			fmt.Printf("Failed to collect MCP tools: %v\n", err)
+		} else if len(mcpTools) > 0 {
+			allTools = append(allTools, mcpTools...)
+		}
+	}
+
+	// Get conversation history if memory is available
+	var prompt string
+	if a.memory != nil {
+		history, err := a.memory.GetMessages(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to get conversation history: %w", err)
+		}
+
+		// Format history into prompt
+		prompt = formatHistoryIntoPrompt(history)
+	} else {
+		prompt = input
+	}
+
+	// Generate response with tools if available
+	var response string
+	var err error
+
+	// Add system prompt as a generate option
+	generateOptions := []interfaces.GenerateOption{}
+	if a.systemPrompt != "" {
+		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
+	}
+
+	// Add response format as a generate option if available
+	if a.responseFormat != nil {
+		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
+	}
+
+	if a.llmConfig != nil {
+		generateOptions = append(generateOptions, func(options *interfaces.GenerateOptions) {
+			options.LLMConfig = a.llmConfig
+		})
+	}
+
+	if len(allTools) > 0 {
+		response, err = a.llm.GenerateWithTools(ctx, prompt, allTools, generateOptions...)
+	} else {
+		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate response: %w", err)
+	}
+
+	// Apply guardrails to output if available
+	if a.guardrails != nil {
+		guardedResponse, err := a.guardrails.ProcessOutput(ctx, response)
+		if err != nil {
+			return "", fmt.Errorf("guardrails error: %w", err)
+		}
+		response = guardedResponse
+	}
+
+	// Add agent message to memory
+	if a.memory != nil {
+		if err := a.memory.AddMessage(ctx, interfaces.Message{
+			Role:    "assistant",
+			Content: response,
+		}); err != nil {
+			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
+		}
+	}
+
+	return response, nil
 }
 
 // extractPlanAction attempts to extract a plan action from the user input
@@ -416,85 +542,6 @@ func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string,
 
 	// Return the plan for user approval
 	return "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.", nil
-}
-
-// runWithoutExecutionPlan runs the agent without an execution plan
-func (a *Agent) runWithoutExecutionPlan(ctx context.Context, input string) (string, error) {
-	// Get conversation history if memory is available
-	var prompt string
-	if a.memory != nil {
-		history, err := a.memory.GetMessages(ctx)
-		if err != nil {
-			return "", fmt.Errorf("failed to get conversation history: %w", err)
-		}
-
-		// Format history into prompt
-		prompt = formatHistoryIntoPrompt(history)
-	} else {
-		prompt = input
-	}
-
-	// Generate response with tools if available
-	var response string
-	var err error
-
-	// Add system prompt as a generate option
-	generateOptions := []interfaces.GenerateOption{}
-	if a.systemPrompt != "" {
-		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
-	}
-
-	// Add response format as a generate option if available
-	if a.responseFormat != nil {
-		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
-	}
-
-	if a.llmConfig != nil {
-		generateOptions = append(generateOptions, func(options *interfaces.GenerateOptions) {
-			options.LLMConfig = a.llmConfig
-		})
-	}
-
-	if len(a.tools) > 0 {
-		response, err = a.llm.GenerateWithTools(ctx, prompt, a.tools, generateOptions...)
-	} else {
-		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
-	}
-
-	if err != nil {
-		return "", fmt.Errorf("failed to generate response: %w", err)
-	}
-
-	// Apply guardrails to output if available
-	if a.guardrails != nil {
-		guardedResponse, err := a.guardrails.ProcessOutput(ctx, response)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		response = guardedResponse
-	}
-
-	// Add agent message to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    "assistant",
-			Content: response,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
-		}
-	}
-
-	return response, nil
-}
-
-// GetTaskByID returns a task by its ID
-func (a *Agent) GetTaskByID(taskID string) (*executionplan.ExecutionPlan, bool) {
-	return a.planStore.GetPlanByTaskID(taskID)
-}
-
-// ListTasks returns a list of all tasks
-func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
-	return a.planStore.ListPlans()
 }
 
 // formatHistoryIntoPrompt formats conversation history into a prompt
@@ -660,4 +707,14 @@ func (a *Agent) GetGeneratedAgentConfig() *AgentConfig {
 // GetGeneratedTaskConfigs returns the automatically generated task configurations, if any
 func (a *Agent) GetGeneratedTaskConfigs() TaskConfigs {
 	return a.generatedTaskConfigs
+}
+
+// GetTaskByID returns a task by its ID
+func (a *Agent) GetTaskByID(taskID string) (*executionplan.ExecutionPlan, bool) {
+	return a.planStore.GetPlanByTaskID(taskID)
+}
+
+// ListTasks returns a list of all tasks
+func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
+	return a.planStore.ListPlans()
 }
