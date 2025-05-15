@@ -40,7 +40,11 @@ func RunStdioToolCommand(cmd *exec.Cmd, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to write to stdin: %w", err)
 	}
-	stdin.Close()
+
+	// Close stdin and handle any error
+	if err := stdin.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close stdin: %w", err)
+	}
 
 	// Read output from stdout
 	output, err := io.ReadAll(stdout)

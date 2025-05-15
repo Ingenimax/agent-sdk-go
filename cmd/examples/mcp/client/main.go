@@ -20,8 +20,8 @@ func main() {
 	// Example: create an OpenAI LLM (replace with your API key and model)
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		logger.Println("Warning: OPENAI_API_KEY environment variable not set. Using a placeholder value.")
-		apiKey = "YOUR_OPENAI_API_KEY" // This won't work in production
+		logger.Println("Warning: OPENAI_API_KEY environment variable not set.")
+		logger.Fatal("Please set the OPENAI_API_KEY environment variable.")
 	}
 
 	llm := openai.NewClient(apiKey, openai.WithModel("gpt-4o-mini"))

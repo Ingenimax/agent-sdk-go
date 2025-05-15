@@ -60,5 +60,7 @@ func main() {
 
 	// Start the server
 	log.Println("Starting HTTP server on :8083...")
-	server.Serve()
+	if err := server.Serve(); err != nil {
+		log.Fatalf("Failed to serve: %v", err)
+	}
 }

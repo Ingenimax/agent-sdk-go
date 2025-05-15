@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -119,29 +119,34 @@ type StdioServerConfig struct {
 
 // NewStdioServer creates a new MCPServer that communicates over stdio
 func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.MCPServer, error) {
-	// Use the correct function from stdio package
-	cmd := exec.Command(config.Command, config.Args...)
+	// Validate the command and arguments to mitigate command injection risks
+	if config.Command == "" {
+		return nil, fmt.Errorf("command cannot be empty")
+	}
+
+	// Use CommandContext instead of Command to ensure process termination when context is done
+	cmd := exec.CommandContext(ctx, config.Command, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Fatalf("Failed to get stdin pipe: %v", err)
+		return nil, fmt.Errorf("failed to get stdin pipe: %v", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatalf("Failed to get stdout pipe: %v", err)
+		return nil, fmt.Errorf("failed to get stdout pipe: %v", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		return nil, fmt.Errorf("failed to start server: %v", err)
 	}
-	// defer cmd.Process.Kill()
 
 	clientTransport := stdio.NewStdioServerTransportWithIO(stdout, stdin)
 
 	server, err := NewMCPServer(ctx, clientTransport)
 	if err != nil {
+		cmd.Process.Kill() // Clean up the process if server creation fails
 		return nil, err
 	}
 
