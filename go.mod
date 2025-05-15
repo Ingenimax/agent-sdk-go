@@ -14,8 +14,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11
 	github.com/supabase-community/supabase-go v0.0.4
-	github.com/weaviate/weaviate v1.29.0
-	github.com/weaviate/weaviate-go-client/v5 v5.0.2
+	github.com/weaviate/weaviate v1.30.0
+	github.com/weaviate/weaviate-go-client/v5 v5.1.0
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.35.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.35.0
