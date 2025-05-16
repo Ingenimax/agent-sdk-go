@@ -131,7 +131,7 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("invalid command %q: %v", config.Command, err)
 	}
 
-	// Use CommandContext instead of Command to ensure process termination when context is done
+	// #nosec
 	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
