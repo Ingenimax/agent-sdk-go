@@ -82,7 +82,6 @@ func FetchMCPToolsFromServer(ctx context.Context, url string) ([]map[string]inte
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
 
 	// Check the status code
 	if resp.StatusCode != http.StatusOK {
@@ -105,6 +104,11 @@ func FetchMCPToolsFromServer(ctx context.Context, url string) ([]map[string]inte
 	var tools []map[string]interface{}
 	if err := json.Unmarshal(body, &tools); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	err = resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to close response body: %w", err)
 	}
 
 	return tools, nil
