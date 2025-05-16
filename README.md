@@ -10,6 +10,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and other leading LLM providers
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
 - 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
+- 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
 
 ### Enterprise-Ready
 - 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
@@ -317,6 +318,88 @@ The auto-configuration feature uses LLM reasoning to derive a complete agent pro
 
 This approach dramatically reduces the effort needed to create specialized agents while ensuring consistency and quality.
 
+### Using MCP Servers with an Agent
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+)
+
+func main() {
+	logger := log.New(os.Stderr, "AGENT: ", log.LstdFlags)
+
+	// Create OpenAI LLM client
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		logger.Fatal("Please set the OPENAI_API_KEY environment variable.")
+	}
+	llm := openai.NewClient(apiKey, openai.WithModel("gpt-4o-mini"))
+
+	// Create MCP servers
+	var mcpServers []interfaces.MCPServer
+
+	// Connect to HTTP-based MCP server
+	httpServer, err := mcp.NewHTTPServer(context.Background(), mcp.HTTPServerConfig{
+		BaseURL: "http://localhost:8083/mcp",
+	})
+	if err != nil {
+		logger.Printf("Warning: Failed to initialize HTTP MCP server: %v", err)
+	} else {
+		mcpServers = append(mcpServers, httpServer)
+		logger.Println("Successfully initialized HTTP MCP server.")
+	}
+
+	// Connect to stdio-based MCP server
+	stdioServer, err := mcp.NewStdioServer(context.Background(), mcp.StdioServerConfig{
+		Command: "go",
+		Args:    []string{"run", "./server-stdio/main.go"},
+	})
+	if err != nil {
+		logger.Printf("Warning: Failed to initialize STDIO MCP server: %v", err)
+	} else {
+		mcpServers = append(mcpServers, stdioServer)
+		logger.Println("Successfully initialized STDIO MCP server.")
+	}
+
+	// Create agent with MCP server support
+	myAgent, err := agent.NewAgent(
+		agent.WithLLM(llm),
+		agent.WithMCPServers(mcpServers),
+		agent.WithMemory(memory.NewConversationBuffer()),
+		agent.WithSystemPrompt("You are an AI assistant that can use tools from MCP servers."),
+		agent.WithName("MCPAgent"),
+	)
+	if err != nil {
+		logger.Fatalf("Failed to create agent: %v", err)
+	}
+
+	// Create context with organization and conversation IDs
+	ctx := context.Background()
+	ctx = multitenancy.WithOrgID(ctx, "default-org")
+	ctx = context.WithValue(ctx, memory.ConversationIDKey, "mcp-demo")
+
+	// Run the agent with a query that will use MCP tools
+	response, err := myAgent.Run(ctx, "What time is it right now?")
+	if err != nil {
+		logger.Fatalf("Agent run failed: %v", err)
+	}
+
+	fmt.Println("Agent response:", response)
+}
+```
+
 ## Architecture
 
 The SDK follows a modular architecture with these key components:
@@ -338,6 +421,7 @@ Check out the `cmd/examples` directory for complete examples:
 - **YAML Configuration**: Defining agents and tasks in YAML
 - **Auto-Configuration**: Generating agent configurations from system prompts
 - **Agent Config Wizard**: Interactive CLI for creating and using agents
+- **MCP Integration**: Using Model Context Protocol servers with agents
 
 ## License
 
@@ -358,3 +442,4 @@ For more detailed information, refer to the following documents:
 - [Agent](docs/agent.md)
 - [Execution Plan](docs/execution_plan.md)
 - [Guardrails](docs/guardrails.md)
+- [MCP](docs/mcp.md)
