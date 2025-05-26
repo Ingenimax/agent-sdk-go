@@ -17,11 +17,11 @@ require (
 	github.com/supabase-community/supabase-go v0.0.4
 	github.com/weaviate/weaviate v1.30.0
 	github.com/weaviate/weaviate-go-client/v5 v5.1.0
-	go.opentelemetry.io/otel v1.35.0
+	go.opentelemetry.io/otel v1.36.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.35.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.35.0
 	go.opentelemetry.io/otel/sdk v1.35.0
-	go.opentelemetry.io/otel/trace v1.35.0
+	go.opentelemetry.io/otel/trace v1.36.0
 	golang.org/x/oauth2 v0.30.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -87,7 +87,7 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/otel/metric v1.35.0 // indirect
+	go.opentelemetry.io/otel/metric v1.36.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
