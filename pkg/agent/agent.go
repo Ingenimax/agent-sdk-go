@@ -322,18 +322,6 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 
 // runWithoutExecutionPlanWithTools runs the agent without an execution plan but with the specified tools
 func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
-	// Collect MCP tools if available
-	allTools := tools
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log the error but continue with the agent tools
-			fmt.Printf("Failed to collect MCP tools: %v\n", err)
-		} else if len(mcpTools) > 0 {
-			allTools = append(allTools, mcpTools...)
-		}
-	}
-
 	// Get conversation history if memory is available
 	var prompt string
 	if a.memory != nil {
@@ -369,8 +357,8 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 		})
 	}
 
-	if len(allTools) > 0 {
-		response, err = a.llm.GenerateWithTools(ctx, prompt, allTools, generateOptions...)
+	if len(tools) > 0 {
+		response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
 	} else {
 		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
 	}
