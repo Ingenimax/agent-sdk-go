@@ -11,7 +11,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/metoro-io/mcp-golang v0.13.0
 	github.com/rs/zerolog v1.34.0
-	github.com/sashabaranov/go-openai v1.40.0
+	github.com/sashabaranov/go-openai v1.40.1
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11
 	github.com/supabase-community/supabase-go v0.0.4
