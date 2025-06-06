@@ -18,7 +18,7 @@ This example demonstrates how to implement agent handoff functionality in the Ag
 ### Prerequisites
 
 - Set the `OPENAI_API_KEY` environment variable with your OpenAI API key
-- For web search functionality, set `GOOGLE_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID`
+- For web search functionality, set `GOOGLE_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID`. Refer to the [Google Custom Search API documentation](https://developers.google.com/custom-search/v1/introduction#identify_your_application_to_google_with_api_key) for more details. You can manage your search engines at the [Programmable Search Engine Control Panel](https://programmablesearchengine.google.com/controlpanel/all).
 
 ```bash
 export OPENAI_API_KEY=your_openai_api_key

@@ -145,7 +145,7 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search API returned status code %d", resp.StatusCode)
+		return "", fmt.Errorf("search API returned status code %d: %s", resp.StatusCode, resp.Status)
 	}
 
 	// Parse response
