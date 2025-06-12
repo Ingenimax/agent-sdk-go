@@ -10,7 +10,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 ## Features
 
 ### Core Capabilities
-- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and other leading LLM providers
+- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and Google Vertex AI (Gemini models).
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
 - 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
 - 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
@@ -408,13 +408,23 @@ func main() {
 The SDK follows a modular architecture with these key components:
 
 - **Agent**: Coordinates the LLM, memory, and tools
-- **LLM**: Interface to language model providers
+- **LLM**: Interface to language model providers (OpenAI, Anthropic, Google Vertex AI)
 - **Memory**: Stores conversation history and context
 - **Tools**: Extend the agent's capabilities
 - **Vector Store**: For semantic search and retrieval
 - **Guardrails**: Ensures safe and responsible AI usage
 - **Execution Plan**: Manages planning, approval, and execution of complex tasks
 - **Configuration**: YAML-based agent and task definitions
+
+### Supported LLM Providers
+
+- **OpenAI**: GPT-4, GPT-3.5, and other OpenAI models
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Haiku, and other Claude models  
+- **Google Vertex AI**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash, and Gemini Pro Vision
+  - Advanced reasoning modes (none, minimal, comprehensive)
+  - Multimodal capabilities with vision models
+  - Function calling and tool integration
+  - Flexible authentication (ADC or service account files)
 
 ## Examples
 
@@ -425,6 +435,14 @@ Check out the `cmd/examples` directory for complete examples:
 - **Auto-Configuration**: Generating agent configurations from system prompts
 - **Agent Config Wizard**: Interactive CLI for creating and using agents
 - **MCP Integration**: Using Model Context Protocol servers with agents
+- **Multi-LLM Support**: Examples using OpenAI, Anthropic, and Vertex AI
+- **Vertex AI Integration**: Comprehensive examples with Gemini models, reasoning modes, and tools
+
+### LLM Provider Examples
+
+- `examples/llm/openai/`: OpenAI integration examples
+- `examples/llm/anthropic/`: Anthropic Claude integration examples  
+- `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
 
 ## License
 
