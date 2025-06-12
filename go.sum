@@ -299,8 +299,8 @@ github.com/ugorji/go/codec v1.2.11 h1:BMaWp1Bb6fHwEtbplGBGJ498wD+LKlNSl25MjdZY4d
 github.com/ugorji/go/codec v1.2.11/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
 github.com/weaviate/weaviate v1.31.0 h1:Ia92M15RqO4lNHHpraljgdoX25/zreEQahUNuEHjCXw=
 github.com/weaviate/weaviate v1.31.0/go.mod h1:LYPjjhOIZV7aHeRqohhitEogszgAk1Aly6sV/Hbk3FY=
-github.com/weaviate/weaviate-go-client/v5 v5.1.0 h1:3wSf4fktKLvspPHwDYnn07u0sKfDAhrA5JeRe+R4ENg=
-github.com/weaviate/weaviate-go-client/v5 v5.1.0/go.mod h1:gg5qyiHk53+HMZW2ynkrgm+cMQDD2Ewyma84rBeChz4=
+github.com/weaviate/weaviate-go-client/v5 v5.2.0 h1:/HG0vFiKBK3JoOKo0mdk2XVYZ+oM0KfvCLG2ySr/FCA=
+github.com/weaviate/weaviate-go-client/v5 v5.2.0/go.mod h1:nzR0ScRmbbutI+0pAjylj9Pt6upGVotnphiLWjy/QNA=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
 github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
