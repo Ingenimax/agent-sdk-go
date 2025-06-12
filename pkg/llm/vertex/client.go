@@ -481,28 +481,6 @@ func (c *Client) convertTools(tools []interfaces.Tool) []*genai.Tool {
 	return vertexTools
 }
 
-// configureModel applies generation parameters to the model
-func (c *Client) configureModel(model *genai.GenerativeModel, params *llm.GenerateParams) {
-	if params.Temperature >= 0 {
-		temp := float32(params.Temperature)
-		model.Temperature = &temp
-	}
-
-	if params.TopP > 0 {
-		topP := float32(params.TopP)
-		model.TopP = &topP
-	}
-
-	if params.TopK > 0 {
-		topK := int32(params.TopK)
-		model.TopK = &topK
-	}
-
-	if len(params.StopSequences) > 0 {
-		model.StopSequences = params.StopSequences
-	}
-}
-
 // getReasoningInstruction returns the reasoning instruction based on the mode
 func (c *Client) getReasoningInstruction() string {
 	switch c.reasoningMode {

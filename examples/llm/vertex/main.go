@@ -83,7 +83,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Vertex AI client: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			log.Printf("Failed to close Vertex AI client: %v", err)
+		}
+	}()
 
 	fmt.Printf("Created Vertex AI client: %s\n", client.Name())
 
@@ -197,7 +201,11 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to create Flash client: %v", err)
 	} else {
-		defer flashClient.Close()
+		defer func() {
+			if err := flashClient.Close(); err != nil {
+				log.Printf("Failed to close Flash client: %v", err)
+			}
+		}()
 
 		response, err = flashClient.Generate(ctx, "Write a short joke about programming")
 		if err != nil {
