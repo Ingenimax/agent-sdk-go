@@ -3,7 +3,7 @@ module github.com/Ingenimax/agent-sdk-go
 go 1.24
 
 require (
-	cloud.google.com/go/vertexai v0.14.0
+	cloud.google.com/go/vertexai v0.15.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-redis/redis/v8 v8.11.5
