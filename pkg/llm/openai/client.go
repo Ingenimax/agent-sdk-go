@@ -388,6 +388,12 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 	}
 
+	// Set default max iterations if not provided
+	maxIterations := params.MaxIterations
+	if maxIterations == 0 {
+		maxIterations = 2 // Default to current behavior
+	}
+
 	// Check for organization ID in context
 	orgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
@@ -523,60 +529,68 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
 	}
 
-	// Send request
-	var reasoningMode string
-	if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		reasoningMode = params.LLMConfig.Reasoning
-	} else {
-		reasoningMode = "none"
-	}
+	// Iterative tool calling loop
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Update request with current messages
+		req.Messages = messages
 
-	c.logger.Debug(ctx, "Sending request with tools to OpenAI", map[string]interface{}{
-		"model":             c.Model,
-		"temperature":       req.Temperature,
-		"top_p":             req.TopP,
-		"frequency_penalty": req.FrequencyPenalty,
-		"presence_penalty":  req.PresencePenalty,
-		"stop_sequences":    req.Stop,
-		"messages":          len(req.Messages),
-		"tools":             len(req.Tools),
-		"response_format":   req.ResponseFormat != nil,
-		"parallel_tools":    req.ParallelToolCalls,
-		"reasoning":         reasoningMode,
-	})
-	resp, err := c.Client.CreateChatCompletion(ctx, req)
-	if err != nil {
-		c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
-		return "", fmt.Errorf("failed to create chat completion: %w", err)
-	}
+		// Send request
+		var reasoningMode string
+		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
+			reasoningMode = params.LLMConfig.Reasoning
+		} else {
+			reasoningMode = "none"
+		}
 
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no completions returned")
-	}
+		c.logger.Debug(ctx, "Sending request with tools to OpenAI", map[string]interface{}{
+			"model":             c.Model,
+			"temperature":       req.Temperature,
+			"top_p":             req.TopP,
+			"frequency_penalty": req.FrequencyPenalty,
+			"presence_penalty":  req.PresencePenalty,
+			"stop_sequences":    req.Stop,
+			"messages":          len(req.Messages),
+			"tools":             len(req.Tools),
+			"response_format":   req.ResponseFormat != nil,
+			"parallel_tools":    req.ParallelToolCalls,
+			"reasoning":         reasoningMode,
+			"iteration":         iteration + 1,
+			"maxIterations":     maxIterations,
+		})
+		resp, err := c.Client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
+			return "", fmt.Errorf("failed to create chat completion: %w", err)
+		}
 
-	// Check if the model wants to use tools
-	if len(resp.Choices[0].Message.ToolCalls) > 0 {
+		if len(resp.Choices) == 0 {
+			return "", fmt.Errorf("no completions returned")
+		}
+
+		// Check if the model wants to use tools
+		if len(resp.Choices[0].Message.ToolCalls) == 0 {
+			// No tool calls, return the response
+			content := strings.TrimSpace(resp.Choices[0].Message.Content)
+			return content, nil
+		}
+
 		// The model wants to use tools
 		toolCalls := resp.Choices[0].Message.ToolCalls
-		c.logger.Info(ctx, "Processing tool calls", map[string]interface{}{"count": len(toolCalls)})
+		c.logger.Info(ctx, "Processing tool calls", map[string]interface{}{
+			"count":     len(toolCalls),
+			"iteration": iteration + 1,
+		})
 
-		// Replace multi_tool_use.parallel name if present
-		for i := range toolCalls {
-			if toolCalls[i].Function.Name == "multi_tool_use.parallel" {
-				c.logger.Info(ctx, "Replacing multi_tool_use.parallel with parallel_tool_use", nil)
-				// it's required because the function name must match ^[a-zA-Z0-9_-]+$ when sending the request to OpenAI
-				toolCalls[i].Function.Name = "parallel_tool_use"
-			}
-		}
-
-		// Create a new conversation with the initial messages
-		messages := []openai.ChatCompletionMessage{
-			{Role: "user", Content: prompt},
-			resp.Choices[0].Message,
-		}
+		// Add the assistant's message with tool calls to the conversation
+		messages = append(messages, resp.Choices[0].Message)
 
 		// Process each tool call
 		for _, toolCall := range toolCalls {
+			// Replace multi_tool_use.parallel name if present
+			if toolCall.Function.Name == "multi_tool_use.parallel" {
+				c.logger.Info(ctx, "Replacing multi_tool_use.parallel with parallel_tool_use", nil)
+				toolCall.Function.Name = "parallel_tool_use"
+			}
 
 			if toolCall.Function.Name == "parallel_tool_use" {
 				c.logger.Info(ctx, "Parallel tool call", map[string]interface{}{"toolName": toolCall.Function.Name})
@@ -709,65 +723,61 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			})
 		}
 
-		// Get the final response
-		var reasoningMode string
-		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			reasoningMode = params.LLMConfig.Reasoning
-		} else {
-			reasoningMode = "none"
-		}
-
-		c.logger.Info(ctx, "Sending final request with tool results", map[string]interface{}{
-			"model":             c.Model,
-			"temperature":       req.Temperature,
-			"top_p":             req.TopP,
-			"frequency_penalty": req.FrequencyPenalty,
-			"presence_penalty":  req.PresencePenalty,
-			"stop_sequences":    req.Stop,
-			"messages":          len(messages),
-			"reasoning":         reasoningMode,
-		})
-
-		req := openai.ChatCompletionRequest{
-			Model:            c.Model,
-			Messages:         messages,
-			Temperature:      float32(params.LLMConfig.Temperature),
-			TopP:             float32(params.LLMConfig.TopP),
-			FrequencyPenalty: float32(params.LLMConfig.FrequencyPenalty),
-			PresencePenalty:  float32(params.LLMConfig.PresencePenalty),
-			Stop:             params.LLMConfig.StopSequences,
-		}
-
-		// Set response format for final request if provided
-		if params.ResponseFormat != nil {
-			req.ResponseFormat = &openai.ChatCompletionResponseFormat{
-				Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
-				JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-					Name:   params.ResponseFormat.Name,
-					Schema: params.ResponseFormat.Schema,
-				},
-			}
-			c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
-		}
-
-		finalCompletion, err := c.Client.CreateChatCompletion(ctx, req)
-		if err != nil {
-			c.logger.Error(ctx, "Error from final OpenAI API call", map[string]interface{}{
-				"error": err.Error(),
-			})
-			return "", fmt.Errorf("failed to create final chat completion: %w", err)
-		}
-
-		if len(finalCompletion.Choices) == 0 {
-			return "", fmt.Errorf("no completions returned")
-		}
-
-		content := strings.TrimSpace(finalCompletion.Choices[0].Message.Content)
-		return content, nil
+		// Continue to the next iteration with updated messages
 	}
 
-	// No tool was used, return the direct response
-	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	// If we've reached the maximum iterations and the model is still requesting tools,
+	// make one final call without tools to get a conclusion
+	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
+		"maxIterations": maxIterations,
+	})
+
+	// Create a final request without tools to force the LLM to provide a conclusion
+	finalReq := openai.ChatCompletionRequest{
+		Model:            c.Model,
+		Messages:         messages,
+		Tools:            nil, // No tools for final call
+		Temperature:      float32(params.LLMConfig.Temperature),
+		TopP:             float32(params.LLMConfig.TopP),
+		FrequencyPenalty: float32(params.LLMConfig.FrequencyPenalty),
+		PresencePenalty:  float32(params.LLMConfig.PresencePenalty),
+		Stop:             params.LLMConfig.StopSequences,
+	}
+
+	// Set response format if provided
+	if params.ResponseFormat != nil {
+		finalReq.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+				Name:   params.ResponseFormat.Name,
+				Schema: params.ResponseFormat.Schema,
+			},
+		}
+	}
+
+	// Add a system message to encourage conclusion
+	conclusionMessage := openai.ChatCompletionMessage{
+		Role:    "system",
+		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
+	}
+	finalReq.Messages = append(finalReq.Messages, conclusionMessage)
+
+	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
+		"messages": len(finalReq.Messages),
+	})
+
+	finalResp, err := c.Client.CreateChatCompletion(ctx, finalReq)
+	if err != nil {
+		c.logger.Error(ctx, "Error in final call without tools", map[string]interface{}{"error": err.Error()})
+		return "", fmt.Errorf("failed to create final chat completion: %w", err)
+	}
+
+	if len(finalResp.Choices) == 0 {
+		return "", fmt.Errorf("no completions returned in final call")
+	}
+
+	content := strings.TrimSpace(finalResp.Choices[0].Message.Content)
+	c.logger.Info(ctx, "Successfully received final response without tools", nil)
 	return content, nil
 }
 

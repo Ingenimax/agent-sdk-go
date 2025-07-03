@@ -32,6 +32,7 @@ type Agent struct {
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer // MCP servers for the agent
+	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
 }
 
 // Option represents an option for configuring an agent
@@ -128,10 +129,18 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 	}
 }
 
+// WithMaxIterations sets the maximum number of tool-calling iterations for the agent
+func WithMaxIterations(maxIterations int) Option {
+	return func(a *Agent) {
+		a.maxIterations = maxIterations
+	}
+}
+
 // NewAgent creates a new agent with the given options
 func NewAgent(options ...Option) (*Agent, error) {
 	agent := &Agent{
 		requirePlanApproval: true, // Default to requiring approval
+		maxIterations:       2,    // Default to 2 iterations (current behavior)
 	}
 
 	for _, option := range options {
@@ -356,6 +365,9 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 			options.LLMConfig = a.llmConfig
 		})
 	}
+
+	// Add max iterations option
+	generateOptions = append(generateOptions, interfaces.WithMaxIterations(a.maxIterations))
 
 	if len(tools) > 0 {
 		response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)

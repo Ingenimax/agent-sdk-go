@@ -548,6 +548,12 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		}
 	}
 
+	// Set default max iterations if not provided
+	maxIterations := params.MaxIterations
+	if maxIterations == 0 {
+		maxIterations = 2 // Default to current behavior
+	}
+
 	// Check for organization ID in context, and add a default one if missing
 	defaultOrgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
@@ -611,159 +617,182 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		},
 	}
 
-	// Create request
-	req := CompletionRequest{
-		Model:       c.Model,
-		Messages:    messages,
-		MaxTokens:   2048,
-		Temperature: params.LLMConfig.Temperature,
-		TopP:        params.LLMConfig.TopP,
-		Tools:       anthropicTools,
-		// Auto use tools when needed
-		ToolChoice: map[string]string{
-			"type": "auto",
-		},
-	}
+	// Iterative tool calling loop
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Create request
+		req := CompletionRequest{
+			Model:       c.Model,
+			Messages:    messages,
+			MaxTokens:   2048,
+			Temperature: params.LLMConfig.Temperature,
+			TopP:        params.LLMConfig.TopP,
+			Tools:       anthropicTools,
+			// Auto use tools when needed
+			ToolChoice: map[string]string{
+				"type": "auto",
+			},
+		}
 
-	// Add system message if available
-	if params.SystemMessage != "" {
-		req.System = params.SystemMessage
-		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
-	}
+		// Add system message if available
+		if params.SystemMessage != "" {
+			req.System = params.SystemMessage
+			c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
+		}
 
-	// Add reasoning parameter if available
-	if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		c.logger.Debug(ctx, "Reasoning mode not supported in current API version", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-	}
+		// Add reasoning parameter if available
+		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
+			c.logger.Debug(ctx, "Reasoning mode not supported in current API version", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+		}
 
-	// Send request
-	c.logger.Debug(ctx, "Sending request with tools to Anthropic", map[string]interface{}{
-		"model":       c.Model,
-		"temperature": req.Temperature,
-		"top_p":       req.TopP,
-		"messages":    len(req.Messages),
-		"tools":       len(req.Tools),
-		"system":      req.System != "",
-	})
-
-	// Convert request to JSON
-	reqBody, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		"POST",
-		c.BaseURL+"/v1/messages",
-		bytes.NewBuffer(reqBody),
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-API-Key", c.APIKey)
-	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
-
-	// Send request
-	httpResp, err := c.HTTPClient.Do(httpReq)
-	if err != nil {
-		c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-			"error": err.Error(),
-			"model": c.Model,
+		// Send request
+		c.logger.Debug(ctx, "Sending request with tools to Anthropic", map[string]interface{}{
+			"model":         c.Model,
+			"temperature":   req.Temperature,
+			"top_p":         req.TopP,
+			"messages":      len(req.Messages),
+			"tools":         len(req.Tools),
+			"system":        req.System != "",
+			"iteration":     iteration + 1,
+			"maxIterations": maxIterations,
 		})
-		return "", fmt.Errorf("failed to send request: %w", err)
-	}
-	defer func() {
-		if closeErr := httpResp.Body.Close(); closeErr != nil {
-			c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
-				"error": closeErr.Error(),
+
+		// Convert request to JSON
+		reqBody, err := json.Marshal(req)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request (iteration %d): %w", iteration+1, err)
+		}
+
+		// Create HTTP request
+		httpReq, err := http.NewRequestWithContext(
+			ctx,
+			"POST",
+			c.BaseURL+"/v1/messages",
+			bytes.NewBuffer(reqBody),
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to create request (iteration %d): %w", iteration+1, err)
+		}
+
+		// Set headers
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("X-API-Key", c.APIKey)
+		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+
+		// Send request
+		httpResp, err := c.HTTPClient.Do(httpReq)
+		if err != nil {
+			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
+				"error":     err.Error(),
+				"model":     c.Model,
+				"iteration": iteration + 1,
 			})
+			return "", fmt.Errorf("failed to send request (iteration %d): %w", iteration+1, err)
 		}
-	}()
-
-	// Read response body
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Check for error response
-	if httpResp.StatusCode != http.StatusOK {
-		c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-			"status_code": httpResp.StatusCode,
-			"response":    string(respBody),
-			"model":       c.Model,
-		})
-		return "", fmt.Errorf("error from Anthropic API: %s", string(respBody))
-	}
-
-	// Unmarshal response
-	var resp CompletionResponse
-	err = json.Unmarshal(respBody, &resp)
-	if err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Log the raw response for debugging
-	c.logger.Debug(ctx, "Raw response from Anthropic", map[string]interface{}{
-		"response": string(respBody),
-	})
-
-	// Make sure content is not nil
-	if resp.Content == nil {
-		c.logger.Error(ctx, "No content in response", nil)
-		return "", fmt.Errorf("no content in response")
-	}
-
-	// Check if the model wants to use tools
-	var hasToolUse bool
-	var toolCalls []ToolUse
-
-	c.logger.Debug(ctx, "Response content blocks", map[string]interface{}{
-		"numBlocks": len(resp.Content),
-		"blockTypes": func() []string {
-			types := make([]string, len(resp.Content))
-			for i, block := range resp.Content {
-				types[i] = block.Type
-				if block.Type == "tool_use" && block.ToolUse != nil {
-					toolName := ""
-					if block.ToolUse.Name != "" {
-						toolName = block.ToolUse.Name
-					} else if block.ToolUse.RecipientName != "" {
-						toolName = block.ToolUse.RecipientName
-					}
-					c.logger.Debug(ctx, "Found tool use block", map[string]interface{}{
-						"toolName": toolName,
-						"toolID":   block.ToolUse.ID,
-					})
-				}
+		defer func() {
+			if closeErr := httpResp.Body.Close(); closeErr != nil {
+				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
 			}
-			return types
-		}(),
-	})
+		}()
 
-	for _, contentBlock := range resp.Content {
-		if contentBlock.Type == "tool_use" && contentBlock.ToolUse != nil {
-			hasToolUse = true
-			toolCalls = append(toolCalls, *contentBlock.ToolUse)
+		// Read response body
+		respBody, err := io.ReadAll(httpResp.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read response body (iteration %d): %w", iteration+1, err)
 		}
-	}
 
-	c.logger.Debug(ctx, "Tool use detection results", map[string]interface{}{
-		"hasToolUse": hasToolUse,
-		"toolCalls":  len(toolCalls),
-	})
+		// Check for error response
+		if httpResp.StatusCode != http.StatusOK {
+			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
+				"status_code": httpResp.StatusCode,
+				"response":    string(respBody),
+				"model":       c.Model,
+				"iteration":   iteration + 1,
+			})
+			return "", fmt.Errorf("error from Anthropic API (iteration %d): %s", iteration+1, string(respBody))
+		}
 
-	if hasToolUse {
+		// Unmarshal response
+		var resp CompletionResponse
+		err = json.Unmarshal(respBody, &resp)
+		if err != nil {
+			return "", fmt.Errorf("failed to unmarshal response (iteration %d): %w", iteration+1, err)
+		}
+
+		// Log the raw response for debugging
+		c.logger.Debug(ctx, "Raw response from Anthropic", map[string]interface{}{
+			"response":  string(respBody),
+			"iteration": iteration + 1,
+		})
+
+		// Make sure content is not nil
+		if resp.Content == nil {
+			c.logger.Error(ctx, "No content in response", map[string]interface{}{"iteration": iteration + 1})
+			return "", fmt.Errorf("no content in response (iteration %d)", iteration+1)
+		}
+
+		// Check if the model wants to use tools
+		var hasToolUse bool
+		var toolCalls []ToolUse
+		var textContent []string
+
+		c.logger.Debug(ctx, "Response content blocks", map[string]interface{}{
+			"numBlocks": len(resp.Content),
+			"iteration": iteration + 1,
+			"blockTypes": func() []string {
+				types := make([]string, len(resp.Content))
+				for i, block := range resp.Content {
+					types[i] = block.Type
+					if block.Type == "tool_use" && block.ToolUse != nil {
+						toolName := ""
+						if block.ToolUse.Name != "" {
+							toolName = block.ToolUse.Name
+						} else if block.ToolUse.RecipientName != "" {
+							toolName = block.ToolUse.RecipientName
+						}
+						c.logger.Debug(ctx, "Found tool use block", map[string]interface{}{
+							"toolName":  toolName,
+							"toolID":    block.ToolUse.ID,
+							"iteration": iteration + 1,
+						})
+					}
+				}
+				return types
+			}(),
+		})
+
+		for _, contentBlock := range resp.Content {
+			if contentBlock.Type == "tool_use" && contentBlock.ToolUse != nil {
+				hasToolUse = true
+				toolCalls = append(toolCalls, *contentBlock.ToolUse)
+			} else if contentBlock.Type == "text" {
+				textContent = append(textContent, contentBlock.Text)
+			}
+		}
+
+		c.logger.Debug(ctx, "Tool use detection results", map[string]interface{}{
+			"hasToolUse": hasToolUse,
+			"toolCalls":  len(toolCalls),
+			"iteration":  iteration + 1,
+		})
+
+		// If no tool use, return the text content
+		if !hasToolUse {
+			if len(textContent) == 0 {
+				return "", fmt.Errorf("no text content in response (iteration %d)", iteration+1)
+			}
+			return strings.Join(textContent, "\n"), nil
+		}
+
 		// The model wants to use tools
-		c.logger.Info(ctx, "Processing tool calls", map[string]interface{}{"count": len(toolCalls)})
+		c.logger.Info(ctx, "Processing tool calls", map[string]interface{}{
+			"count":     len(toolCalls),
+			"iteration": iteration + 1,
+		})
 
-		// Create a new conversation with the initial messages and the assistant response
-		messages := append(req.Messages, Message{
+		// Add the assistant response to messages
+		messages = append(messages, Message{
 			Role: "assistant",
 			// We don't need the content here as we'll be adding tool results
 		})
@@ -778,7 +807,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			} else if toolCall.RecipientName != "" {
 				toolName = toolCall.RecipientName
 			} else {
-				c.logger.Error(ctx, "Tool call missing both Name and RecipientName", nil)
+				c.logger.Error(ctx, "Tool call missing both Name and RecipientName", map[string]interface{}{"iteration": iteration + 1})
 				continue
 			}
 
@@ -793,7 +822,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 			if selectedTool == nil {
 				c.logger.Error(ctx, "Tool not found", map[string]interface{}{
-					"toolName": toolName,
+					"toolName":  toolName,
+					"iteration": iteration + 1,
 					"availableTools": func() []string {
 						names := make([]string, len(tools))
 						for i, t := range tools {
@@ -802,7 +832,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						return names
 					}(),
 				})
-				return "", fmt.Errorf("tool not found: %s", toolName)
+				return "", fmt.Errorf("tool not found: %s (iteration %d)", toolName, iteration+1)
 			}
 
 			// Get parameters - could be in either Input or Parameters field
@@ -819,21 +849,30 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 				c.logger.Error(ctx, "Error marshalling parameters", map[string]interface{}{
 					"error":      err.Error(),
 					"parameters": parameters,
+					"iteration":  iteration + 1,
 				})
-				return "", fmt.Errorf("error marshalling parameters: %w", err)
+				return "", fmt.Errorf("error marshalling parameters (iteration %d): %w", iteration+1, err)
 			}
 
 			// Log parameters for debugging
 			c.logger.Debug(ctx, "Tool parameters", map[string]interface{}{
 				"toolName":   toolName,
 				"parameters": string(toolCallJSON),
+				"iteration":  iteration + 1,
 			})
 
 			// Execute the tool
-			c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": selectedTool.Name()})
+			c.logger.Info(ctx, "Executing tool", map[string]interface{}{
+				"toolName":  selectedTool.Name(),
+				"iteration": iteration + 1,
+			})
 			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
 			if err != nil {
-				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
+				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
+					"toolName":  selectedTool.Name(),
+					"error":     err.Error(),
+					"iteration": iteration + 1,
+				})
 				// Return error as tool result
 				toolResults = append(toolResults, ToolResult{
 					Type:     "tool_result",
@@ -854,7 +893,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		// Create a new message from the user with the tool results
 		toolResultsJSON, err := json.Marshal(toolResults)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal tool results: %w", err)
+			return "", fmt.Errorf("failed to marshal tool results (iteration %d): %w", iteration+1, err)
 		}
 
 		// Add a user message with the tool results
@@ -863,122 +902,117 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			Content: fmt.Sprintf("Here are the tool results: %s", string(toolResultsJSON)),
 		})
 
-		// Get the final response
-		c.logger.Info(ctx, "Sending final request with tool results", nil)
-
-		finalReq := CompletionRequest{
-			Model:       c.Model,
-			Messages:    messages,
-			MaxTokens:   2048,
-			Temperature: params.LLMConfig.Temperature,
-			TopP:        params.LLMConfig.TopP,
-		}
-
-		// Add system message if available
-		if params.SystemMessage != "" {
-			finalReq.System = params.SystemMessage
-		}
-
-		// Add reasoning parameter if available
-		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			c.logger.Debug(ctx, "Reasoning mode not supported in current API version", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-		}
-
-		// Convert request to JSON
-		reqBody, err := json.Marshal(finalReq)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal final request: %w", err)
-		}
-
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			"POST",
-			c.BaseURL+"/v1/messages",
-			bytes.NewBuffer(reqBody),
-		)
-		if err != nil {
-			return "", fmt.Errorf("failed to create final request: %w", err)
-		}
-
-		// Set headers
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
-		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
-
-		// Send request
-		httpResp, err := c.HTTPClient.Do(httpReq)
-		if err != nil {
-			c.logger.Error(ctx, "Error from final Anthropic API call", map[string]interface{}{
-				"error": err.Error(),
-				"model": c.Model,
-			})
-			return "", fmt.Errorf("failed to send final request: %w", err)
-		}
-		defer func() {
-			if closeErr := httpResp.Body.Close(); closeErr != nil {
-				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
-					"error": closeErr.Error(),
-				})
-			}
-		}()
-
-		// Read response body
-		respBody, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read final response body: %w", err)
-		}
-
-		// Check for error response
-		if httpResp.StatusCode != http.StatusOK {
-			c.logger.Error(ctx, "Error from final Anthropic API call", map[string]interface{}{
-				"status_code": httpResp.StatusCode,
-				"response":    string(respBody),
-				"model":       c.Model,
-			})
-			return "", fmt.Errorf("error from final Anthropic API call: %s", string(respBody))
-		}
-
-		// Unmarshal response
-		var finalResp CompletionResponse
-		err = json.Unmarshal(respBody, &finalResp)
-		if err != nil {
-			return "", fmt.Errorf("failed to unmarshal final response: %w", err)
-		}
-
-		// Extract text from content blocks
-		var contentText []string
-		for _, block := range finalResp.Content {
-			if block.Type == "text" {
-				contentText = append(contentText, block.Text)
-			}
-		}
-
-		if len(contentText) == 0 {
-			return "", fmt.Errorf("no text content in final response")
-		}
-
-		return strings.Join(contentText, "\n"), nil
+		// Continue to the next iteration with updated messages
 	}
 
-	// No tool was used, return the direct response
-	var contentText []string
-	for _, block := range resp.Content {
-		if block.Type == "text" {
-			contentText = append(contentText, block.Text)
-		}
-	}
-
-	c.logger.Debug(ctx, "Direct response without tool use", map[string]interface{}{
-		"contentBlocks": len(resp.Content),
-		"textBlocks":    len(contentText),
+	// If we've reached the maximum iterations and the model is still requesting tools,
+	// make one final call without tools to get a conclusion
+	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
+		"maxIterations": maxIterations,
 	})
 
-	if len(contentText) == 0 {
-		return "", fmt.Errorf("no text content in response")
+	// Create a final request without tools to force the LLM to provide a conclusion
+	finalReq := CompletionRequest{
+		Model:       c.Model,
+		Messages:    messages,
+		MaxTokens:   2048,
+		Temperature: params.LLMConfig.Temperature,
+		TopP:        params.LLMConfig.TopP,
+		Tools:       nil, // No tools for final call
 	}
 
-	return strings.Join(contentText, "\n"), nil
+	// Add system message if available
+	if params.SystemMessage != "" {
+		finalReq.System = params.SystemMessage
+	}
+
+	// Add a user message to encourage conclusion
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
+	})
+	finalReq.Messages = messages
+
+	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
+		"messages": len(finalReq.Messages),
+	})
+
+	// Convert request to JSON
+	finalReqBody, err := json.Marshal(finalReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal final request: %w", err)
+	}
+
+	// Create HTTP request
+	finalHTTPReq, err := http.NewRequestWithContext(
+		ctx,
+		"POST",
+		c.BaseURL+"/v1/messages",
+		bytes.NewBuffer(finalReqBody),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create final request: %w", err)
+	}
+
+	// Set headers
+	finalHTTPReq.Header.Set("Content-Type", "application/json")
+	finalHTTPReq.Header.Set("X-API-Key", c.APIKey)
+	finalHTTPReq.Header.Set("Anthropic-Version", "2023-06-01")
+
+	// Send final request
+	finalHTTPResp, err := c.HTTPClient.Do(finalHTTPReq)
+	if err != nil {
+		c.logger.Error(ctx, "Error in final call without tools", map[string]interface{}{"error": err.Error()})
+		return "", fmt.Errorf("failed to send final request: %w", err)
+	}
+	defer func() {
+		if closeErr := finalHTTPResp.Body.Close(); closeErr != nil {
+			c.logger.Warn(ctx, "Failed to close final response body", map[string]interface{}{
+				"error": closeErr.Error(),
+			})
+		}
+	}()
+
+	// Read final response body
+	finalRespBody, err := io.ReadAll(finalHTTPResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read final response body: %w", err)
+	}
+
+	// Check for error response
+	if finalHTTPResp.StatusCode != http.StatusOK {
+		c.logger.Error(ctx, "Error from Anthropic API in final call", map[string]interface{}{
+			"status_code": finalHTTPResp.StatusCode,
+			"response":    string(finalRespBody),
+		})
+		return "", fmt.Errorf("error from Anthropic API in final call: %s", string(finalRespBody))
+	}
+
+	// Unmarshal final response
+	var finalResp CompletionResponse
+	err = json.Unmarshal(finalRespBody, &finalResp)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal final response: %w", err)
+	}
+
+	// Extract text content from final response
+	if finalResp.Content == nil {
+		return "", fmt.Errorf("no content in final response")
+	}
+
+	var finalTextContent []string
+	for _, contentBlock := range finalResp.Content {
+		if contentBlock.Type == "text" {
+			finalTextContent = append(finalTextContent, contentBlock.Text)
+		}
+	}
+
+	if len(finalTextContent) == 0 {
+		return "", fmt.Errorf("no text content in final response")
+	}
+
+	c.logger.Info(ctx, "Successfully received final response without tools", nil)
+	return strings.Join(finalTextContent, "\n"), nil
 }
 
 // Name implements interfaces.LLM.Name

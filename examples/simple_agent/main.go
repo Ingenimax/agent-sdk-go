@@ -30,6 +30,7 @@ func main() {
 		agent.WithMemory(memory.NewConversationBuffer()),
 		agent.WithTools(createTools(logger).List()...),
 		agent.WithSystemPrompt("You are a helpful AI assistant. When you don't know the answer or need real-time information, use the available tools to find the information."),
+		agent.WithMaxIterations(5), // Allow up to 5 tool-calling iterations
 		agent.WithName("ResearchAssistant"),
 	)
 	if err != nil {

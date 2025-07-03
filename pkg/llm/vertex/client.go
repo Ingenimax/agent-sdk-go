@@ -157,6 +157,12 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		option(params)
 	}
 
+	// Set default max iterations if not provided
+	maxIterations := params.MaxIterations
+	if maxIterations == 0 {
+		maxIterations = 2 // Default to current behavior
+	}
+
 	// Create parts for the prompt
 	parts := []genai.Part{genai.Text(prompt)}
 
@@ -197,47 +203,70 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 	}
 
 	// Convert tools to Vertex AI format
+	var vertexTools []*genai.Tool
 	if len(tools) > 0 {
-		vertexTools := c.convertTools(tools)
+		vertexTools = c.convertTools(tools)
 		model.Tools = vertexTools
 	}
 
-	// Generate content with retry logic
-	var response *genai.GenerateContentResponse
-	err := c.withRetry(ctx, func() error {
-		var genErr error
-		response, genErr = model.GenerateContent(ctx, parts...)
-		return genErr
-	})
+	// Create a chat session for iterative conversation
+	session := model.StartChat()
 
-	if err != nil {
-		return "", fmt.Errorf("failed to generate content: %w", err)
+	// Add the original user message to start the conversation
+	session.History = []*genai.Content{
+		{
+			Parts: parts,
+			Role:  "user",
+		},
 	}
 
-	// Extract response
-	if len(response.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in response")
-	}
+	// Iterative tool calling loop
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Generate content with retry logic
+		var response *genai.GenerateContentResponse
+		err := c.withRetry(ctx, func() error {
+			var genErr error
+			if iteration == 0 {
+				// First iteration: use the initial model with tools
+				response, genErr = model.GenerateContent(ctx, parts...)
+			} else {
+				// Subsequent iterations: continue the chat session
+				response, genErr = session.SendMessage(ctx)
+			}
+			return genErr
+		})
 
-	candidate := response.Candidates[0]
-	if candidate.Content == nil {
-		return "", fmt.Errorf("no content in response")
-	}
-
-	var text strings.Builder
-	var functionCalls []genai.FunctionCall
-
-	for _, part := range candidate.Content.Parts {
-		switch p := part.(type) {
-		case genai.Text:
-			text.WriteString(string(p))
-		case genai.FunctionCall:
-			functionCalls = append(functionCalls, p)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate content (iteration %d): %w", iteration+1, err)
 		}
-	}
 
-	// If there are function calls, execute them
-	if len(functionCalls) > 0 {
+		// Extract response
+		if len(response.Candidates) == 0 {
+			return "", fmt.Errorf("no candidates in response (iteration %d)", iteration+1)
+		}
+
+		candidate := response.Candidates[0]
+		if candidate.Content == nil {
+			return "", fmt.Errorf("no content in response (iteration %d)", iteration+1)
+		}
+
+		var text strings.Builder
+		var functionCalls []genai.FunctionCall
+
+		for _, part := range candidate.Content.Parts {
+			switch p := part.(type) {
+			case genai.Text:
+				text.WriteString(string(p))
+			case genai.FunctionCall:
+				functionCalls = append(functionCalls, p)
+			}
+		}
+
+		// If there are no function calls, return the text response
+		if len(functionCalls) == 0 {
+			return text.String(), nil
+		}
+
 		// Execute all function calls and collect responses
 		var functionResponses []genai.Part
 
@@ -252,19 +281,21 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			}
 
 			if selectedTool == nil {
-				return "", fmt.Errorf("tool not found: %s", funcCall.Name)
+				return "", fmt.Errorf("tool not found: %s (iteration %d)", funcCall.Name, iteration+1)
 			}
 
 			// Convert arguments to JSON string
 			argsJSON, err := json.Marshal(funcCall.Args)
 			if err != nil {
-				return "", fmt.Errorf("failed to marshal function arguments: %w", err)
+				return "", fmt.Errorf("failed to marshal function arguments (iteration %d): %w", iteration+1, err)
 			}
 
 			// Execute the tool
 			toolResult, err := selectedTool.Execute(ctx, string(argsJSON))
 			if err != nil {
-				return "", fmt.Errorf("tool execution failed: %w", err)
+				c.logger.Error("Tool execution failed", "toolName", selectedTool.Name(), "iteration", iteration+1, "error", err)
+				// Instead of failing, provide error message as tool result
+				toolResult = fmt.Sprintf("Error: %v", err)
 			}
 
 			// Create function response
@@ -276,48 +307,92 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			functionResponses = append(functionResponses, funcResponse)
 		}
 
-		// Create a new conversation with proper turn structure
-		// Turn 1: User message
-		// Turn 2: Assistant message with function calls (from previous response)
-		// Turn 3: Function responses (as user turn)
-		// Turn 4: Final assistant response
-
-		session := model.StartChat()
-
-		// Add the original user message
-		userMsg := &genai.Content{
-			Parts: parts,
-			Role:  "user",
-		}
-		session.History = []*genai.Content{userMsg}
-
-		// Add the assistant response with function calls
-		assistantMsg := &genai.Content{
-			Parts: candidate.Content.Parts,
-			Role:  "model",
-		}
-		session.History = append(session.History, assistantMsg)
-
-		// Send function responses and get final response
-		finalResponse, err := session.SendMessage(ctx, functionResponses...)
-		if err != nil {
-			return "", fmt.Errorf("failed to send function responses: %w", err)
+		// Add the assistant's response with function calls to the session history
+		if iteration == 0 {
+			// For the first iteration, we need to add the assistant response to the session
+			session.History = append(session.History, &genai.Content{
+				Parts: candidate.Content.Parts,
+				Role:  "model",
+			})
 		}
 
-		if len(finalResponse.Candidates) > 0 && finalResponse.Candidates[0].Content != nil {
-			var finalText strings.Builder
-			for _, part := range finalResponse.Candidates[0].Content.Parts {
-				if textPart, ok := part.(genai.Text); ok {
-					finalText.WriteString(string(textPart))
-				}
+		// Send function responses for the next iteration
+		if iteration < maxIterations-1 {
+			// Continue the conversation with function responses
+			_, err = session.SendMessage(ctx, functionResponses...)
+			if err != nil {
+				return "", fmt.Errorf("failed to send function responses (iteration %d): %w", iteration+1, err)
 			}
-			return finalText.String(), nil
-		}
+		} else {
+			// Last iteration, send function responses and get final response
+			finalResponse, err := session.SendMessage(ctx, functionResponses...)
+			if err != nil {
+				return "", fmt.Errorf("failed to send final function responses: %w", err)
+			}
 
-		return "", fmt.Errorf("no final response received")
+			if len(finalResponse.Candidates) > 0 && finalResponse.Candidates[0].Content != nil {
+				var finalText strings.Builder
+				for _, part := range finalResponse.Candidates[0].Content.Parts {
+					if textPart, ok := part.(genai.Text); ok {
+						finalText.WriteString(string(textPart))
+					}
+				}
+				return finalText.String(), nil
+			}
+
+			return "", fmt.Errorf("no final response received")
+		}
 	}
 
-	return text.String(), nil
+	// If we've reached the maximum iterations and the model is still requesting tools,
+	// make one final call without tools to get a conclusion
+	c.logger.Info("Maximum iterations reached, making final call without tools", "maxIterations", maxIterations)
+
+	// Create a model without tools for the final call
+	finalModel := c.client.GenerativeModel(c.model)
+
+	// Configure model parameters
+	if params.LLMConfig != nil {
+		if params.LLMConfig.Temperature > 0 {
+			temp := float32(params.LLMConfig.Temperature)
+			finalModel.Temperature = &temp
+		}
+		if params.LLMConfig.TopP > 0 {
+			topP := float32(params.LLMConfig.TopP)
+			finalModel.TopP = &topP
+		}
+		if len(params.LLMConfig.StopSequences) > 0 {
+			finalModel.StopSequences = params.LLMConfig.StopSequences
+		}
+	}
+
+	// Add conclusion prompt to the session
+	conclusionPrompt := genai.Text("Please provide your final response based on the information available. Do not request any additional tools.")
+
+	finalResponse, err := session.SendMessage(ctx, conclusionPrompt)
+	if err != nil {
+		c.logger.Error("Error in final call without tools", "error", err)
+		return "", fmt.Errorf("failed to generate final response without tools: %w", err)
+	}
+
+	if len(finalResponse.Candidates) == 0 {
+		return "", fmt.Errorf("no candidates in final response")
+	}
+
+	candidate := finalResponse.Candidates[0]
+	if candidate.Content == nil {
+		return "", fmt.Errorf("no content in final response")
+	}
+
+	var finalText strings.Builder
+	for _, part := range candidate.Content.Parts {
+		if textPart, ok := part.(genai.Text); ok {
+			finalText.WriteString(string(textPart))
+		}
+	}
+
+	c.logger.Info("Successfully received final response without tools")
+	return finalText.String(), nil
 }
 
 // Generate implements interfaces.LLM.Generate

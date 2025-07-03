@@ -23,6 +23,7 @@ type GenerateOptions struct {
 	OrgID          string          // For multi-tenancy
 	SystemMessage  string          // System message for chat models
 	ResponseFormat *ResponseFormat // Optional expected response format
+	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
 }
 
 type LLMConfig struct {
@@ -32,4 +33,11 @@ type LLMConfig struct {
 	PresencePenalty  float64  // Presence penalty for the generation
 	StopSequences    []string // Stop sequences for the generation
 	Reasoning        string   // Reasoning mode (none, minimal, comprehensive) to control explanation detail
+}
+
+// WithMaxIterations creates a GenerateOption to set the maximum number of tool-calling iterations
+func WithMaxIterations(maxIterations int) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.MaxIterations = maxIterations
+	}
 }
