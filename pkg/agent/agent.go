@@ -23,6 +23,7 @@ type Agent struct {
 	guardrails           interfaces.Guardrails
 	systemPrompt         string
 	name                 string                   // Name of the agent, e.g., "PlatformOps", "Math", "Research"
+	description          string                   // Description of what the agent does
 	requirePlanApproval  bool                     // New field to control whether execution plans require approval
 	planStore            *executionplan.Store     // Store for execution plans
 	planGenerator        *executionplan.Generator // Generator for execution plans
@@ -98,6 +99,13 @@ func WithRequirePlanApproval(require bool) Option {
 func WithName(name string) Option {
 	return func(a *Agent) {
 		a.name = name
+	}
+}
+
+// WithDescription sets the description for the agent
+func WithDescription(description string) Option {
+	return func(a *Agent) {
+		a.description = description
 	}
 }
 
@@ -717,4 +725,28 @@ func (a *Agent) GetTaskByID(taskID string) (*executionplan.ExecutionPlan, bool) 
 // ListTasks returns a list of all tasks
 func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
 	return a.planStore.ListPlans()
+}
+
+// GetName returns the name of the agent
+func (a *Agent) GetName() string {
+	return a.name
+}
+
+// GetDescription returns the description of the agent
+func (a *Agent) GetDescription() string {
+	return a.description
+}
+
+// GetCapabilities returns a description of what the agent can do
+func (a *Agent) GetCapabilities() string {
+	if a.description != "" {
+		return a.description
+	}
+
+	// If no description is set, generate one based on the system prompt
+	if a.systemPrompt != "" {
+		return fmt.Sprintf("Agent with system prompt: %s", a.systemPrompt)
+	}
+
+	return "A general-purpose AI agent"
 }
