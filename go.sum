@@ -297,8 +297,8 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/ugorji/go/codec v1.2.11 h1:BMaWp1Bb6fHwEtbplGBGJ498wD+LKlNSl25MjdZY4dU=
 github.com/ugorji/go/codec v1.2.11/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
-github.com/weaviate/weaviate v1.31.4 h1:KHfXSaoEWKb+VZG0uZY22VKtLxwAPDrFa6T5jc6EQLE=
-github.com/weaviate/weaviate v1.31.4/go.mod h1:CMgFYC2WIekOrNtyCQZ+HRJzJVCtrJYAdAkZVUVy45E=
+github.com/weaviate/weaviate v1.31.5 h1:YcmU1NcY2rdegWpE/mifS/9OisjE3I30JC7k6OgRlIE=
+github.com/weaviate/weaviate v1.31.5/go.mod h1:CMgFYC2WIekOrNtyCQZ+HRJzJVCtrJYAdAkZVUVy45E=
 github.com/weaviate/weaviate-go-client/v5 v5.2.1 h1:qWIFQySMpSANqzp4rlsgaZPnt9PLm3/xXPSnAyEHEZU=
 github.com/weaviate/weaviate-go-client/v5 v5.2.1/go.mod h1:nzR0ScRmbbutI+0pAjylj9Pt6upGVotnphiLWjy/QNA=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
