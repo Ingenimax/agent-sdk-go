@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 )
 
 // EmbeddingConfig contains configuration options for embedding generation
@@ -73,7 +74,7 @@ type Client interface {
 
 // OpenAIEmbedder implements embedding generation using OpenAI API
 type OpenAIEmbedder struct {
-	client *openai.Client
+	client openai.Client
 	model  string
 	config EmbeddingConfig
 }
@@ -83,7 +84,7 @@ func NewOpenAIEmbedder(apiKey, model string) *OpenAIEmbedder {
 	config := DefaultEmbeddingConfig(model)
 
 	return &OpenAIEmbedder{
-		client: openai.NewClient(apiKey),
+		client: openai.NewClient(option.WithAPIKey(apiKey)),
 		model:  config.Model,
 		config: config,
 	}
@@ -97,7 +98,7 @@ func NewOpenAIEmbedderWithConfig(apiKey string, config EmbeddingConfig) *OpenAIE
 	}
 
 	return &OpenAIEmbedder{
-		client: openai.NewClient(apiKey),
+		client: openai.NewClient(option.WithAPIKey(apiKey)),
 		model:  config.Model,
 		config: config,
 	}
@@ -110,25 +111,25 @@ func (e *OpenAIEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 
 // EmbedWithConfig generates an embedding using OpenAI API with custom configuration
 func (e *OpenAIEmbedder) EmbedWithConfig(ctx context.Context, text string, config EmbeddingConfig) ([]float32, error) {
-	req := openai.EmbeddingRequest{
-		Input: []string{text},
+	req := openai.EmbeddingNewParams{
+		Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
 		Model: openai.EmbeddingModel(config.Model),
 	}
 
 	// Apply configuration options if supported by the model
 	if config.Dimensions > 0 {
-		req.Dimensions = config.Dimensions
+		req.Dimensions = openai.Int(int64(config.Dimensions))
 	}
 
 	if config.EncodingFormat != "" {
-		req.EncodingFormat = openai.EmbeddingEncodingFormat(config.EncodingFormat)
+		req.EncodingFormat = openai.EmbeddingNewParamsEncodingFormat(config.EncodingFormat)
 	}
 
 	if config.UserID != "" {
-		req.User = config.UserID
+		req.User = openai.String(config.UserID)
 	}
 
-	resp, err := e.client.CreateEmbeddings(ctx, req)
+	resp, err := e.client.Embeddings.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +138,13 @@ func (e *OpenAIEmbedder) EmbedWithConfig(ctx context.Context, text string, confi
 		return nil, errors.New("no embedding data returned from API")
 	}
 
-	return resp.Data[0].Embedding, nil
+	// Convert float64 to float32
+	embedding := make([]float32, len(resp.Data[0].Embedding))
+	for i, v := range resp.Data[0].Embedding {
+		embedding[i] = float32(v)
+	}
+
+	return embedding, nil
 }
 
 // EmbedBatch generates embeddings for multiple texts using default configuration
@@ -151,25 +158,25 @@ func (e *OpenAIEmbedder) EmbedBatchWithConfig(ctx context.Context, texts []strin
 		return [][]float32{}, nil
 	}
 
-	req := openai.EmbeddingRequest{
-		Input: texts,
+	req := openai.EmbeddingNewParams{
+		Input: openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 		Model: openai.EmbeddingModel(config.Model),
 	}
 
 	// Apply configuration options if supported by the model
 	if config.Dimensions > 0 {
-		req.Dimensions = config.Dimensions
+		req.Dimensions = openai.Int(int64(config.Dimensions))
 	}
 
 	if config.EncodingFormat != "" {
-		req.EncodingFormat = openai.EmbeddingEncodingFormat(config.EncodingFormat)
+		req.EncodingFormat = openai.EmbeddingNewParamsEncodingFormat(config.EncodingFormat)
 	}
 
 	if config.UserID != "" {
-		req.User = config.UserID
+		req.User = openai.String(config.UserID)
 	}
 
-	resp, err := e.client.CreateEmbeddings(ctx, req)
+	resp, err := e.client.Embeddings.New(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +191,12 @@ func (e *OpenAIEmbedder) EmbedBatchWithConfig(ctx context.Context, texts []strin
 		if int(data.Index) >= len(embeddings) {
 			return nil, fmt.Errorf("invalid embedding index: %d", data.Index)
 		}
-		embeddings[data.Index] = data.Embedding
+		// Convert float64 to float32
+		embedding := make([]float32, len(data.Embedding))
+		for i, v := range data.Embedding {
+			embedding[i] = float32(v)
+		}
+		embeddings[data.Index] = embedding
 	}
 
 	return embeddings, nil
@@ -255,7 +267,7 @@ func dotProduct(vec1, vec2 []float32) float32 {
 	return sum
 }
 
-// GetConfig returns the current embedding configuration
+// GetConfig returns the current configuration
 func (e *OpenAIEmbedder) GetConfig() EmbeddingConfig {
 	return e.config
 }

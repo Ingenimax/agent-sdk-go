@@ -2,8 +2,9 @@ package llm
 
 // Message represents a message in a chat conversation
 type Message struct {
-	Role    string // "system", "user", "assistant"
-	Content string
+	Role       string // "system", "user", "assistant", "tool"
+	Content    string
+	ToolCallID string // ID of the tool call this message is responding to (for tool messages)
 }
 
 // GenerateParams contains parameters for text generation

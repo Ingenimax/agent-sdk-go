@@ -12,7 +12,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/retry"
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 // Define a custom type for context keys to avoid collisions
@@ -23,8 +25,11 @@ const organizationKey contextKey = "organization"
 
 // OpenAIClient implements the LLM interface for OpenAI
 type OpenAIClient struct {
-	Client        *openai.Client
+	Client        openai.Client
+	ChatService   openai.ChatService
 	Model         string
+	apiKey        string
+	baseURL       string
 	logger        logging.Logger
 	retryExecutor *retry.Executor
 }
@@ -53,13 +58,26 @@ func WithRetry(opts ...retry.Option) Option {
 	}
 }
 
+// WithBaseURL sets the base URL for the OpenAI client
+func WithBaseURL(baseURL string) Option {
+	return func(c *OpenAIClient) {
+		c.baseURL = baseURL
+		// Recreate the client and chat service with the new base URL
+		c.Client = openai.NewClient(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
+		c.ChatService = openai.NewChatService(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
+	}
+}
+
 // NewClient creates a new OpenAI client
 func NewClient(apiKey string, options ...Option) *OpenAIClient {
 	// Create client with default options
 	client := &OpenAIClient{
-		Client: openai.NewClient(apiKey),
-		Model:  "gpt-4o-mini",
-		logger: logging.New(),
+		Client:      openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
+		ChatService: openai.NewChatService(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
+		Model:       "gpt-4o-mini",
+		apiKey:      apiKey,
+		baseURL:     "https://api.openai.com/v1",
+		logger:      logging.New(),
 	}
 
 	// Apply options
@@ -90,7 +108,7 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 	}
 
 	// Create request with system message if provided
-	messages := []openai.ChatCompletionMessage{}
+	messages := []openai.ChatCompletionMessageParamUnion{}
 
 	// Add system message if available
 	if params.SystemMessage != "" {
@@ -111,10 +129,7 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 			}
 		}
 
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    "system",
-			Content: params.SystemMessage,
-		})
+		messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 	} else if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
 		// If no system message but reasoning is enabled, create a system message just for reasoning
@@ -134,41 +149,42 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		}
 
 		if systemMessage != "" {
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    "system",
-				Content: systemMessage,
-			})
+			messages = append(messages, openai.SystemMessage(systemMessage))
 			c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
 		}
 	}
 
 	// Add user message
-	messages = append(messages, openai.ChatCompletionMessage{
-		Role:    "user",
-		Content: prompt,
-	})
+	messages = append(messages, openai.UserMessage(prompt))
 
 	// Create request
-	req := openai.ChatCompletionRequest{
-		Model:    c.Model,
+	req := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(c.Model),
 		Messages: messages,
 	}
 
 	if params.LLMConfig != nil {
-		req.Temperature = float32(params.LLMConfig.Temperature)
-		req.TopP = float32(params.LLMConfig.TopP)
-		req.FrequencyPenalty = float32(params.LLMConfig.FrequencyPenalty)
-		req.PresencePenalty = float32(params.LLMConfig.PresencePenalty)
-		req.Stop = params.LLMConfig.StopSequences
+		req.Temperature = openai.Float(params.LLMConfig.Temperature)
+		req.TopP = openai.Float(params.LLMConfig.TopP)
+		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
+		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
+		if len(params.LLMConfig.StopSequences) > 0 {
+			req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
+		}
 	}
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
-		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
-			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:   params.ResponseFormat.Name,
-				Schema: params.ResponseFormat.Schema,
+		// Convert to the new API's response format structure
+		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{
+			Name:   params.ResponseFormat.Name,
+			Schema: params.ResponseFormat.Schema,
+		}
+
+		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				Type:       "json_schema",
+				JSONSchema: jsonSchema,
 			},
 		}
 		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
@@ -176,10 +192,10 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 
 	// Set organization ID if available
 	if orgID, ok := ctx.Value(organizationKey).(string); ok && orgID != "" {
-		req.User = orgID
+		req.User = openai.String(orgID)
 	}
 
-	var resp openai.ChatCompletionResponse
+	var resp *openai.ChatCompletion
 	var err error
 
 	operation := func() error {
@@ -198,11 +214,11 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 			"presence_penalty":  req.PresencePenalty,
 			"stop_sequences":    req.Stop,
 			"messages":          len(req.Messages),
-			"response_format":   req.ResponseFormat != nil,
+			"response_format":   params.ResponseFormat != nil,
 			"reasoning":         reasoningMode,
 		})
 
-		resp, err = c.Client.CreateChatCompletion(ctx, req)
+		resp, err = c.ChatService.Completions.New(ctx, req)
 		if err != nil {
 			c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{
 				"error": err.Error(),
@@ -299,26 +315,40 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 	}
 
 	// Convert messages to the OpenAI Chat format
-	chatMessages := make([]openai.ChatCompletionMessage, len(messages))
+	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
-		chatMessages[i] = openai.ChatCompletionMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
+		switch msg.Role {
+		case "system":
+			chatMessages[i] = openai.SystemMessage(msg.Content)
+		case "user":
+			chatMessages[i] = openai.UserMessage(msg.Content)
+		case "assistant":
+			chatMessages[i] = openai.AssistantMessage(msg.Content)
+		case "tool":
+			// For tool messages, we need to handle tool call ID
+			// Use the ToolCallID from the Message struct
+			chatMessages[i] = openai.ToolMessage(msg.Content, msg.ToolCallID)
+		default:
+			// Default to user message for unknown roles
+			chatMessages[i] = openai.UserMessage(msg.Content)
 		}
 	}
 
 	// Create chat request
-	req := openai.ChatCompletionRequest{
-		Model:            c.Model,
+	req := openai.ChatCompletionNewParams{
+		Model:            openai.ChatModel(c.Model),
 		Messages:         chatMessages,
-		Temperature:      float32(params.Temperature),
-		TopP:             float32(params.TopP),
-		FrequencyPenalty: float32(params.FrequencyPenalty),
-		PresencePenalty:  float32(params.PresencePenalty),
-		Stop:             params.StopSequences,
+		Temperature:      openai.Float(params.Temperature),
+		TopP:             openai.Float(params.TopP),
+		FrequencyPenalty: openai.Float(params.FrequencyPenalty),
+		PresencePenalty:  openai.Float(params.PresencePenalty),
 	}
 
-	var resp openai.ChatCompletionResponse
+	if len(params.StopSequences) > 0 {
+		req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.StopSequences}
+	}
+
+	var resp *openai.ChatCompletion
 	var err error
 
 	operation := func() error {
@@ -333,7 +363,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 			"reasoning":         params.Reasoning,
 		})
 
-		resp, err = c.Client.CreateChatCompletion(ctx, req)
+		resp, err = c.ChatService.Completions.New(ctx, req)
 		if err != nil {
 			c.logger.Error(ctx, "Error from OpenAI Chat API", map[string]interface{}{
 				"error": err.Error(),
@@ -402,7 +432,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	ctx = context.WithValue(ctx, organizationKey, orgID)
 
 	// Convert tools to OpenAI format
-	openaiTools := make([]openai.Tool, len(tools))
+	openaiTools := make([]openai.ChatCompletionToolParam, len(tools))
 	for i, tool := range tools {
 		// Convert ParameterSpec to JSON Schema
 		properties := make(map[string]interface{})
@@ -432,11 +462,11 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			}
 		}
 
-		openaiTools[i] = openai.Tool{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
+		openaiTools[i] = openai.ChatCompletionToolParam{
+			Type: "function",
+			Function: shared.FunctionDefinitionParam{
 				Name:        tool.Name(),
-				Description: tool.Description(),
+				Description: openai.String(tool.Description()),
 				Parameters: map[string]interface{}{
 					"type":       "object",
 					"properties": properties,
@@ -447,7 +477,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Create messages array with system message if provided
-	messages := []openai.ChatCompletionMessage{}
+	messages := []openai.ChatCompletionMessageParamUnion{}
 
 	// Add system message if available
 	if params.SystemMessage != "" {
@@ -468,10 +498,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			}
 		}
 
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    "system",
-			Content: params.SystemMessage,
-		})
+		messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 	} else if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
 		// If no system message but reasoning is enabled, create a system message just for reasoning
@@ -491,39 +518,41 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 
 		if systemMessage != "" {
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    "system",
-				Content: systemMessage,
-			})
+			messages = append(messages, openai.SystemMessage(systemMessage))
 			c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
 		}
 	}
 
 	// Add user message
-	messages = append(messages, openai.ChatCompletionMessage{
-		Role:    "user",
-		Content: prompt,
-	})
+	messages = append(messages, openai.UserMessage(prompt))
 
-	req := openai.ChatCompletionRequest{
-		Model:             c.Model,
+	req := openai.ChatCompletionNewParams{
+		Model:             openai.ChatModel(c.Model),
 		Messages:          messages,
 		Tools:             openaiTools,
-		Temperature:       float32(params.LLMConfig.Temperature),
-		TopP:              float32(params.LLMConfig.TopP),
-		FrequencyPenalty:  float32(params.LLMConfig.FrequencyPenalty),
-		PresencePenalty:   float32(params.LLMConfig.PresencePenalty),
-		Stop:              params.LLMConfig.StopSequences,
-		ParallelToolCalls: true,
+		Temperature:       openai.Float(params.LLMConfig.Temperature),
+		TopP:              openai.Float(params.LLMConfig.TopP),
+		FrequencyPenalty:  openai.Float(params.LLMConfig.FrequencyPenalty),
+		PresencePenalty:   openai.Float(params.LLMConfig.PresencePenalty),
+		ParallelToolCalls: openai.Bool(true),
+	}
+
+	if len(params.LLMConfig.StopSequences) > 0 {
+		req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
 	}
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
-		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
-			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:   params.ResponseFormat.Name,
-				Schema: params.ResponseFormat.Schema,
+		// Convert to the new API's response format structure
+		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{
+			Name:   params.ResponseFormat.Name,
+			Schema: params.ResponseFormat.Schema,
+		}
+
+		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				Type:       "json_schema",
+				JSONSchema: jsonSchema,
 			},
 		}
 		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
@@ -551,13 +580,13 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			"stop_sequences":    req.Stop,
 			"messages":          len(req.Messages),
 			"tools":             len(req.Tools),
-			"response_format":   req.ResponseFormat != nil,
+			"response_format":   params.ResponseFormat != nil,
 			"parallel_tools":    req.ParallelToolCalls,
 			"reasoning":         reasoningMode,
 			"iteration":         iteration + 1,
 			"maxIterations":     maxIterations,
 		})
-		resp, err := c.Client.CreateChatCompletion(ctx, req)
+		resp, err := c.ChatService.Completions.New(ctx, req)
 		if err != nil {
 			c.logger.Error(ctx, "Error from OpenAI API", map[string]interface{}{"error": err.Error()})
 			return "", fmt.Errorf("failed to create chat completion: %w", err)
@@ -582,7 +611,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		})
 
 		// Add the assistant's message with tool calls to the conversation
-		messages = append(messages, resp.Choices[0].Message)
+		messages = append(messages, resp.Choices[0].Message.ToParam())
 
 		// Process each tool call
 		for _, toolCall := range toolCalls {
@@ -672,12 +701,16 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					toolsResults[result.index] = result.result
 				}
 
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:       "tool",
-					Content:    strings.Join(toolsResults, "\n"),
-					ToolCallID: toolCall.ID,
-					Name:       "parallel_tool_use",
-				})
+				// For parallel tool use, we need to create a tool message
+				// The new API uses openai.ToolMessage(content, toolCallID) instead of struct literals
+				// Create a structured response that clearly identifies which tool each result came from
+				var structuredResults []string
+				for i, toolUse := range toolUsesWrapper.ToolUses {
+					toolName := toolUse["recipient_name"].(string)
+					result := toolsResults[i]
+					structuredResults = append(structuredResults, fmt.Sprintf("Tool: %s\nResult: %s", toolName, result))
+				}
+				messages = append(messages, openai.ToolMessage(strings.Join(structuredResults, "\n\n"), toolCall.ID))
 				continue
 			}
 
@@ -705,22 +738,12 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			if err != nil {
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
 				// Add error message as tool response
-				messages = append(messages, openai.ChatCompletionMessage{
-					Role:       "tool",
-					Content:    fmt.Sprintf("Error: %v", err),
-					Name:       selectedTool.Name(),
-					ToolCallID: toolCall.ID,
-				})
+				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Error: %v", err), toolCall.ID))
 				continue
 			}
 
 			// Add tool result to messages
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:       "tool",
-				Content:    toolResult,
-				Name:       selectedTool.Name(),
-				ToolCallID: toolCall.ID,
-			})
+			messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
 		}
 
 		// Continue to the next iteration with updated messages
@@ -733,40 +756,44 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	})
 
 	// Create a final request without tools to force the LLM to provide a conclusion
-	finalReq := openai.ChatCompletionRequest{
-		Model:            c.Model,
+	finalReq := openai.ChatCompletionNewParams{
+		Model:            openai.ChatModel(c.Model),
 		Messages:         messages,
 		Tools:            nil, // No tools for final call
-		Temperature:      float32(params.LLMConfig.Temperature),
-		TopP:             float32(params.LLMConfig.TopP),
-		FrequencyPenalty: float32(params.LLMConfig.FrequencyPenalty),
-		PresencePenalty:  float32(params.LLMConfig.PresencePenalty),
-		Stop:             params.LLMConfig.StopSequences,
+		Temperature:      openai.Float(params.LLMConfig.Temperature),
+		TopP:             openai.Float(params.LLMConfig.TopP),
+		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
+		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+	}
+
+	if len(params.LLMConfig.StopSequences) > 0 {
+		finalReq.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
 	}
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
-		finalReq.ResponseFormat = &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
-			JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
-				Name:   params.ResponseFormat.Name,
-				Schema: params.ResponseFormat.Schema,
+		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{
+			Name:   params.ResponseFormat.Name,
+			Schema: params.ResponseFormat.Schema,
+		}
+
+		finalReq.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				Type:       "json_schema",
+				JSONSchema: jsonSchema,
 			},
 		}
 	}
 
 	// Add a system message to encourage conclusion
-	conclusionMessage := openai.ChatCompletionMessage{
-		Role:    "system",
-		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
-	}
+	conclusionMessage := openai.SystemMessage("Please provide your final response based on the information available. Do not request any additional tools.")
 	finalReq.Messages = append(finalReq.Messages, conclusionMessage)
 
 	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
 		"messages": len(finalReq.Messages),
 	})
 
-	finalResp, err := c.Client.CreateChatCompletion(ctx, finalReq)
+	finalResp, err := c.ChatService.Completions.New(ctx, finalReq)
 	if err != nil {
 		c.logger.Error(ctx, "Error in final call without tools", map[string]interface{}{"error": err.Error()})
 		return "", fmt.Errorf("failed to create final chat completion: %w", err)
