@@ -11,9 +11,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/henomis/langfuse-go v0.0.3
 	github.com/lib/pq v1.10.9
-	github.com/metoro-io/mcp-golang v0.13.0
-	github.com/rs/zerolog v1.34.0
+	github.com/metoro-io/mcp-golang v0.14.0
 	github.com/openai/openai-go v1.11.0
+	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11
 	github.com/supabase-community/supabase-go v0.0.4
@@ -84,7 +84,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/onsi/gomega v1.35.1 // indirect
-	github.com/openai/openai-go v1.11.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
