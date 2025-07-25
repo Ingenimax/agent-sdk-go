@@ -835,6 +835,11 @@ func (c *OpenAIClient) Name() string {
 	return "openai"
 }
 
+// GetModel returns the model name being used
+func (c *OpenAIClient) GetModel() string {
+	return c.Model
+}
+
 // WithTemperature creates a GenerateOption to set the temperature
 func WithTemperature(temperature float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {

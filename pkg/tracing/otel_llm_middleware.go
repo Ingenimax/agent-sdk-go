@@ -34,10 +34,13 @@ func (m *OTELLLMMiddleware) Generate(ctx context.Context, prompt string, options
 
 	endTime := time.Now()
 
-	// Extract model from options or use default
-	model := m.llm.Name()
+	// Extract model name from LLM client
+	model := "unknown"
+	if modelProvider, ok := m.llm.(interface{ GetModel() string }); ok {
+		model = modelProvider.GetModel()
+	}
 	if model == "" {
-		model = "unknown"
+		model = m.llm.Name() // fallback to provider name
 	}
 	// Create metadata from options
 	metadata := map[string]interface{}{
@@ -83,10 +86,13 @@ func (m *OTELLLMMiddleware) GenerateWithTools(ctx context.Context, prompt string
 
 		endTime := time.Now()
 
-		// Extract model from options or use default
-		model := m.llm.Name()
+		// Extract model name from LLM client
+		model := "unknown"
+		if modelProvider, ok := m.llm.(interface{ GetModel() string }); ok {
+			model = modelProvider.GetModel()
+		}
 		if model == "" {
-			model = "unknown"
+			model = m.llm.Name() // fallback to provider name
 		}
 		// Create metadata including tool information
 		metadata := map[string]interface{}{
