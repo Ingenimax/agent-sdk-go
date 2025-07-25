@@ -11,6 +11,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
 // Agent represents an AI agent
@@ -238,6 +239,9 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 
 // Run runs the agent with the given input
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+	// Inject agent name into context for tracing span naming
+	ctx = tracing.WithAgentName(ctx, a.name)
+
 	// If orgID is set on the agent, add it to the context
 	if a.orgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, a.orgID)

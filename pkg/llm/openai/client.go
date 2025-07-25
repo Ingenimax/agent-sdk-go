@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/retry"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
@@ -734,16 +736,36 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 			// Execute the tool
 			c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": selectedTool.Name()})
+			toolStartTime := time.Now()
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Function.Arguments)
-			if err != nil {
-				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
-				// Add error message as tool response
-				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Error: %v", err), toolCall.ID))
-				continue
+			toolEndTime := time.Now()
+
+			// Add tool call to tracing context
+			executionDuration := toolEndTime.Sub(toolStartTime)
+			toolCallTrace := tracing.ToolCall{
+				Name:       toolCall.Function.Name,
+				Arguments:  toolCall.Function.Arguments,
+				ID:         toolCall.ID,
+				Timestamp:  toolStartTime.Format(time.RFC3339),
+				StartTime:  toolStartTime,
+				Duration:   executionDuration,
+				DurationMs: executionDuration.Milliseconds(),
 			}
 
-			// Add tool result to messages
-			messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
+			if err != nil {
+				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
+				toolCallTrace.Error = err.Error()
+				toolCallTrace.Result = fmt.Sprintf("Error: %v", err)
+				// Add error message as tool response
+				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Error: %v", err), toolCall.ID))
+			} else {
+				toolCallTrace.Result = toolResult
+				// Add tool result to messages
+				messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
+			}
+
+			// Add the tool call to the tracing context
+			tracing.AddToolCallToContext(ctx, toolCallTrace)
 		}
 
 		// Continue to the next iteration with updated messages
