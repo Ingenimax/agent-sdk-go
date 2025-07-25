@@ -202,29 +202,6 @@ func (t *OTELLangfuseTracer) responseToAttributes(response string) []attribute.K
 	return attrs
 }
 
-// formatMessagesForTrace formats structured messages into a readable string for trace display
-func formatMessagesForTrace(messages []Message) string {
-	if len(messages) == 0 {
-		return ""
-	}
-
-	// For single message, return just the content
-	if len(messages) == 1 {
-		return messages[0].Content
-	}
-
-	// For multiple messages, format as a readable conversation
-	var formatted string
-	for i, msg := range messages {
-		if i > 0 {
-			formatted += "\n\n"
-		}
-		formatted += fmt.Sprintf("%s: %s", msg.Role, msg.Content)
-	}
-
-	return formatted
-}
-
 // extractLastUserMessage extracts the last user message from a formatted conversation string
 func extractLastUserMessage(conversationText string) string {
 	lines := strings.Split(conversationText, "\n")
@@ -513,7 +490,7 @@ func (t *OTELLangfuseTracer) TraceSpan(ctx context.Context, name string, startTi
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
 	// Create span
-	ctx, span := t.tracer.Start(ctx, name,
+	_, span := t.tracer.Start(ctx, name,
 		trace.WithTimestamp(startTime),
 		trace.WithAttributes(
 			// Trace-level attributes (for list view)
@@ -544,7 +521,7 @@ func (t *OTELLangfuseTracer) TraceEvent(ctx context.Context, name string, input 
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
 	// Create span for the event
-	ctx, span := t.tracer.Start(ctx, name,
+	_, span := t.tracer.Start(ctx, name,
 		trace.WithAttributes(
 			// Trace-level attributes (for list view)
 			attribute.String("langfuse.trace.name", GetTraceNameOrDefault(ctx, name)),
