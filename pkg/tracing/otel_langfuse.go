@@ -157,6 +157,9 @@ func (t *OTELLangfuseTracer) StartSpan(ctx context.Context, name string) (contex
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
+	// Get agent name from context if available
+	agentName, _ := GetAgentName(ctx)
+
 	// Create attributes using proper Langfuse namespace
 	attrs := []attribute.KeyValue{
 		// Trace-level attributes (for list view)
@@ -167,6 +170,18 @@ func (t *OTELLangfuseTracer) StartSpan(ctx context.Context, name string) (contex
 	}
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("langfuse.user.id", orgID))
+	}
+
+	// Add agent name if available
+	if agentName != "" {
+		// Use the correct Langfuse observation metadata format
+		attrs = append(attrs, attribute.String("langfuse.observation.metadata.agent_name", agentName))
+		// Also try as trace metadata
+		attrs = append(attrs, attribute.String("langfuse.trace.metadata.agent_name", agentName))
+		// Standard service name (common in observability)
+		attrs = append(attrs, attribute.String("service.name", agentName))
+		// User-friendly name
+		attrs = append(attrs, attribute.String("component.name", agentName))
 	}
 
 	// Start OTEL span
@@ -204,6 +219,11 @@ func (t *OTELLangfuseTracer) responseToAttributes(response string) []attribute.K
 
 // extractLastUserMessage extracts the last user message from a formatted conversation string
 func extractLastUserMessage(conversationText string) string {
+	// Handle empty or whitespace-only input
+	if strings.TrimSpace(conversationText) == "" {
+		return ""
+	}
+
 	lines := strings.Split(conversationText, "\n")
 
 	// Look for the last line that starts with "user:"
@@ -212,11 +232,25 @@ func extractLastUserMessage(conversationText string) string {
 		if strings.HasPrefix(line, "user:") {
 			// Remove the "user:" prefix and return the content
 			userMessage := strings.TrimSpace(strings.TrimPrefix(line, "user:"))
-			return userMessage
+			if userMessage != "" {
+				return userMessage
+			}
 		}
 	}
 
-	// If no user message found, return the original text
+	// If no user message found, check if the entire text is a single user message
+	// (this handles cases where the prompt is just the user input without formatting)
+	trimmedText := strings.TrimSpace(conversationText)
+	if trimmedText != "" {
+		// If the text doesn't contain any role prefixes, assume it's a user message
+		if !strings.Contains(trimmedText, "user:") &&
+			!strings.Contains(trimmedText, "assistant:") &&
+			!strings.Contains(trimmedText, "system:") {
+			return trimmedText
+		}
+	}
+
+	// If still no user message found, return the original text as fallback
 	return conversationText
 }
 
@@ -229,6 +263,9 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 	// Get organization ID from context
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
+	// Get agent name from context if available
+	agentName, _ := GetAgentName(ctx)
+
 	// Get span name from agent context or use default
 	spanName := GetSpanNameOrDefault(ctx, "llm.generation")
 
@@ -237,7 +274,6 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 
 	// Check for tool calls from context
 	toolCalls := GetToolCallsFromContext(ctx)
-	fmt.Printf("DEBUG: TraceGeneration found %d tool calls in context\n", len(toolCalls))
 
 	var outputWithToolCalls string
 	if len(toolCalls) > 0 {
@@ -248,21 +284,17 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 			responseObj["tool_calls"] = toolCalls
 			if modifiedJSON, err := json.Marshal(responseObj); err == nil {
 				outputWithToolCalls = string(modifiedJSON)
-				fmt.Printf("DEBUG: Added tool_calls field to JSON response\n")
 			} else {
 				// Fallback to original response if marshaling fails
 				outputWithToolCalls = response
-				fmt.Printf("DEBUG: Failed to marshal modified JSON, using original response\n")
 			}
 		} else {
 			// Not valid JSON, fallback to text concatenation
 			toolCallsJSON, _ := json.MarshalIndent(toolCalls, "", "  ")
 			outputWithToolCalls = fmt.Sprintf("%s\n\n**Tool Calls:**\n```json\n%s\n```", response, string(toolCallsJSON))
-			fmt.Printf("DEBUG: Response not JSON, concatenating tool calls as text\n")
 		}
 	} else {
 		outputWithToolCalls = response
-		fmt.Printf("DEBUG: No tool calls found, using original response\n")
 	}
 
 	// Build attributes for the generation span
@@ -291,6 +323,19 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 	// Add organization ID if available
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("langfuse.user.id", orgID))
+	}
+
+	// Add agent name if available
+	if agentName != "" {
+		// Use the correct Langfuse observation metadata format
+		attrs = append(attrs, attribute.String("langfuse.observation.metadata.agent_name", agentName))
+		// Also try as trace metadata
+		attrs = append(attrs, attribute.String("langfuse.trace.metadata.agent_name", agentName))
+		// Standard service name (common in observability)
+		attrs = append(attrs, attribute.String("service.name", agentName))
+		// User-friendly name
+		attrs = append(attrs, attribute.String("component.name", agentName))
+
 	}
 
 	// Add prompt attributes using the last user message
@@ -489,6 +534,9 @@ func (t *OTELLangfuseTracer) TraceSpan(ctx context.Context, name string, startTi
 	// Get organization ID from context
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
+	// Get agent name from context if available
+	agentName, _ := GetAgentName(ctx)
+
 	// Create span
 	_, span := t.tracer.Start(ctx, name,
 		trace.WithTimestamp(startTime),
@@ -502,6 +550,11 @@ func (t *OTELLangfuseTracer) TraceSpan(ctx context.Context, name string, startTi
 		),
 	)
 	defer span.End(trace.WithTimestamp(endTime))
+
+	// Add agent name if available
+	if agentName != "" {
+		span.SetAttributes(attribute.String("langfuse.observation.metadata.agent_name", agentName))
+	}
 
 	// Add metadata as span attributes
 	for k, v := range metadata {
@@ -520,6 +573,9 @@ func (t *OTELLangfuseTracer) TraceEvent(ctx context.Context, name string, input 
 	// Get organization ID from context
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
+	// Get agent name from context if available
+	agentName, _ := GetAgentName(ctx)
+
 	// Create span for the event
 	_, span := t.tracer.Start(ctx, name,
 		trace.WithAttributes(
@@ -533,6 +589,11 @@ func (t *OTELLangfuseTracer) TraceEvent(ctx context.Context, name string, input 
 		),
 	)
 	defer span.End()
+
+	// Add agent name if available
+	if agentName != "" {
+		span.SetAttributes(attribute.String("langfuse.observation.metadata.agent_name", agentName))
+	}
 
 	// Add trace-level input/output if provided
 	if input != nil {
@@ -576,6 +637,9 @@ func (t *OTELLangfuseTracer) StartTraceSession(ctx context.Context, contextID st
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
+	// Get agent name from context if available
+	agentName, _ := GetAgentName(ctx)
+
 	// Create root span for the entire request session
 	attrs := []attribute.KeyValue{
 		// Trace-level attributes (for list view)
@@ -588,6 +652,11 @@ func (t *OTELLangfuseTracer) StartTraceSession(ctx context.Context, contextID st
 
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("langfuse.user.id", orgID))
+	}
+
+	// Add agent name if available
+	if agentName != "" {
+		attrs = append(attrs, attribute.String("langfuse.observation.metadata.agent_name", agentName))
 	}
 
 	// Start root OTEL span for the session

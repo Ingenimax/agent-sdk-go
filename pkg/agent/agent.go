@@ -731,7 +731,7 @@ func (a *Agent) ListTasks() []*executionplan.ExecutionPlan {
 	return a.planStore.ListPlans()
 }
 
-// GetName returns the name of the agent
+// GetName returns the agent's name
 func (a *Agent) GetName() string {
 	return a.name
 }
