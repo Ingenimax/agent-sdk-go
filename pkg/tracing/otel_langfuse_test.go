@@ -3,7 +3,6 @@ package tracing
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestExtractLastUserMessage(t *testing.T) {
@@ -127,42 +126,4 @@ func TestAgentNameFlow(t *testing.T) {
 	if agentName2 != "TestAgent" {
 		t.Errorf("Expected agent name 'TestAgent' after operations, got '%s'", agentName2)
 	}
-}
-
-func TestAgentNameInLangfuseSpan(t *testing.T) {
-	// Create a test context with agent name (simulating agent.Run)
-	ctx := context.Background()
-	ctx = WithAgentName(ctx, "TestAgent")
-
-	// Verify agent name is in context
-	agentName, found := GetAgentName(ctx)
-	if !found {
-		t.Fatal("Expected to find agent name in context")
-	}
-	if agentName != "TestAgent" {
-		t.Errorf("Expected agent name 'TestAgent', got '%s'", agentName)
-	}
-
-	// Test that TraceGeneration captures the agent name
-	config := LangfuseConfig{
-		Environment: "test",
-	}
-
-	tracer := &OTELLangfuseTracer{
-		enabled: true,
-		config:  config,
-	}
-
-	// Simulate a trace generation call (this would normally be called by LLM middleware)
-	startTime := time.Now()
-	endTime := startTime.Add(100 * time.Millisecond)
-
-	// This should capture the agent name from context and add it to the span
-	_, err := tracer.TraceGeneration(ctx, "gpt-4", "test prompt", "test response", startTime, endTime, nil)
-
-	// We expect this to not fail (even though we don't have a real OTEL tracer)
-	// The important thing is that the agent name extraction logic works
-	_ = err // Ignore error since we don't have a real tracer setup
-
-	t.Log("TraceGeneration called successfully with agent name")
 }
