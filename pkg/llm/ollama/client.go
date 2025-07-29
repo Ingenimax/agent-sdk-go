@@ -309,7 +309,11 @@ func (c *OllamaClient) makeRequest(ctx context.Context, endpoint string, payload
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}()
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)

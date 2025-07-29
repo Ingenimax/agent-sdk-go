@@ -61,7 +61,8 @@ func TestGenerate(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -97,7 +98,8 @@ func TestGenerateWithSystemMessage(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -140,7 +142,8 @@ func TestChat(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -185,7 +188,8 @@ func TestGenerateWithTools(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -232,7 +236,8 @@ func TestListModels(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err := json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -267,7 +272,8 @@ func TestPullModel(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -282,7 +288,8 @@ func TestMakeRequestError(t *testing.T) {
 	// Create a server that returns an error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Internal Server Error"))
+		_, err := w.Write([]byte("Internal Server Error"))
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
