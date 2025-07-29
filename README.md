@@ -425,6 +425,11 @@ The SDK follows a modular architecture with these key components:
   - Multimodal capabilities with vision models
   - Function calling and tool integration
   - Flexible authentication (ADC or service account files)
+- **Ollama**: Local LLM server supporting various open-source models
+  - Run models locally without external API calls
+  - Support for Llama2, Mistral, CodeLlama, and other models
+  - Model management (list, pull, switch models)
+  - Local processing for reduced latency and privacy
 
 ## Examples
 
@@ -443,6 +448,7 @@ Check out the `cmd/examples` directory for complete examples:
 - `examples/llm/openai/`: OpenAI integration examples
 - `examples/llm/anthropic/`: Anthropic Claude integration examples  
 - `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
+- `examples/llm/ollama/`: Ollama local LLM integration examples
 
 ## License
 
