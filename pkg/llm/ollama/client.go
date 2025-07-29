@@ -195,10 +195,6 @@ Ensure your response is a valid JSON object that strictly follows the schema abo
 
 		req.Prompt = schemaPrompt
 		req.Format = "json"
-		c.logger.Debug(ctx, "Using structured output format", map[string]interface{}{
-			"schema_name": params.ResponseFormat.Name,
-			"format":      "json",
-		})
 	}
 
 	// Make request
