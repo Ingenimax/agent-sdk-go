@@ -11,19 +11,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ResponseFormatConfig represents the configuration for the response format of an agent or task
+type ResponseFormatConfig struct {
+	Type             string                 `yaml:"type"`
+	SchemaName       string                 `yaml:"schema_name"`
+	SchemaDefinition map[string]interface{} `yaml:"schema_definition"`
+}
+
 // AgentConfig represents the configuration for an agent loaded from YAML
 type AgentConfig struct {
-	Role      string `yaml:"role"`
-	Goal      string `yaml:"goal"`
-	Backstory string `yaml:"backstory"`
+	Role           string                `yaml:"role"`
+	Goal           string                `yaml:"goal"`
+	Backstory      string                `yaml:"backstory"`
+	ResponseFormat *ResponseFormatConfig `yaml:"response_format,omitempty"`
 }
 
 // TaskConfig represents a task definition loaded from YAML
 type TaskConfig struct {
-	Description    string `yaml:"description"`
-	ExpectedOutput string `yaml:"expected_output"`
-	Agent          string `yaml:"agent"`
-	OutputFile     string `yaml:"output_file,omitempty"`
+	Description    string                `yaml:"description"`
+	ExpectedOutput string                `yaml:"expected_output"`
+	Agent          string                `yaml:"agent"`
+	OutputFile     string                `yaml:"output_file,omitempty"`
+	ResponseFormat *ResponseFormatConfig `yaml:"response_format,omitempty"`
 }
 
 // AgentConfigs represents a map of agent configurations
@@ -347,4 +356,18 @@ func SaveTaskConfigsToFile(configs TaskConfigs, file *os.File) error {
 	}
 
 	return nil
+}
+
+// ConvertYAMLSchemaToResponseFormat converts a ResponseFormatConfig to interfaces.ResponseFormat
+func ConvertYAMLSchemaToResponseFormat(config *ResponseFormatConfig) (*interfaces.ResponseFormat, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	schema := interfaces.JSONSchema(config.SchemaDefinition)
+	return &interfaces.ResponseFormat{
+		Type:   interfaces.ResponseFormatType(config.Type),
+		Name:   config.SchemaName,
+		Schema: schema,
+	}, nil
 }

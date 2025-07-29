@@ -241,6 +241,97 @@ reporting_task:
   output_file: "{topic}_report.md"
 ```
 
+### Structured Output with YAML Configuration
+
+The SDK supports defining structured output (JSON responses) directly in YAML configuration files. This allows you to automatically apply structured output when creating agents from YAML and unmarshal responses directly into Go structs.
+
+**agents.yaml with structured output**:
+```yaml
+researcher:
+  role: >
+    {topic} Senior Data Researcher
+  goal: >
+    Uncover cutting-edge developments in {topic}
+  backstory: >
+    You're a seasoned researcher with a knack for uncovering the latest
+    developments in {topic}. Known for your ability to find the most relevant
+    information and present it in a clear and concise manner.
+  response_format:
+    type: "json_object"
+    schema_name: "ResearchResult"
+    schema_definition:
+      type: "object"
+      properties:
+        findings:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              title:
+                type: "string"
+                description: "Title of the finding"
+              description:
+                type: "string"
+                description: "Detailed description"
+              source:
+                type: "string"
+                description: "Source of the information"
+        summary:
+          type: "string"
+          description: "Executive summary of findings"
+        metadata:
+          type: "object"
+          properties:
+            total_findings:
+              type: "integer"
+            research_date:
+              type: "string"
+```
+
+**tasks.yaml with structured output**:
+```yaml
+research_task:
+  description: >
+    Conduct a thorough research about {topic}
+    Make sure you find any interesting and relevant information.
+  expected_output: >
+    A structured JSON response with findings, summary, and metadata
+  agent: researcher
+  output_file: "{topic}_report.json"
+  response_format:
+    type: "json_object"
+    schema_name: "ResearchResult"
+    schema_definition:
+      # Same schema as above
+```
+
+**Usage in Go code**:
+```go
+// Define your Go struct to match the YAML schema
+type ResearchResult struct {
+    Findings []struct {
+        Title       string `json:"title"`
+        Description string `json:"description"`
+        Source      string `json:"source"`
+    } `json:"findings"`
+    Summary  string `json:"summary"`
+    Metadata struct {
+        TotalFindings int    `json:"total_findings"`
+        ResearchDate  string `json:"research_date"`
+    } `json:"metadata"`
+}
+
+// Create agent and execute task
+agent, err := agent.CreateAgentForTask("research_task", agentConfigs, taskConfigs, variables, agent.WithLLM(llm))
+result, err := agent.ExecuteTaskFromConfig(context.Background(), "research_task", taskConfigs, variables)
+
+// Unmarshal structured output
+var structured ResearchResult
+err = json.Unmarshal([]byte(result), &structured)
+```
+
+For more details, see [Structured Output with YAML Configuration](docs/structured_output_yaml.md).
+
 ### Auto-Generating Agent Configurations
 
 ```go

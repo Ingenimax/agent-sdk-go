@@ -115,6 +115,13 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 	return func(a *Agent) {
 		systemPrompt := FormatSystemPromptFromConfig(config, variables)
 		a.systemPrompt = systemPrompt
+		// Add structured output if configured
+		if config.ResponseFormat != nil {
+			responseFormat, err := ConvertYAMLSchemaToResponseFormat(config.ResponseFormat)
+			if err == nil && responseFormat != nil {
+				a.responseFormat = responseFormat
+			}
+		}
 	}
 }
 
@@ -232,6 +239,15 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 	agentName, err := GetAgentForTask(taskConfigs, taskName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if task has its own response format
+	taskConfig := taskConfigs[taskName]
+	if taskConfig.ResponseFormat != nil {
+		responseFormat, err := ConvertYAMLSchemaToResponseFormat(taskConfig.ResponseFormat)
+		if err == nil && responseFormat != nil {
+			options = append(options, WithResponseFormat(*responseFormat))
+		}
 	}
 
 	return NewAgentFromConfig(agentName, agentConfigs, variables, options...)

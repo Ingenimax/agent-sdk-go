@@ -9,9 +9,27 @@ import (
 	"path/filepath"
 	"strings"
 
+	"encoding/json"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 )
+
+// ResearchResult matches the schema defined in the YAML response_format
+// This is just for demonstration; in a real project, keep this in a shared package
+// and keep it in sync with the YAML schema
+type ResearchResult struct {
+	Findings []struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Source      string `json:"source"`
+	} `json:"findings"`
+	Summary  string `json:"summary"`
+	Metadata struct {
+		TotalFindings int    `json:"total_findings"`
+		ResearchDate  string `json:"research_date"`
+	} `json:"metadata"`
+}
 
 func main() {
 	// Parse command line flags
@@ -76,8 +94,19 @@ func main() {
 	fmt.Println(result)
 	fmt.Println("---------------------------------------------")
 
-	// Check if the task has an output file
+	// If the task has a response_format, try to unmarshal into the struct
 	taskConfig := taskConfigs[*taskName]
+	if taskConfig.ResponseFormat != nil && taskConfig.ResponseFormat.SchemaName == "ResearchResult" {
+		var structured ResearchResult
+		err := json.Unmarshal([]byte(result), &structured)
+		if err != nil {
+			fmt.Println("Failed to unmarshal structured output:", err)
+		} else {
+			fmt.Printf("\nStructured Output (Go struct):\n%+v\n", structured)
+		}
+	}
+
+	// Check if the task has an output file
 	if taskConfig.OutputFile != "" {
 		outputPath := taskConfig.OutputFile
 		for key, value := range variables {

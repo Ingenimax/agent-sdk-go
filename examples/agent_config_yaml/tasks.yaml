@@ -6,6 +6,36 @@ research_task:
   expected_output: >
     A list with 10 bullet points of the most relevant information about {topic}
   agent: researcher
+  response_format:
+    type: "json_object"
+    schema_name: "ResearchResult"
+    schema_definition:
+      type: "object"
+      properties:
+        findings:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              title:
+                type: "string"
+                description: "Title of the finding"
+              description:
+                type: "string"
+                description: "Detailed description"
+              source:
+                type: "string"
+                description: "Source of the information"
+        summary:
+          type: "string"
+          description: "Executive summary of findings"
+        metadata:
+          type: "object"
+          properties:
+            total_findings:
+              type: "integer"
+            research_date:
+              type: "string"
 
 reporting_task:
   description: >
