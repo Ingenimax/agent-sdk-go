@@ -427,9 +427,13 @@ The SDK follows a modular architecture with these key components:
   - Flexible authentication (ADC or service account files)
 - **Ollama**: Local LLM server supporting various open-source models
   - Run models locally without external API calls
+- **vLLM**: High-performance local LLM inference with PagedAttention
+  - Optimized for GPU inference with CUDA
+  - Efficient memory management for large models
   - Support for Llama2, Mistral, CodeLlama, and other models
   - Model management (list, pull, switch models)
   - Local processing for reduced latency and privacy
+
 
 ## Examples
 
@@ -449,6 +453,7 @@ Check out the `cmd/examples` directory for complete examples:
 - `examples/llm/anthropic/`: Anthropic Claude integration examples  
 - `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
 - `examples/llm/ollama/`: Ollama local LLM integration examples
+- `examples/llm/vllm/`: vLLM high-performance local LLM integration examples
 
 ## License
 
