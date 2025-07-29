@@ -81,8 +81,6 @@ func main() {
 		),
 	)
 
-	fmt.Println("Ollama Structured Output Examples\n")
-
 	// Example 1: Person Information
 	fmt.Println("1. Person Information Example")
 	personFormat := structuredoutput.NewResponseFormat(Person{})
