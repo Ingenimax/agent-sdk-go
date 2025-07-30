@@ -311,10 +311,7 @@ func (c *OllamaClient) makeRequest(ctx context.Context, endpoint string, payload
 	}
 	defer func() {
 		if resp != nil {
-			err := resp.Body.Close()
-			if err != nil {
-				c.logger.Error(ctx, "Failed to close response body", nil)
-			}
+			_ = resp.Body.Close()
 		}
 	}()
 
