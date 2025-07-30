@@ -427,13 +427,15 @@ The SDK follows a modular architecture with these key components:
   - Flexible authentication (ADC or service account files)
 - **Ollama**: Local LLM server supporting various open-source models
   - Run models locally without external API calls
+  - Support for Llama2, Mistral, CodeLlama, and other models
+  - Model management (list, pull, switch models)
+  - Local processing for reduced latency and privacy
 - **vLLM**: High-performance local LLM inference with PagedAttention
   - Optimized for GPU inference with CUDA
   - Efficient memory management for large models
   - Support for Llama2, Mistral, CodeLlama, and other models
   - Model management (list, pull, switch models)
   - Local processing for reduced latency and privacy
-
 
 ## Examples
 
