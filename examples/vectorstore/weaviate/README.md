@@ -44,159 +44,80 @@ The example demonstrates:
 
 1. Connecting to Weaviate
 2. Storing documents with metadata
-3. Searching for similar documents
+3. Searching for similar documents  
 4. Filtering search results
 5. Deleting documents
 
-```go:cmd/examples/vectorstore/weaviate/main.go
-package main
+## Weaviate Auto-Schema
 
-import (
-	"context"
-	"fmt"
-	"log"
-	"os"
+This vector store leverages **Weaviate's native auto-schema capabilities** for maximum simplicity and reliability:
 
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"github.com/Ingenimax/agent-sdk-go/pkg/vectorstore/weaviate"
-)
+### 🚀 **How It Works**
 
-func main() {
-	// Get Weaviate configuration from environment
-	host := os.Getenv("WEAVIATE_HOST")
-	if host == "" {
-		host = "localhost:8080" // Default Weaviate host
-	}
+1. **Automatic Collection Creation**: Weaviate creates collections automatically when you store the first document
+2. **Dynamic Property Addition**: New metadata fields are automatically added to the schema as needed
+3. **Smart Type Inference**: Weaviate automatically detects optimal data types:
+   - `string` → `text`
+   - `int/int64` → `int`
+   - `float32/float64` → `number` 
+   - `bool` → `boolean`
+   - `[]interface{}` → `text[]` (arrays)
+   - `map[string]interface{}` → `object`
+4. **Zero Configuration**: No manual schema definition required
 
-	apiKey := os.Getenv("WEAVIATE_API_KEY")
-	// API key is optional for local development
+### 💡 **Benefits**
 
-	// Create vector store
-	store := weaviate.New(
-		&interfaces.VectorStoreConfig{
-			Host:   host,
-			APIKey: apiKey,
-		},
-		weaviate.WithClassPrefix("Example"),
-	)
+- ✅ **Zero setup** - just start storing documents  
+- ✅ **Automatic adaptation** - schema evolves with your data
+- ✅ **Type safety** - Weaviate validates data types automatically
+- ✅ **Performance optimized** - Weaviate chooses optimal settings
+- ✅ **Production ready** - Built and tested by Weaviate team
 
-	// Create context with organization ID
-	ctx := multitenancy.WithOrgID(context.Background(), "example-org")
+### 📖 **Usage Examples**
 
-	// Store some documents
-	docs := []interfaces.Document{
-		{
-			ID:      "doc1",
-			Content: "The quick brown fox jumps over the lazy dog",
-			Metadata: map[string]interface{}{
-				"source": "example",
-				"type":   "pangram",
-			},
-		},
-		{
-			ID:      "doc2",
-			Content: "To be or not to be, that is the question",
-			Metadata: map[string]interface{}{
-				"source": "example",
-				"type":   "quote",
-			},
-		},
-	}
-
-	fmt.Println("Storing documents...")
-	if err := store.Store(ctx, docs); err != nil {
-		log.Fatalf("Failed to store documents: %v", err)
-	}
-
-	// Search for similar documents
-	fmt.Println("\nSearching for 'fox jumps'...")
-	results, err := store.Search(ctx, "fox jumps", 5)
-	if err != nil {
-		log.Fatalf("Failed to search: %v", err)
-	}
-
-	fmt.Println("Search results:")
-	for _, result := range results {
-		fmt.Printf("- %s (score: %.2f)\n", result.Document.Content, result.Score)
-	}
-
-	// Search with filters
-	fmt.Println("\nSearching with filters for type=pangram...")
-	filteredResults, err := store.Search(ctx, "fox jumps", 5,
-		interfaces.WithFilters(map[string]interface{}{
-			"type": "pangram",
-		}),
-	)
-	if err != nil {
-		log.Fatalf("Failed to search with filters: %v", err)
-	}
-
-	fmt.Println("Filtered search results:")
-	for _, result := range filteredResults {
-		fmt.Printf("- %s (score: %.2f)\n", result.Document.Content, result.Score)
-	}
-
-	// Get documents by ID
-	fmt.Println("\nGetting document by ID...")
-	retrieved, err := store.Get(ctx, []string{"doc1"})
-	if err != nil {
-		log.Fatalf("Failed to get document: %v", err)
-	}
-
-	fmt.Println("Retrieved document:")
-	for _, doc := range retrieved {
-		fmt.Printf("- ID: %s, Content: %s\n", doc.ID, doc.Content)
-	}
-
-	// Clean up
-	fmt.Println("\nDeleting documents...")
-	err = store.Delete(ctx, []string{"doc1", "doc2"})
-	if err != nil {
-		log.Fatalf("Failed to delete documents: %v", err)
-	}
-	fmt.Println("Documents deleted successfully")
+```go
+// Simple storage - Weaviate handles everything automatically
+docs := []interfaces.Document{
+    {
+        ID: "1",
+        Content: "The quick brown fox jumps over the lazy dog",
+        Metadata: map[string]interface{}{
+            "source": "example",           // → text
+            "wordCount": 9,               // → int
+            "isClassic": true,            // → boolean
+            "rating": 4.8,                // → number
+            "tags": []string{"pangram"},  // → text[]
+        },
+    },
 }
+
+// Auto-schema creates collection and properties automatically
+err := store.Store(ctx, docs)
 ```
 
-## Expected Output
+## Dynamic Field Selection
 
+The Weaviate vector store now supports dynamic field selection for search operations. This allows you to:
+
+1. **Auto-discovery (default)**: Automatically retrieve all fields from the schema without hardcoding field names
+2. **Specific field selection**: Choose only the fields you need to reduce payload size and improve performance
+3. **Graceful fallback**: Automatically falls back to basic fields if schema discovery fails
+
+### Usage Examples
+
+```go
+// Auto-discovery: Gets all fields dynamically from schema
+results, err := store.Search(ctx, "fox jumps", 5, interfaces.WithEmbedding(true))
+
+// Specific fields: Only retrieve content and source fields
+results, err := store.Search(ctx, "fox jumps", 5, 
+    interfaces.WithEmbedding(true),
+    interfaces.WithFields([]string{"content", "source"}))
+
+// Minimal fields: Just content for lightweight responses
+results, err := store.Search(ctx, "fox jumps", 5,
+    interfaces.WithEmbedding(true), 
+    interfaces.WithFields([]string{"content"}))
 ```
-Storing documents...
 
-Searching for 'fox jumps'...
-Search results:
-- The quick brown fox jumps over the lazy dog (score: 0.95)
-- To be or not to be, that is the question (score: 0.65)
-
-Searching with filters for type=pangram...
-Filtered search results:
-- The quick brown fox jumps over the lazy dog (score: 0.95)
-
-Getting document by ID...
-Retrieved document:
-- ID: doc1, Content: The quick brown fox jumps over the lazy dog
-
-Deleting documents...
-Documents deleted successfully
-```
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. **Weaviate Connection**:
-   - Verify Weaviate is running: `curl http://localhost:8080/v1/.well-known/ready`
-   - Check Docker logs: `docker logs weaviate`
-
-2. **Dependency Issues**:
-   - If you see errors related to missing functions like `byteops.Float32ToByteVector`, try using an older version of the Weaviate client (v4.15.0)
-
-3. **OpenAI API Key**:
-   - Ensure your OpenAI API key is valid and has been provided to Weaviate
-
-4. **Class Creation**:
-   - If you see errors about classes not existing, check that the example has permission to create classes in Weaviate
-
-5. **Verbose Logging**:
-   - Set `WEAVIATE_VERBOSE=true` for more detailed logs
+- **Backward compatibility**: Existing code continues to work without changes

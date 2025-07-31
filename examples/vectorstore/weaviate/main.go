@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
@@ -67,16 +68,37 @@ func main() {
 			ID:      uuid.New().String(),
 			Content: "The quick brown fox jumps over the lazy dog",
 			Metadata: map[string]interface{}{
-				"source": "example",
-				"type":   "pangram",
+				"source":    "example",
+				"type":      "pangram",
+				"wordCount": 9,                              // int field
+				"isClassic": true,                           // boolean field
+				"rating":    4.8,                            // float field
+				"tags":      []string{"example", "pangram"}, // array field
 			},
 		},
 		{
 			ID:      uuid.New().String(),
 			Content: "To be or not to be, that is the question",
 			Metadata: map[string]interface{}{
-				"source": "example",
-				"type":   "quote",
+				"source":    "literature",
+				"type":      "quote",
+				"author":    "Shakespeare",
+				"year":      1603,                                             // int field
+				"isClassic": true,                                             // boolean field
+				"rating":    4.9,                                              // float field
+				"tags":      []string{"literature", "shakespeare", "classic"}, // array field
+			},
+		},
+		{
+			ID:      uuid.New().String(),
+			Content: "Hello, World! This is a simple greeting.",
+			Metadata: map[string]interface{}{
+				"source":    "programming",
+				"type":      "example",
+				"wordCount": 8,                                      // int field
+				"isClassic": false,                                  // boolean field
+				"rating":    3.5,                                    // float field
+				"tags":      []string{"programming", "hello-world"}, // array field
 			},
 		},
 	}
@@ -91,11 +113,15 @@ func main() {
 		docs[idx].Vector = vector
 	}
 
-	logger.Info(ctx, "Storing documents with embeddings...", nil)
+	logger.Info(ctx, "Storing documents with Weaviate auto-schema...", map[string]interface{}{
+		"documentCount": len(docs),
+		"note":          "Weaviate will automatically create the optimal schema from document metadata",
+	})
 	if err := store.Store(ctx, docs); err != nil {
 		logger.Error(ctx, "Failed to store documents", map[string]interface{}{"error": err.Error()})
 		return
 	}
+	logger.Info(ctx, "Documents stored successfully with auto-generated schema!", nil)
 
 	// Add a delay to ensure documents are indexed
 	logger.Info(ctx, "Waiting for documents to be indexed...", nil)
@@ -104,32 +130,64 @@ func main() {
 	logger.Info(ctx, "Searching for 'fox jumps'...", nil)
 	results, err := store.Search(ctx, "fox jumps", 5, interfaces.WithEmbedding(true))
 	if err != nil {
-		logger.Error(ctx, "Search failed", map[string]interface{}{
-			"error": err.Error(),
+		logger.Error(ctx, "Failed to search documents", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	logger.Info(ctx, "Search results (auto-discovery - all fields):", map[string]interface{}{"count": len(results)})
+	for i, result := range results {
+		logger.Info(ctx, fmt.Sprintf("Result %d:", i+1), map[string]interface{}{
+			"content":  result.Document.Content,
+			"score":    result.Score,
+			"metadata": result.Document.Metadata,
 		})
-
-		// Try a different search approach as fallback
-		logger.Info(ctx, "Trying alternative search approach...", nil)
-		results, err = store.Search(ctx, "fox", 5, interfaces.WithEmbedding(true))
-		if err != nil {
-			logger.Error(ctx, "Alternative search also failed", map[string]interface{}{"error": err.Error()})
-
-			// Continue with cleanup even if search failed
-			logger.Info(ctx, "Proceeding to cleanup...", nil)
-			goto cleanup
-		}
 	}
 
-	if len(results) == 0 {
-		logger.Info(ctx, "No results found with embedding search.", nil)
-	} else {
-		logger.Info(ctx, "Search results:", map[string]interface{}{"results": results})
-		for _, r := range results {
-			logger.Info(ctx, "Search result", map[string]interface{}{"result": r})
-		}
+	// Example 2: Search with specific fields only
+	logger.Info(ctx, "Searching with specific fields only (content + source)...", nil)
+	specificFieldResults, err := store.Search(ctx, "fox jumps", 5,
+		interfaces.WithEmbedding(true),
+		interfaces.WithFields("content", "source"),
+	)
+	if err != nil {
+		logger.Error(ctx, "Failed to search with specific fields", map[string]interface{}{"error": err.Error()})
+		return
 	}
 
-cleanup:
+	logger.Info(ctx, "Search results (specific fields only):", map[string]interface{}{"count": len(specificFieldResults)})
+	for i, result := range specificFieldResults {
+		logger.Info(ctx, fmt.Sprintf("Specific fields result %d:", i+1), map[string]interface{}{
+			"content":  result.Document.Content,
+			"score":    result.Score,
+			"metadata": result.Document.Metadata, // Should only contain 'source' field
+		})
+	}
+
+	// Example 3: Search by vector with auto field discovery
+	logger.Info(ctx, "Searching by vector with auto field discovery...", nil)
+	testVector, err := embedder.Embed(ctx, "quick brown animal")
+	if err != nil {
+		logger.Error(ctx, "Failed to generate test vector", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	vectorResults, err := store.SearchByVector(ctx, testVector, 3)
+	if err != nil {
+		logger.Error(ctx, "Failed to search by vector", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	logger.Info(ctx, "Vector search results (auto-discovery):", map[string]interface{}{"count": len(vectorResults)})
+	for i, result := range vectorResults {
+		logger.Info(ctx, fmt.Sprintf("Vector result %d:", i+1), map[string]interface{}{
+			"content":  result.Document.Content,
+			"score":    result.Score,
+			"metadata": result.Document.Metadata,
+		})
+	}
+
+	logger.Info(ctx, "Dynamic field selection examples completed successfully!", nil)
+
 	// Cleanup
 	var ids []string
 	for _, doc := range docs {

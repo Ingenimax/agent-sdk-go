@@ -269,9 +269,6 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 	// Get span name from agent context or use default
 	spanName := GetSpanNameOrDefault(ctx, "llm.generation")
 
-	// Extract just the last user message for cleaner tracing
-	lastUserMessage := extractLastUserMessage(prompt)
-
 	// Check for tool calls from context
 	toolCalls := GetToolCallsFromContext(ctx)
 
@@ -305,19 +302,19 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 
 		// Langfuse-specific trace-level attributes (for list view)
 		attribute.String("langfuse.trace.name", GetTraceNameOrDefault(ctx, spanName)),
-		attribute.String("langfuse.trace.input", lastUserMessage),
+		attribute.String("langfuse.trace.input", prompt),
 		attribute.String("langfuse.trace.output", outputWithToolCalls),
 
 		// Langfuse-specific observation-level attributes (for detailed view)
 		attribute.String("langfuse.environment", t.config.Environment),
 		attribute.String("langfuse.observation.type", "generation"),
-		attribute.String("langfuse.observation.input", lastUserMessage),
+		attribute.String("langfuse.observation.input", prompt),
 		attribute.String("langfuse.observation.output", outputWithToolCalls),
 
 		// Token usage with proper GenAI attributes (based on last user message only)
-		attribute.Int64("gen_ai.usage.prompt_tokens", int64(len(lastUserMessage)/4)), // Rough estimate
+		attribute.Int64("gen_ai.usage.prompt_tokens", int64(len(prompt)/4)), // Rough estimate
 		attribute.Int64("gen_ai.usage.completion_tokens", int64(len(response)/4)),
-		attribute.Int64("gen_ai.usage.total_tokens", int64((len(lastUserMessage)+len(response))/4)),
+		attribute.Int64("gen_ai.usage.total_tokens", int64((len(prompt)+len(response))/4)),
 	}
 
 	// Add organization ID if available
@@ -339,7 +336,7 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 	}
 
 	// Add prompt attributes using the last user message
-	promptAttrs := t.promptToAttributes(lastUserMessage)
+	promptAttrs := t.promptToAttributes(prompt)
 	attrs = append(attrs, promptAttrs...)
 
 	// Add response attributes

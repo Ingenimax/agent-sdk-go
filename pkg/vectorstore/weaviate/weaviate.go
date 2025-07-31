@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/auth"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -13,7 +14,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/embedding"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -77,11 +77,9 @@ func New(config *interfaces.VectorStoreConfig, options ...Option) *Store {
 		Scheme: config.Scheme,
 	}
 
-	// Add API key if provided
+	// Add API key if provided - use AuthConfig for proper Weaviate Cloud support
 	if config.APIKey != "" {
-		cfg.Headers = map[string]string{
-			"Authorization": "Bearer " + config.APIKey,
-		}
+		cfg.AuthConfig = auth.ApiKey{Value: config.APIKey}
 	}
 
 	client, err := weaviate.NewClient(cfg)
@@ -95,24 +93,23 @@ func New(config *interfaces.VectorStoreConfig, options ...Option) *Store {
 	return store
 }
 
-// getClassName returns the class name for the current organization
+// getClassName returns the class name
+// Uses metadata-based multi-tenancy (single class, orgId as field) instead of class proliferation
 func (s *Store) getClassName(ctx context.Context, class string) (string, error) {
-	// Get organization ID from context
-	orgID, err := multitenancy.GetOrgID(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get organization ID: %w", err)
-	}
-
 	// If class is provided, use it; otherwise use default
 	if class == "" {
 		class = s.classPrefix
 	}
 
-	// Create class name with organization ID
-	return fmt.Sprintf("%s_%s", class, orgID), nil
+	// Always return the base class name
+	// Multi-tenancy is handled via orgId field filtering, not separate classes
+	s.logger.Debug(ctx, "Using single class with metadata-based multi-tenancy", map[string]interface{}{
+		"class": class,
+	})
+	return class, nil
 }
 
-// Store stores documents in Weaviate
+// Store stores documents in Weaviate with optional tenant support
 func (s *Store) Store(ctx context.Context, documents []interfaces.Document, options ...interfaces.StoreOption) error {
 	// Apply options
 	opts := &interfaces.StoreOptions{
@@ -126,11 +123,6 @@ func (s *Store) Store(ctx context.Context, documents []interfaces.Document, opti
 	className, err := s.getClassName(ctx, opts.Class)
 	if err != nil {
 		return err
-	}
-
-	// Create class if it doesn't exist
-	if err := s.ensureClass(ctx, className); err != nil {
-		return fmt.Errorf("failed to ensure class exists: %w", err)
 	}
 
 	// Store documents in batches
@@ -158,6 +150,12 @@ func (s *Store) Store(ctx context.Context, documents []interfaces.Document, opti
 			Properties: properties,
 			Vector:     vector, // Use the generated vector
 		}
+
+		// Add tenant support if specified
+		if opts.Tenant != "" {
+			obj.Tenant = opts.Tenant
+		}
+
 		batch.WithObjects(obj)
 		batchCount++
 
@@ -224,16 +222,38 @@ func (s *Store) Search(ctx context.Context, query string, limit int, options ...
 		"query":     query,
 	})
 
-	// Try a simpler query first
-	result, err := s.client.GraphQL().Get().
+	// Build dynamic field list
+	fieldList, err := s.buildFieldList(ctx, className, opts.Fields)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build field list: %w", err)
+	}
+
+	s.logger.Debug(ctx, "Using field list for search", map[string]interface{}{
+		"fieldList": fieldList,
+		"className": className,
+	})
+
+	// Build query with dynamic fields
+	queryBuilder := s.client.GraphQL().Get().
 		WithClassName(className).
 		WithFields(graphql.Field{
-			Name: "content _additional { certainty id }",
+			Name: fieldList,
 		}).
 		WithNearVector(s.client.GraphQL().NearVectorArgBuilder().
 			WithVector(vector)).
-		WithLimit(limit).
-		Do(ctx)
+		WithLimit(limit)
+
+	// Add where filter if specified
+	if whereFilter != nil {
+		queryBuilder = queryBuilder.WithWhere(whereFilter)
+	}
+
+	// Add tenant support if specified
+	if opts.Tenant != "" {
+		queryBuilder = queryBuilder.WithTenant(opts.Tenant)
+	}
+
+	result, err := queryBuilder.Do(ctx)
 
 	if err != nil {
 		s.logger.Error(ctx, "GraphQL query failed", map[string]interface{}{
@@ -284,18 +304,38 @@ func (s *Store) SearchByVector(ctx context.Context, vector []float32, limit int,
 	// Build query
 	whereFilter := s.buildWhereFilter(opts.Filters)
 
+	// Build dynamic field list
+	fieldList, err := s.buildFieldList(ctx, className, opts.Fields)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build field list: %w", err)
+	}
+
+	s.logger.Debug(ctx, "Using field list for vector search", map[string]interface{}{
+		"fieldList": fieldList,
+		"className": className,
+	})
+
 	// Use vector search
-	result, err := s.client.GraphQL().Get().
+	queryBuilder := s.client.GraphQL().Get().
 		WithClassName(className).
 		WithFields(graphql.Field{
-			Name: "_additional { certainty id } content source type",
+			Name: fieldList,
 		}).
 		WithNearVector(s.client.GraphQL().NearVectorArgBuilder().
 			WithVector(vector)).
 		WithWhere(whereFilter).
-		WithLimit(limit).
-		Do(ctx)
+		WithLimit(limit)
+
+	// Add tenant support if specified
+	if opts.Tenant != "" {
+		queryBuilder = queryBuilder.WithTenant(opts.Tenant)
+	}
+
+	result, err := queryBuilder.Do(ctx)
 	if err != nil {
+		s.logger.Error(ctx, "GraphQL query failed", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to execute vector search: %w", err)
 	}
 
@@ -319,10 +359,16 @@ func (s *Store) Delete(ctx context.Context, ids []string, options ...interfaces.
 
 	// Delete objects
 	for _, id := range ids {
-		if err := s.client.Data().Deleter().
+		deleter := s.client.Data().Deleter().
 			WithClassName(className).
-			WithID(id).
-			Do(ctx); err != nil {
+			WithID(id)
+
+		// Add tenant support if specified
+		if opts.Tenant != "" {
+			deleter = deleter.WithTenant(opts.Tenant)
+		}
+
+		if err := deleter.Do(ctx); err != nil {
 			return fmt.Errorf("failed to delete document %s: %w", id, err)
 		}
 	}
@@ -330,104 +376,230 @@ func (s *Store) Delete(ctx context.Context, ids []string, options ...interfaces.
 	return nil
 }
 
-// Get retrieves documents by their IDs
-func (s *Store) Get(ctx context.Context, ids []string) ([]interfaces.Document, error) {
+// Get retrieves a single document by ID
+func (s *Store) Get(ctx context.Context, id string, options ...interfaces.StoreOption) (*interfaces.Document, error) {
+	// Apply options
+	opts := &interfaces.StoreOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
 	// Get class name (use default since we're getting by ID)
+	className, err := s.getClassName(ctx, opts.Class)
+	if err != nil {
+		return nil, err
+	}
+
+	getter := s.client.Data().ObjectsGetter().
+		WithClassName(className).
+		WithID(id)
+
+	// Add tenant support if specified
+	if opts.Tenant != "" {
+		getter = getter.WithTenant(opts.Tenant)
+	}
+
+	result, err := getter.Do(ctx)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get document %s: %w", id, err)
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("document %s not found", id)
+	}
+
+	doc := &interfaces.Document{
+		ID:       id,
+		Content:  result[0].Properties.(map[string]interface{})["content"].(string),
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Copy all properties except content to metadata
+	for k, v := range result[0].Properties.(map[string]interface{}) {
+		if k != "content" {
+			doc.Metadata[k] = v
+		}
+	}
+
+	return doc, nil
+}
+
+// GlobalStore stores documents in Weaviate without tenant context (for shared data)
+func (s *Store) GlobalStore(ctx context.Context, documents []interfaces.Document, options ...interfaces.StoreOption) error {
+	// Create a context without organization ID to ensure global storage
+	globalCtx := context.Background()
+	return s.Store(globalCtx, documents, options...)
+}
+
+// GlobalSearch searches for documents without tenant context (for shared data)
+func (s *Store) GlobalSearch(ctx context.Context, query string, limit int, options ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	// Create a context without organization ID to ensure global search
+	globalCtx := context.Background()
+	return s.Search(globalCtx, query, limit, options...)
+}
+
+// GlobalSearchByVector searches for documents by vector without tenant context (for shared data)
+func (s *Store) GlobalSearchByVector(ctx context.Context, vector []float32, limit int, options ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	// Create a context without organization ID to ensure global search
+	globalCtx := context.Background()
+	return s.SearchByVector(globalCtx, vector, limit, options...)
+}
+
+// GlobalDelete deletes documents without tenant context (for shared data)
+func (s *Store) GlobalDelete(ctx context.Context, ids []string, options ...interfaces.DeleteOption) error {
+	// Create a context without organization ID to ensure global deletion
+	globalCtx := context.Background()
+	return s.Delete(globalCtx, ids, options...)
+}
+
+// CreateTenant creates a new tenant for native multi-tenancy
+func (s *Store) CreateTenant(ctx context.Context, tenantName string) error {
+	// Use the default class for tenant creation
+	className, err := s.getClassName(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	// Create tenant using the Weaviate Go client
+	tenant := models.Tenant{
+		Name: tenantName,
+	}
+
+	err = s.client.Schema().TenantsCreator().
+		WithClassName(className).
+		WithTenants(tenant).
+		Do(ctx)
+
+	if err != nil {
+		return fmt.Errorf("failed to create tenant %s: %w", tenantName, err)
+	}
+
+	s.logger.Info(ctx, "Tenant created successfully", map[string]interface{}{
+		"tenantName": tenantName,
+		"className":  className,
+	})
+	return nil
+}
+
+// DeleteTenant deletes a tenant for native multi-tenancy
+func (s *Store) DeleteTenant(ctx context.Context, tenantName string) error {
+	// Use the default class for tenant deletion
+	className, err := s.getClassName(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	err = s.client.Schema().TenantsDeleter().
+		WithClassName(className).
+		WithTenants(tenantName).
+		Do(ctx)
+
+	if err != nil {
+		return fmt.Errorf("failed to delete tenant %s: %w", tenantName, err)
+	}
+
+	s.logger.Info(ctx, "Tenant deleted successfully", map[string]interface{}{
+		"tenantName": tenantName,
+		"className":  className,
+	})
+	return nil
+}
+
+// ListTenants lists all tenants for native multi-tenancy
+func (s *Store) ListTenants(ctx context.Context) ([]string, error) {
+	// Use the default class for tenant listing
 	className, err := s.getClassName(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 
-	var documents []interfaces.Document
-	for _, id := range ids {
-		result, err := s.client.Data().ObjectsGetter().
-			WithClassName(className).
-			WithID(id).
-			Do(ctx)
+	tenants, err := s.client.Schema().TenantsGetter().
+		WithClassName(className).
+		Do(ctx)
 
-		if err != nil {
-			return nil, fmt.Errorf("failed to get document %s: %w", id, err)
-		}
-
-		if len(result) == 0 {
-			continue // Skip if document not found
-		}
-
-		doc := interfaces.Document{
-			ID:       id,
-			Content:  result[0].Properties.(map[string]interface{})["content"].(string),
-			Metadata: make(map[string]interface{}),
-		}
-
-		// Copy all properties except content to metadata
-		for k, v := range result[0].Properties.(map[string]interface{}) {
-			if k != "content" {
-				doc.Metadata[k] = v
-			}
-		}
-
-		documents = append(documents, doc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tenants: %w", err)
 	}
 
-	return documents, nil
+	var tenantNames []string
+	for _, tenant := range tenants {
+		tenantNames = append(tenantNames, tenant.Name)
+	}
+
+	s.logger.Info(ctx, "Tenants listed successfully", map[string]interface{}{
+		"className": className,
+		"count":     len(tenantNames),
+	})
+	return tenantNames, nil
 }
 
 // Helper functions
 
-func (s *Store) ensureClass(ctx context.Context, className string) error {
-	s.logger.Info(ctx, "Checking if class exists", map[string]interface{}{"className": className})
+// buildFieldList constructs the GraphQL field specification for queries
+// If fields are specified in options, uses those; otherwise discovers all fields from schema
+func (s *Store) buildFieldList(ctx context.Context, className string, fields []string) (string, error) {
+	// If specific fields are requested, use them
+	if len(fields) > 0 {
+		fieldList := ""
+		for i, field := range fields {
+			if i > 0 {
+				fieldList += " "
+			}
+			fieldList += field
+		}
+		// Always include _additional metadata
+		fieldList += " _additional { certainty id }"
+		return fieldList, nil
+	}
+
+	// Auto-discover all fields from schema
 	schema, err := s.client.Schema().Getter().Do(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get schema: %w", err)
+		s.logger.Error(ctx, "Failed to get schema for field discovery", map[string]interface{}{
+			"error":     err.Error(),
+			"className": className,
+		})
+		// Fallback to basic fields if schema discovery fails
+		return "content _additional { certainty id }", nil
 	}
 
+	// Find the target class
+	var targetClass *models.Class
 	for _, class := range schema.Classes {
 		if class.Class == className {
-			s.logger.Info(ctx, "Class already exists", map[string]interface{}{"className": className})
-			return nil
+			targetClass = class
+			break
 		}
 	}
 
-	s.logger.Info(ctx, "Creating new class", map[string]interface{}{"className": className})
+	if targetClass == nil {
+		s.logger.Warn(ctx, "Class not found in schema, using fallback fields", map[string]interface{}{
+			"className": className,
+		})
+		// Fallback to basic fields if class not found
+		return "content _additional { certainty id }", nil
+	}
 
-	// Get vector dimensions from embedder if available
-	dimensions := 1536 // Default dimensions
-	if s.embedder != nil {
-		// Try to get dimensions from embedder config if available
-		if configProvider, ok := s.embedder.(interface {
-			GetConfig() embedding.EmbeddingConfig
-		}); ok {
-			config := configProvider.GetConfig()
-			if config.Dimensions > 0 {
-				dimensions = config.Dimensions
-			}
+	// Build field list from all properties
+	fieldList := ""
+	for i, property := range targetClass.Properties {
+		if i > 0 {
+			fieldList += " "
 		}
+		fieldList += property.Name
 	}
 
-	class := &models.Class{
-		Class:      className,
-		Vectorizer: "none",
-		VectorIndexConfig: map[string]interface{}{
-			"distance":   s.distanceMetric,
-			"vectorType": "float32",
-			"dimensions": dimensions,
-		},
-		Properties: []*models.Property{
-			{
-				Name:     "content",
-				DataType: []string{"text"},
-			},
-			// Add more default properties as needed
-		},
-	}
+	// Always include _additional metadata
+	fieldList += " _additional { certainty id }"
 
-	if err := s.client.Schema().ClassCreator().WithClass(class).Do(ctx); err != nil {
-		s.logger.Error(ctx, "Failed to create class", map[string]interface{}{"error": err.Error()})
-		return fmt.Errorf("failed to create class: %w", err)
-	}
-	s.logger.Info(ctx, "Successfully created class", map[string]interface{}{"className": className})
+	s.logger.Debug(ctx, "Built dynamic field list", map[string]interface{}{
+		"className":  className,
+		"fieldList":  fieldList,
+		"fieldCount": len(targetClass.Properties),
+	})
 
-	return nil
+	return fieldList, nil
 }
 
 func (s *Store) buildWhereFilter(filterMap map[string]interface{}) *filters.WhereBuilder {

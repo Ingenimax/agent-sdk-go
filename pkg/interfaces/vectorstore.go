@@ -47,22 +47,24 @@ type SearchResult struct {
 	Score float32
 }
 
-// VectorStore represents a vector database for storing and retrieving embeddings
+// VectorStore interface defines operations for vector storage and retrieval
 type VectorStore interface {
-	// Store stores documents in the vector store
 	Store(ctx context.Context, documents []Document, options ...StoreOption) error
-
-	// Search searches for similar documents
+	Get(ctx context.Context, id string, options ...StoreOption) (*Document, error)
 	Search(ctx context.Context, query string, limit int, options ...SearchOption) ([]SearchResult, error)
-
-	// SearchByVector searches for similar documents using a vector
 	SearchByVector(ctx context.Context, vector []float32, limit int, options ...SearchOption) ([]SearchResult, error)
-
-	// Delete removes documents from the vector store
 	Delete(ctx context.Context, ids []string, options ...DeleteOption) error
 
-	// Get retrieves documents by their IDs
-	Get(ctx context.Context, ids []string) ([]Document, error)
+	// Global operations for shared data (no tenant context)
+	GlobalStore(ctx context.Context, documents []Document, options ...StoreOption) error
+	GlobalSearch(ctx context.Context, query string, limit int, options ...SearchOption) ([]SearchResult, error)
+	GlobalSearchByVector(ctx context.Context, vector []float32, limit int, options ...SearchOption) ([]SearchResult, error)
+	GlobalDelete(ctx context.Context, ids []string, options ...DeleteOption) error
+
+	// Tenant management for native multi-tenancy
+	CreateTenant(ctx context.Context, tenantName string) error
+	DeleteTenant(ctx context.Context, tenantName string) error
+	ListTenants(ctx context.Context) ([]string, error)
 }
 
 // StoreOption represents an option for storing documents
@@ -84,6 +86,9 @@ type StoreOptions struct {
 
 	// Class is the class/collection name to store documents in
 	Class string
+
+	// Tenant is the tenant name for native multi-tenancy
+	Tenant string
 }
 
 // SearchOptions contains options for searching documents
@@ -108,12 +113,21 @@ type SearchOptions struct {
 
 	// UseKeyword indicates whether to use keyword search
 	UseKeyword bool
+
+	// Tenant is the tenant name for native multi-tenancy
+	Tenant string
+
+	// Fields specifies which fields to retrieve. If empty, all fields will be retrieved dynamically
+	Fields []string
 }
 
 // DeleteOptions contains options for deleting documents
 type DeleteOptions struct {
 	// Class is the class/collection name to delete from
 	Class string
+
+	// Tenant is the tenant name for native multi-tenancy
+	Tenant string
 }
 
 // WithBatchSize sets the batch size for storing documents
@@ -134,6 +148,13 @@ func WithGenerateVectors(generate bool) StoreOption {
 func WithClass(class string) StoreOption {
 	return func(o *StoreOptions) {
 		o.Class = class
+	}
+}
+
+// WithTenant sets the tenant for native multi-tenancy operations
+func WithTenant(tenant string) StoreOption {
+	return func(o *StoreOptions) {
+		o.Tenant = tenant
 	}
 }
 
@@ -176,5 +197,26 @@ func WithNearText(useNearText bool) SearchOption {
 func WithKeyword(useKeyword bool) SearchOption {
 	return func(o *SearchOptions) {
 		o.UseKeyword = useKeyword
+	}
+}
+
+// WithTenantSearch sets the tenant for native multi-tenancy search operations
+func WithTenantSearch(tenant string) SearchOption {
+	return func(o *SearchOptions) {
+		o.Tenant = tenant
+	}
+}
+
+// WithTenantDelete sets the tenant for native multi-tenancy delete operations
+func WithTenantDelete(tenant string) DeleteOption {
+	return func(o *DeleteOptions) {
+		o.Tenant = tenant
+	}
+}
+
+// WithFields sets the specific fields to retrieve in search results
+func WithFields(fields ...string) SearchOption {
+	return func(o *SearchOptions) {
+		o.Fields = fields
 	}
 }
