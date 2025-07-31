@@ -73,7 +73,7 @@ func main() {
 		vllm.WithBaseURL(baseURL),
 	)
 
-	fmt.Println("=== vLLM Structured Output Examples ===\n")
+	fmt.Println("=== vLLM Structured Output Examples ===")
 
 	// Example 1: Person Information
 	fmt.Println("1. Person Information Example")

@@ -48,7 +48,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("=== vLLM Agent Integration Examples ===\n")
+	fmt.Println("=== vLLM Agent Integration Examples ===")
 
 	// Test 1: Basic conversation
 	fmt.Println("1. Basic Conversation")
