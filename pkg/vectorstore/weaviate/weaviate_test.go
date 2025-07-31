@@ -92,17 +92,17 @@ func TestStore(t *testing.T) {
 	}
 
 	// Test getting documents
-	retrieved, err := store.Get(ctx, []string{"doc1"})
+	retrieved, err := store.Get(ctx, "doc1")
 	if err != nil {
 		t.Fatalf("Failed to get document: %v", err)
 	}
 
-	if len(retrieved) != 1 {
-		t.Fatalf("Expected 1 document, got %d", len(retrieved))
+	if retrieved == nil {
+		t.Fatalf("Expected document, got nil")
 	}
 
-	if retrieved[0].Content != docs[0].Content {
-		t.Errorf("Expected content %q, got %q", docs[0].Content, retrieved[0].Content)
+	if retrieved.Content != docs[0].Content {
+		t.Errorf("Expected content %q, got %q", docs[0].Content, retrieved.Content)
 	}
 
 	// Test deleting
