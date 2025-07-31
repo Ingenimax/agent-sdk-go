@@ -128,7 +128,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	logger.Info(ctx, "Searching for 'fox jumps'...", nil)
-	results, err := store.Search(ctx, "fox jumps", 5, interfaces.WithEmbedding(true))
+	results, err := store.Search(ctx, "fox jumps", 5)
 	if err != nil {
 		logger.Error(ctx, "Failed to search documents", map[string]interface{}{"error": err.Error()})
 		return
@@ -146,7 +146,6 @@ func main() {
 	// Example 2: Search with specific fields only
 	logger.Info(ctx, "Searching with specific fields only (content + source)...", nil)
 	specificFieldResults, err := store.Search(ctx, "fox jumps", 5,
-		interfaces.WithEmbedding(true),
 		interfaces.WithFields("content", "source"),
 	)
 	if err != nil {
@@ -180,6 +179,27 @@ func main() {
 	logger.Info(ctx, "Vector search results (auto-discovery):", map[string]interface{}{"count": len(vectorResults)})
 	for i, result := range vectorResults {
 		logger.Info(ctx, fmt.Sprintf("Vector result %d:", i+1), map[string]interface{}{
+			"content":  result.Document.Content,
+			"score":    result.Score,
+			"metadata": result.Document.Metadata,
+		})
+	}
+
+	// Example 4: Search with filters
+	logger.Info(ctx, "Searching with filters (only classic documents)...", nil)
+	filteredResults, err := store.Search(ctx, "fox jumps", 5,
+		interfaces.WithFilters(map[string]interface{}{
+			"isClassic": true,
+		}),
+	)
+	if err != nil {
+		logger.Error(ctx, "Failed to search with filters", map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	logger.Info(ctx, "Filtered search results:", map[string]interface{}{"count": len(filteredResults)})
+	for i, result := range filteredResults {
+		logger.Info(ctx, fmt.Sprintf("Filtered result %d:", i+1), map[string]interface{}{
 			"content":  result.Document.Content,
 			"score":    result.Score,
 			"metadata": result.Document.Metadata,
