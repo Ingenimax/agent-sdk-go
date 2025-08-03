@@ -69,6 +69,21 @@ func main() {
 		)
 		testMemory(ctx, redisMemory, logger)
 
+		// Example 5: Redis Memory with Summarization
+		logger.Info(ctx, "\n=== Redis Memory with Summarization ===", nil)
+		
+		// Create a new conversation context for summarization example
+		summaryCtx := memory.WithConversationID(ctx, "conversation-summarization-demo")
+		
+		// Create Redis memory with summarization enabled
+		redisMemoryWithSummary := memory.NewRedisMemory(
+			redisClient,
+			memory.WithTTL(1*time.Hour),
+			memory.WithSummarization(llmClient, 10, 3), // Summarize after 10 messages, keep 3 summaries
+		)
+		
+		testMemoryWithSummarization(summaryCtx, redisMemoryWithSummary, logger)
+
 		// Close Redis client
 		if err := redisClient.Close(); err != nil {
 			logger.Error(ctx, "Error closing Redis client", map[string]interface{}{"error": err.Error()})
@@ -206,4 +221,96 @@ func setupRedisClient() (*redis.Client, error) {
 	}
 
 	return client, nil
+}
+
+func testMemoryWithSummarization(ctx context.Context, mem interfaces.Memory, logger logging.Logger) {
+	logger.Info(ctx, "Testing Redis memory with automatic summarization", nil)
+	
+	// Clear any existing messages first
+	if err := mem.Clear(ctx); err != nil {
+		logger.Error(ctx, "Failed to clear memory", map[string]interface{}{"error": err.Error()})
+		return
+	}
+	
+	// Add many messages to trigger summarization
+	for i := 0; i < 15; i++ {
+		userMsg := interfaces.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Question %d: Tell me something interesting about topic %d", i+1, i+1),
+			Metadata: map[string]interface{}{
+				"timestamp": time.Now().UnixNano(),
+				"index":     i,
+			},
+		}
+		
+		assistantMsg := interfaces.Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Response %d: Here's an interesting fact about topic %d - it's quite fascinating!", i+1, i+1),
+			Metadata: map[string]interface{}{
+				"timestamp": time.Now().UnixNano(),
+				"index":     i,
+			},
+		}
+		
+		// Add user message
+		if err := mem.AddMessage(ctx, userMsg); err != nil {
+			logger.Error(ctx, "Failed to add user message", map[string]interface{}{
+				"error": err.Error(),
+				"index": i,
+			})
+			return
+		}
+		
+		// Add assistant message
+		if err := mem.AddMessage(ctx, assistantMsg); err != nil {
+			logger.Error(ctx, "Failed to add assistant message", map[string]interface{}{
+				"error": err.Error(),
+				"index": i,
+			})
+			return
+		}
+		
+		// Log progress
+		if (i+1)%5 == 0 {
+			logger.Info(ctx, fmt.Sprintf("Added %d message pairs", i+1), nil)
+		}
+	}
+	
+	// Get all messages (should include summaries + recent messages)
+	allMessages, err := mem.GetMessages(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to get messages", map[string]interface{}{"error": err.Error()})
+		return
+	}
+	
+	logger.Info(ctx, fmt.Sprintf("Total messages retrieved: %d", len(allMessages)), nil)
+	
+	// Check for summaries
+	summaryCount := 0
+	regularCount := 0
+	for _, msg := range allMessages {
+		if msg.Metadata != nil {
+			if isSummary, ok := msg.Metadata["is_summary"].(bool); ok && isSummary {
+				summaryCount++
+				logger.Info(ctx, fmt.Sprintf("Summary found: %s", msg.Content), nil)
+			} else {
+				regularCount++
+			}
+		} else {
+			regularCount++
+		}
+	}
+	
+	logger.Info(ctx, fmt.Sprintf("Summaries: %d, Regular messages: %d", summaryCount, regularCount), nil)
+	
+	// Show the last few messages to verify they're recent
+	logger.Info(ctx, "Last 3 messages:", nil)
+	start := len(allMessages) - 3
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(allMessages); i++ {
+		msg := allMessages[i]
+		logger.Info(ctx, fmt.Sprintf("%d. %s: %s", i+1, msg.Role, msg.Content), nil)
+	}
 }
