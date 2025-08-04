@@ -14,6 +14,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
 // AgentServer implements the gRPC AgentService
 type AgentServer struct {
 	pb.UnimplementedAgentServiceServer
@@ -40,9 +43,9 @@ func (s *AgentServer) Run(ctx context.Context, req *pb.RunRequest) (*pb.RunRespo
 		ctx = multitenancy.WithOrgID(ctx, req.OrgId)
 	}
 
-	// Add context metadata
+	// Add context metadata using typed keys
 	for key, value := range req.Context {
-		ctx = context.WithValue(ctx, key, value)
+		ctx = context.WithValue(ctx, contextKey(key), value)
 	}
 
 	// Execute the agent
@@ -156,9 +159,9 @@ func (s *AgentServer) Ready(ctx context.Context, req *pb.ReadinessRequest) (*pb.
 
 // GenerateExecutionPlan generates an execution plan (if the agent supports it)
 func (s *AgentServer) GenerateExecutionPlan(ctx context.Context, req *pb.PlanRequest) (*pb.PlanResponse, error) {
-	// Add org_id to context if provided
+	// Add context metadata using typed keys
 	for key, value := range req.Context {
-		ctx = context.WithValue(ctx, key, value)
+		ctx = context.WithValue(ctx, contextKey(key), value)
 	}
 
 	// Try to generate an execution plan
@@ -279,16 +282,3 @@ func formatExecutionPlan(plan interface{}) string {
 	return fmt.Sprintf("Execution Plan: %+v", plan)
 }
 
-// Helper function to get tool names from agent (would need to be implemented in agent package)
-func (s *AgentServer) getToolNames() []string {
-	// This would require exposing tool information from the agent
-	// For now, return empty slice
-	return []string{}
-}
-
-// Helper function to get subagent names from agent (would need to be implemented in agent package)
-func (s *AgentServer) getSubAgentNames() []string {
-	// This would require exposing subagent information from the agent
-	// For now, return empty slice
-	return []string{}
-}

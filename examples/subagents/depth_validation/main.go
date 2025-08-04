@@ -13,7 +13,7 @@ import (
 )
 
 // This example demonstrates how the max depth validation works for sub-agents
-func runDepthExample() {
+func main() {
 	logger := logging.New()
 	ctx := context.Background()
 
@@ -303,32 +303,3 @@ func createBranchingHierarchy(llm interfaces.LLM, logger logging.Logger) {
 	}
 }
 
-// Helper function to visualize agent hierarchy
-func printAgentHierarchy(agent *agent.Agent, prefix string, isLast bool) {
-	// Print current agent
-	connector := "├── "
-	if isLast {
-		connector = "└── "
-	}
-	if prefix != "" {
-		fmt.Printf("%s%s%s\n", prefix, connector, agent.GetName())
-	} else {
-		fmt.Printf("%s\n", agent.GetName())
-	}
-
-	// Prepare prefix for children
-	childPrefix := prefix
-	if prefix != "" {
-		if isLast {
-			childPrefix += "    "
-		} else {
-			childPrefix += "│   "
-		}
-	}
-
-	// Print sub-agents
-	subAgents := agent.GetSubAgents()
-	for i, subAgent := range subAgents {
-		printAgentHierarchy(subAgent, childPrefix, i == len(subAgents)-1)
-	}
-}

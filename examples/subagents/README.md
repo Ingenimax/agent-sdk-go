@@ -109,6 +109,23 @@ The `WithDescription()` option is crucial for sub-agents. It helps the main agen
 - **Resource Management**: Connection pooling and efficient memory usage
 - **Security**: Input validation and output sanitization
 
+## Additional Examples
+
+### Depth Validation Example
+
+To see a demonstration of the recursion depth validation system, check out the depth validation example:
+
+```bash
+cd depth_validation
+go run main.go
+```
+
+This example shows:
+- How hierarchical agent structures are validated
+- Maximum depth enforcement (5 levels by default)
+- Runtime recursion depth checking
+- Complex branching hierarchies
+
 ## Troubleshooting
 
 1. **Circular Dependencies**: The SDK will error if agents reference each other circularly

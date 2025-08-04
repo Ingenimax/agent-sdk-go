@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -81,17 +80,3 @@ func main() {
 	fmt.Println("Microservice stopped successfully")
 }
 
-// Example of testing the local agent before exposing it as a microservice
-func testLocalAgent(mathAgent *agent.Agent) {
-	fmt.Println("Testing local agent...")
-	
-	ctx := context.Background()
-	result, err := mathAgent.Run(ctx, "What is the square root of 144?")
-	if err != nil {
-		log.Printf("Error testing local agent: %v", err)
-		return
-	}
-	
-	fmt.Printf("Local agent response: %s\n", result)
-	fmt.Println()
-}

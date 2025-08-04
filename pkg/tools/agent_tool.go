@@ -249,7 +249,7 @@ func (at *AgentTool) Execute(ctx context.Context, args string) (string, error) {
 	// If context is provided, add it to the context
 	if params.Context != nil {
 		for key, value := range params.Context {
-			ctx = context.WithValue(ctx, key, value)
+			ctx = context.WithValue(ctx, contextKey(key), value)
 		}
 	}
 

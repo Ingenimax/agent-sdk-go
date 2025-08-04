@@ -91,7 +91,7 @@ func TestAgentToolExecute(t *testing.T) {
 		description: "Test agent",
 		runFunc: func(ctx context.Context, input string) (string, error) {
 			// Check if context value from params is set
-			if val := ctx.Value("test_key"); val != nil {
+			if val := ctx.Value(contextKey("test_key")); val != nil {
 				if strVal, ok := val.(string); ok && strVal == "test_value" {
 					return "Context received: " + input, nil
 				}

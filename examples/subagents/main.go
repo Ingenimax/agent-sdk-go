@@ -71,13 +71,6 @@ func main() {
 		"code_agent":     "Assists with code-related tasks",
 	})
 
-	// Check if user wants to run depth validation demo
-	if len(os.Args) > 1 && os.Args[1] == "--depth-demo" {
-		fmt.Println("\n=== Running Depth Validation Demo ===")
-		runDepthExample()
-		return
-	}
-
 	// Interactive loop
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -96,7 +89,6 @@ func main() {
 		// Add required context for multi-tenancy and memory
 		queryCtx := multitenancy.WithOrgID(ctx, "default-org")
 		queryCtx = memory.WithConversationID(queryCtx, "default-conversation")
-		queryCtx = context.WithValue(queryCtx, "user_id", "default-user")
 
 		// Process query
 		logger.Info(ctx, "Processing query...", map[string]interface{}{"query": query})
