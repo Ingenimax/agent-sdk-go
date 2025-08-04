@@ -113,9 +113,12 @@ func calculateMaxDepth(agent *Agent, currentDepth int) int {
 
 // validateAgentComponents ensures all agents have required components
 func validateAgentComponents(agent *Agent) error {
-	// Check if agent has LLM (required for sub-agents)
-	if agent.llm == nil {
-		return fmt.Errorf("agent %s is missing required LLM", agent.name)
+	// Remote agents don't need a local LLM
+	if !agent.isRemote {
+		// Check if local agent has LLM (required for local agents)
+		if agent.llm == nil {
+			return fmt.Errorf("agent %s is missing required LLM", agent.name)
+		}
 	}
 	
 	// Validate name is set for better debugging

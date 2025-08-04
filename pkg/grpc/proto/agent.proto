@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb";
+
+// AgentService defines the gRPC service for agent operations
+service AgentService {
+    // Run executes the agent with the given input
+    rpc Run(RunRequest) returns (RunResponse);
+    
+    // RunStream executes the agent with streaming response
+    rpc RunStream(RunRequest) returns (stream RunStreamResponse);
+    
+    // GetMetadata returns agent metadata
+    rpc GetMetadata(MetadataRequest) returns (MetadataResponse);
+    
+    // GetCapabilities returns agent capabilities
+    rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+    
+    // Health check endpoint
+    rpc Health(HealthRequest) returns (HealthResponse);
+    
+    // Readiness check endpoint
+    rpc Ready(ReadinessRequest) returns (ReadinessResponse);
+    
+    // Generate execution plan (if supported)
+    rpc GenerateExecutionPlan(PlanRequest) returns (PlanResponse);
+    
+    // Approve execution plan (if supported)
+    rpc ApproveExecutionPlan(ApprovalRequest) returns (ApprovalResponse);
+}
+
+// RunRequest contains the input for agent execution
+message RunRequest {
+    string input = 1;
+    map<string, string> context = 2;
+    string org_id = 3;
+    int32 max_iterations = 4;
+}
+
+// RunResponse contains the agent's response
+message RunResponse {
+    string output = 1;
+    string error = 2;
+    map<string, string> metadata = 3;
+}
+
+// RunStreamResponse for streaming responses
+message RunStreamResponse {
+    string chunk = 1;
+    bool is_final = 2;
+    string error = 3;
+}
+
+// MetadataRequest for getting agent metadata
+message MetadataRequest {}
+
+// MetadataResponse contains agent metadata
+message MetadataResponse {
+    string name = 1;
+    string description = 2;
+    string system_prompt = 3;
+    repeated string capabilities = 4;
+    map<string, string> properties = 5;
+}
+
+// CapabilitiesRequest for getting agent capabilities
+message CapabilitiesRequest {}
+
+// CapabilitiesResponse contains agent capabilities
+message CapabilitiesResponse {
+    repeated string tools = 1;
+    repeated string sub_agents = 2;
+    bool supports_execution_plans = 3;
+    bool supports_memory = 4;
+    bool supports_streaming = 5;
+}
+
+// HealthRequest for health checks
+message HealthRequest {}
+
+// HealthResponse contains health status
+message HealthResponse {
+    enum Status {
+        UNKNOWN = 0;
+        SERVING = 1;
+        NOT_SERVING = 2;
+        SERVICE_UNKNOWN = 3;
+    }
+    Status status = 1;
+    string message = 2;
+}
+
+// ReadinessRequest for readiness checks
+message ReadinessRequest {}
+
+// ReadinessResponse contains readiness status
+message ReadinessResponse {
+    bool ready = 1;
+    string message = 2;
+}
+
+// PlanRequest for generating execution plans
+message PlanRequest {
+    string input = 1;
+    map<string, string> context = 2;
+}
+
+// PlanResponse contains the execution plan
+message PlanResponse {
+    string plan_id = 1;
+    string formatted_plan = 2;
+    repeated PlanStep steps = 3;
+    string error = 4;
+}
+
+// PlanStep represents a step in an execution plan
+message PlanStep {
+    string id = 1;
+    string description = 2;
+    string tool_name = 3;
+    map<string, string> parameters = 4;
+}
+
+// ApprovalRequest for approving execution plans
+message ApprovalRequest {
+    string plan_id = 1;
+    bool approved = 2;
+    string modifications = 3;
+}
+
+// ApprovalResponse contains the approval result
+message ApprovalResponse {
+    string result = 1;
+    string error = 2;
+}
