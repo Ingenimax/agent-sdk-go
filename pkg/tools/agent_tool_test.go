@@ -65,7 +65,7 @@ func TestAgentToolRun(t *testing.T) {
 		description: "Test agent",
 		runFunc: func(ctx context.Context, input string) (string, error) {
 			// Check if context values are set
-			if agentName := ctx.Value("sub_agent_name"); agentName != "TestAgent" {
+			if agentName := ctx.Value(subAgentNameKey); agentName != "TestAgent" {
 				t.Errorf("Expected sub_agent_name context value to be TestAgent, got %v", agentName)
 			}
 			return "Processed: " + input, nil
@@ -173,19 +173,21 @@ func TestRecursionDepthLimit(t *testing.T) {
 	
 	tool := NewAgentTool(mockAgent)
 	
-	// Create a context with max recursion depth
+	// Create a context with max recursion depth exceeded (6 > 5)
 	ctx := context.Background()
+	// Add 6 levels of sub-agent context to exceed the limit
 	for i := 0; i < 6; i++ {
-		ctx = context.WithValue(ctx, "recursion_depth", i)
+		ctx = withSubAgentContext(ctx, "parent", "child")
 	}
 	
 	_, err := tool.Run(ctx, "test")
 	if err == nil {
 		t.Error("Expected recursion depth error, got nil")
+		return
 	}
 	
-	if !strings.Contains(err.Error(), "recursion depth exceeded") {
-		t.Errorf("Expected recursion depth exceeded error, got %v", err)
+	if !strings.Contains(err.Error(), "maximum recursion depth") || !strings.Contains(err.Error(), "exceeded") {
+		t.Errorf("Expected maximum recursion depth exceeded error, got %v", err)
 	}
 }
 

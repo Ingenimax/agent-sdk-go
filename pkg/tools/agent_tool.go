@@ -11,6 +11,19 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
+// Context keys for sub-agent metadata
+type contextKey string
+
+const (
+	recursionDepthKey contextKey = "recursion_depth"
+	subAgentNameKey   contextKey = "sub_agent_name"
+	parentAgentKey    contextKey = "parent_agent"
+	invocationIDKey   contextKey = "invocation_id"
+	
+	// MaxRecursionDepth is the maximum allowed recursion depth
+	MaxRecursionDepth = 5
+)
+
 // AgentTool wraps an agent to make it callable as a tool
 type AgentTool struct {
 	agent       SubAgent
@@ -107,9 +120,9 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	ctx = tracing.WithAgentName(ctx, agentName)
 	
 	// Check recursion depth
-	depth := at.getRecursionDepth(ctx)
-	if depth > 5 { // Maximum recursion depth
-		err := fmt.Errorf("maximum sub-agent recursion depth exceeded")
+	depth := getRecursionDepth(ctx)
+	if depth > MaxRecursionDepth {
+		err := fmt.Errorf("maximum recursion depth %d exceeded (current: %d)", MaxRecursionDepth, depth)
 		if span != nil {
 			span.AddEvent("error", map[string]interface{}{
 				"error": err.Error(),
@@ -119,15 +132,15 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 		at.logger.Error(ctx, "Sub-agent recursion depth exceeded", map[string]interface{}{
 			"sub_agent":       agentName,
 			"recursion_depth": depth,
-			"max_depth":       5,
+			"max_depth":       MaxRecursionDepth,
 		})
 		return "", err
 	}
 	
 	// Update context with sub-agent metadata
-	ctx = context.WithValue(ctx, "sub_agent_name", agentName)
-	ctx = context.WithValue(ctx, "parent_agent", "main")
-	ctx = context.WithValue(ctx, "recursion_depth", depth+1)
+	ctx = context.WithValue(ctx, subAgentNameKey, agentName)
+	ctx = context.WithValue(ctx, parentAgentKey, "main")
+	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
 	
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, at.timeout)
@@ -243,15 +256,25 @@ func (at *AgentTool) Execute(ctx context.Context, args string) (string, error) {
 	return at.Run(ctx, params.Query)
 }
 
+
+// SetDescription allows updating the tool description
+func (at *AgentTool) SetDescription(description string) {
+	at.description = description
+}
+
 // getRecursionDepth retrieves the current recursion depth from context
-func (at *AgentTool) getRecursionDepth(ctx context.Context) int {
-	if depth, ok := ctx.Value("recursion_depth").(int); ok {
+func getRecursionDepth(ctx context.Context) int {
+	if depth, ok := ctx.Value(recursionDepthKey).(int); ok {
 		return depth
 	}
 	return 0
 }
 
-// SetDescription allows updating the tool description
-func (at *AgentTool) SetDescription(description string) {
-	at.description = description
+// withSubAgentContext adds sub-agent context information for testing purposes
+func withSubAgentContext(ctx context.Context, parentAgent, subAgentName string) context.Context {
+	depth := getRecursionDepth(ctx)
+	ctx = context.WithValue(ctx, subAgentNameKey, subAgentName)
+	ctx = context.WithValue(ctx, parentAgentKey, parentAgent)
+	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
+	return ctx
 }
