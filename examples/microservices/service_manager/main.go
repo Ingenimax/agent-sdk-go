@@ -203,7 +203,9 @@ func main() {
 
 	// Disconnect remote agents
 	for _, remoteAgent := range remoteAgents {
-		remoteAgent.Disconnect()
+		if err := remoteAgent.Disconnect(); err != nil {
+			fmt.Printf("Warning: failed to disconnect remote agent: %v\n", err)
+		}
 	}
 
 	// Stop all services

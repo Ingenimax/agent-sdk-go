@@ -147,9 +147,13 @@ func main() {
 	
 	// Disconnect from remote agents
 	if remoteMathAgent != nil {
-		remoteMathAgent.Disconnect()
+		if err := remoteMathAgent.Disconnect(); err != nil {
+			fmt.Printf("Warning: failed to disconnect remote math agent: %v\n", err)
+		}
 	}
-	remoteResearchAgent.Disconnect()
+	if err := remoteResearchAgent.Disconnect(); err != nil {
+		fmt.Printf("Warning: failed to disconnect remote research agent: %v\n", err)
+	}
 	
 	// Stop our microservice
 	if err := researchService.Stop(); err != nil {

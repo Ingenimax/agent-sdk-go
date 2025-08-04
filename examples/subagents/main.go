@@ -71,6 +71,13 @@ func main() {
 		"code_agent":     "Assists with code-related tasks",
 	})
 
+	// Check if user wants to run depth validation demo
+	if len(os.Args) > 1 && os.Args[1] == "--depth-demo" {
+		fmt.Println("\n=== Running Depth Validation Demo ===")
+		runDepthExample()
+		return
+	}
+
 	// Interactive loop
 	reader := bufio.NewReader(os.Stdin)
 	for {

@@ -110,8 +110,12 @@ func main() {
 
 	// Clean up
 	fmt.Println("\n6. Cleaning up...")
-	remoteMathAgent.Disconnect()
-	mathService.Stop()
+	if err := remoteMathAgent.Disconnect(); err != nil {
+		fmt.Printf("Warning: failed to disconnect remote math agent: %v\n", err)
+	}
+	if err := mathService.Stop(); err != nil {
+		fmt.Printf("Warning: failed to stop math service: %v\n", err)
+	}
 	fmt.Println("Cleanup complete")
 
 	fmt.Println("\nMixed agents example completed successfully!")

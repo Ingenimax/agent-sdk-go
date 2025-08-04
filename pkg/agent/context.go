@@ -2,8 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"time"
 )
 
@@ -110,7 +111,13 @@ func ValidateRecursionDepth(ctx context.Context) error {
 
 // generateInvocationID generates a unique invocation ID
 func generateInvocationID() string {
-	return fmt.Sprintf("inv_%d_%d", time.Now().UnixNano(), rand.Intn(10000))
+	// Use crypto/rand for secure random number generation
+	randomNum, err := rand.Int(rand.Reader, big.NewInt(10000))
+	if err != nil {
+		// Fallback to timestamp-only if crypto/rand fails
+		return fmt.Sprintf("inv_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("inv_%d_%s", time.Now().UnixNano(), randomNum.String())
 }
 
 // WithTimeout adds a timeout to the context for sub-agent calls

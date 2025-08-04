@@ -112,8 +112,12 @@ func main() {
 
 	// Clean up
 	fmt.Println("\n9. Cleaning up...")
-	remoteAgent.Disconnect()
-	service.Stop()
+	if err := remoteAgent.Disconnect(); err != nil {
+		fmt.Printf("Warning: failed to disconnect remote agent: %v\n", err)
+	}
+	if err := service.Stop(); err != nil {
+		fmt.Printf("Warning: failed to stop service: %v\n", err)
+	}
 	fmt.Println("Cleanup complete")
 
 	fmt.Println("\n=== All tests completed successfully! ===")

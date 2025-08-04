@@ -88,11 +88,15 @@ func main() {
 			fmt.Printf("Remote call succeeded: %s\n", result)
 		}
 		
-		remoteAgent.Disconnect()
+		if err := remoteAgent.Disconnect(); err != nil {
+			fmt.Printf("Warning: failed to disconnect remote agent: %v\n", err)
+		}
 	}
 
 	// Clean up
 	fmt.Println("\nStopping service...")
-	service.Stop()
+	if err := service.Stop(); err != nil {
+		fmt.Printf("Warning: failed to stop service: %v\n", err)
+	}
 	fmt.Println("Service stopped")
 }

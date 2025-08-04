@@ -67,7 +67,10 @@ func (r *RemoteAgentClient) Connect() error {
 
 	_, err = r.client.Health(ctx, &pb.HealthRequest{})
 	if err != nil {
-		r.conn.Close()
+		if closeErr := r.conn.Close(); closeErr != nil {
+			// Log the close error but continue with the original error
+			fmt.Printf("Warning: failed to close connection during cleanup: %v\n", closeErr)
+		}
 		r.conn = nil
 		r.client = nil
 		return fmt.Errorf("health check failed for %s: %w", r.url, err)

@@ -13,7 +13,7 @@ import (
 )
 
 // This example demonstrates how the max depth validation works for sub-agents
-func main() {
+func runDepthExample() {
 	logger := logging.New()
 	ctx := context.Background()
 
@@ -26,7 +26,7 @@ func main() {
 
 	llm := openai.NewClient(apiKey, openai.WithLogger(logger))
 
-	fmt.Println("=== Sub-Agents Max Depth Example ===\n")
+	fmt.Println("=== Sub-Agents Max Depth Example ===")
 
 	// Example 1: Valid shallow hierarchy (depth = 2)
 	fmt.Println("1. Creating a valid shallow hierarchy (depth = 2):")
@@ -118,7 +118,7 @@ func createDeepHierarchy(llm interfaces.LLM, logger logging.Logger) error {
 	for i := 5; i >= 0; i-- {
 		agentName := fmt.Sprintf("Agent%d", i)
 		agentDesc := fmt.Sprintf("Level %d agent", i)
-		
+
 		agentOpts := []agent.Option{
 			agent.WithName(agentName),
 			agent.WithDescription(agentDesc),
@@ -163,7 +163,7 @@ func createTooDeepHierarchy(llm interfaces.LLM, logger logging.Logger) error {
 	for i := 6; i >= 0; i-- {
 		agentName := fmt.Sprintf("DeepAgent%d", i)
 		agentDesc := fmt.Sprintf("Deep level %d agent", i)
-		
+
 		agentOpts := []agent.Option{
 			agent.WithName(agentName),
 			agent.WithDescription(agentDesc),
@@ -207,23 +207,23 @@ func demonstrateRuntimeDepthCheck(llm interfaces.LLM, logger logging.Logger) {
 
 	// Simulate different recursion depths
 	fmt.Println("   Testing context recursion depth limits:")
-	
+
 	ctx := context.Background()
-	
+
 	// Test at different depths
 	for depth := 0; depth <= 6; depth++ {
 		// Create a context with the specified recursion depth
 		testCtx := ctx
 		for i := 0; i < depth; i++ {
-			testCtx = agent.WithSubAgentContext(testCtx, 
-				fmt.Sprintf("Parent%d", i), 
+			testCtx = agent.WithSubAgentContext(testCtx,
+				fmt.Sprintf("Parent%d", i),
 				fmt.Sprintf("Child%d", i+1))
 		}
-		
+
 		// Check if this depth is valid
 		currentDepth := agent.GetRecursionDepth(testCtx)
 		err := agent.ValidateRecursionDepth(testCtx)
-		
+
 		if err != nil {
 			fmt.Printf("   - Depth %d: ❌ Exceeds limit (error: %v)\n", currentDepth, err)
 		} else {

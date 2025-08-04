@@ -164,7 +164,10 @@ func (m *AgentMicroservice) WaitForReady(timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", m.port), time.Second)
 		if err == nil {
-			conn.Close()
+			if closeErr := conn.Close(); closeErr != nil {
+				// Log the close error but don't fail the whole operation
+				fmt.Printf("Warning: failed to close connection: %v\n", closeErr)
+			}
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
