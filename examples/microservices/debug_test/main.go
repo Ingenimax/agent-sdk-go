@@ -22,7 +22,7 @@ func main() {
 	// Create an LLM client
 	llm := openai.NewClient(apiKey)
 
-	fmt.Println("=== Debug Test for Microservice ===\n")
+	fmt.Println("=== Debug Test for Microservice ===")
 
 	// Create a simple agent
 	fmt.Println("Creating agent...")

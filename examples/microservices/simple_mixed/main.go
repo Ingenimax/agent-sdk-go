@@ -22,7 +22,7 @@ func main() {
 	// Create an LLM client
 	llm := openai.NewClient(apiKey)
 
-	fmt.Println("Simple Mixed Agents Example\n")
+	fmt.Println("Simple Mixed Agents Example")
 
 	// Step 1: Create and start a Math Agent microservice
 	fmt.Println("1. Creating Math Agent microservice...")
