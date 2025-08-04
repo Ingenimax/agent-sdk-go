@@ -23,7 +23,7 @@ func main() {
 	// Create an LLM client
 	llm := openai.NewClient(apiKey)
 
-	fmt.Println("🚀 Setting up mixed local and remote agent system...")
+	fmt.Println("Setting up mixed local and remote agent system...")
 
 	// Step 1: Create and start a Research Agent microservice
 	researchAgent, err := agent.NewAgent(
@@ -53,7 +53,7 @@ func main() {
 	if err := researchService.WaitForReady(10 * time.Second); err != nil {
 		log.Fatalf("Research microservice failed to become ready: %v", err)
 	}
-	fmt.Printf("✅ Research Agent microservice started on %s\n", researchService.GetURL())
+	fmt.Printf("Research Agent microservice started on %s\n", researchService.GetURL())
 
 	// Step 2: Create a local Code Agent
 	codeAgent, err := agent.NewAgent(
@@ -65,7 +65,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create code agent: %v", err)
 	}
-	fmt.Println("✅ Local Code Agent created")
+	fmt.Println("Local Code Agent created")
 
 	// Step 3: Create a remote connection to an external Math Agent
 	// Note: This assumes you're running the basic_microservice example on port 8080
@@ -74,11 +74,11 @@ func main() {
 		agent.WithName("MathAgent"), // Will be overridden by remote metadata
 	)
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Could not connect to Math Agent on localhost:8080: %v\n", err)
+		fmt.Printf("Warning: Could not connect to Math Agent on localhost:8080: %v\n", err)
 		fmt.Println("   Make sure to run the basic_microservice example first!")
 		remoteMathAgent = nil
 	} else {
-		fmt.Printf("✅ Connected to remote Math Agent: %s\n", remoteMathAgent.GetName())
+		fmt.Printf("Connected to remote Math Agent: %s\n", remoteMathAgent.GetName())
 	}
 
 	// Step 4: Create a remote connection to our Research Agent
@@ -88,7 +88,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create remote research agent connection: %v", err)
 	}
-	fmt.Printf("✅ Connected to remote Research Agent: %s\n", remoteResearchAgent.GetName())
+	fmt.Printf("Connected to remote Research Agent: %s\n", remoteResearchAgent.GetName())
 
 	// Step 5: Create the main orchestrator agent with mixed subagents
 	var subAgents []*agent.Agent
@@ -110,7 +110,7 @@ func main() {
 		log.Fatalf("Failed to create main agent: %v", err)
 	}
 
-	fmt.Printf("✅ Main Orchestrator created with %d subagents\n", len(subAgents))
+	fmt.Printf("Main Orchestrator created with %d subagents\n", len(subAgents))
 	fmt.Println()
 
 	// Step 6: Test the mixed agent system
@@ -124,7 +124,7 @@ func main() {
 	ctx := context.Background()
 
 	for i, task := range testTasks {
-		fmt.Printf("🎯 Task %d: %s\n", i+1, task)
+		fmt.Printf("Task %d: %s\n", i+1, task)
 		fmt.Println("   (This will be delegated to the appropriate agent)")
 		
 		start := time.Now()
@@ -132,9 +132,9 @@ func main() {
 		duration := time.Since(start)
 		
 		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 		} else {
-			fmt.Printf("✅ Result (took %v):\n%s\n", duration, result)
+			fmt.Printf("Result (took %v):\n%s\n", duration, result)
 		}
 		fmt.Println(strings.Repeat("-", 80))
 		
@@ -143,7 +143,7 @@ func main() {
 	}
 
 	// Step 7: Cleanup
-	fmt.Println("\n🧹 Cleaning up...")
+	fmt.Println("\nCleaning up...")
 	
 	// Disconnect from remote agents
 	if remoteMathAgent != nil {
@@ -156,8 +156,8 @@ func main() {
 		log.Printf("Error stopping research service: %v", err)
 	}
 
-	fmt.Println("✅ Mixed agent system demonstration completed!")
-	fmt.Println("\n📊 Summary:")
+	fmt.Println("Mixed agent system demonstration completed!")
+	fmt.Println("\nSummary:")
 	fmt.Println("   - Created 1 local agent (CodeAgent)")
 	fmt.Println("   - Started 1 microservice (ResearchAgent)")
 	fmt.Println("   - Connected to 2 remote agents")

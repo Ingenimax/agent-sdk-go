@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create agent: %v", err)
 	}
-	fmt.Println("✓ Agent created")
+	fmt.Println("Agent created")
 
 	// Create microservice
 	fmt.Println("\nCreating microservice...")
@@ -45,14 +45,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create microservice: %v", err)
 	}
-	fmt.Println("✓ Microservice created")
+	fmt.Println("Microservice created")
 
 	// Start microservice
 	fmt.Println("\nStarting microservice...")
 	if err := service.Start(); err != nil {
 		log.Fatalf("Failed to start microservice: %v", err)
 	}
-	fmt.Printf("✓ Start() called, running status: %v\n", service.IsRunning())
+	fmt.Printf("Start() called, running status: %v\n", service.IsRunning())
 	
 	// Check running status over time
 	fmt.Println("\nChecking running status...")
@@ -65,9 +65,9 @@ func main() {
 	// Try WaitForReady
 	fmt.Println("\nCalling WaitForReady...")
 	if err := service.WaitForReady(5 * time.Second); err != nil {
-		fmt.Printf("✗ WaitForReady failed: %v\n", err)
+		fmt.Printf("WaitForReady failed: %v\n", err)
 	} else {
-		fmt.Println("✓ Service is ready!")
+		fmt.Println("Service is ready!")
 	}
 
 	// Test with remote client
@@ -76,16 +76,16 @@ func main() {
 		agent.WithURL("localhost:9999"),
 	)
 	if err != nil {
-		fmt.Printf("✗ Failed to create remote agent: %v\n", err)
+		fmt.Printf("Failed to create remote agent: %v\n", err)
 	} else {
-		fmt.Println("✓ Remote agent created")
+		fmt.Println("Remote agent created")
 		
 		ctx := context.Background()
 		result, err := remoteAgent.Run(ctx, "Say hello")
 		if err != nil {
-			fmt.Printf("✗ Remote call failed: %v\n", err)
+			fmt.Printf("Remote call failed: %v\n", err)
 		} else {
-			fmt.Printf("✓ Remote call succeeded: %s\n", result)
+			fmt.Printf("Remote call succeeded: %s\n", result)
 		}
 		
 		remoteAgent.Disconnect()
@@ -94,5 +94,5 @@ func main() {
 	// Clean up
 	fmt.Println("\nStopping service...")
 	service.Stop()
-	fmt.Println("✓ Service stopped")
+	fmt.Println("Service stopped")
 }

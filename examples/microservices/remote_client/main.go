@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	fmt.Println("🔌 Connecting to remote Math Agent microservice...")
+	fmt.Println("Connecting to remote Math Agent microservice...")
 
 	// Create a remote agent that connects to the microservice
 	// Make sure the basic_microservice example is running first!
@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("Failed to create remote agent: %v", err)
 	}
 
-	fmt.Printf("✅ Connected to remote agent: %s\n", remoteAgent.GetName())
+	fmt.Printf("Connected to remote agent: %s\n", remoteAgent.GetName())
 	fmt.Printf("   Description: %s\n", remoteAgent.GetDescription())
 	fmt.Printf("   Remote URL: %s\n", remoteAgent.GetRemoteURL())
 	fmt.Println()
@@ -39,16 +39,16 @@ func main() {
 	ctx := context.Background()
 
 	for i, problem := range testProblems {
-		fmt.Printf("🧮 Problem %d: %s\n", i+1, problem)
+		fmt.Printf("Problem %d: %s\n", i+1, problem)
 		
 		start := time.Now()
 		result, err := remoteAgent.Run(ctx, problem)
 		duration := time.Since(start)
 		
 		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 		} else {
-			fmt.Printf("✅ Answer (took %v): %s\n", duration, result)
+			fmt.Printf("Answer (took %v): %s\n", duration, result)
 		}
 		fmt.Println()
 		
@@ -57,7 +57,7 @@ func main() {
 	}
 
 	// Demonstrate that the remote agent works exactly like a local agent
-	fmt.Println("🔄 Testing agent information methods...")
+	fmt.Println("Testing agent information methods...")
 	fmt.Printf("Agent Name: %s\n", remoteAgent.GetName())
 	fmt.Printf("Agent Description: %s\n", remoteAgent.GetDescription())
 	fmt.Printf("Is Remote: %t\n", remoteAgent.IsRemote())
@@ -67,8 +67,8 @@ func main() {
 	if err := remoteAgent.Disconnect(); err != nil {
 		log.Printf("Warning: Failed to disconnect from remote agent: %v", err)
 	} else {
-		fmt.Println("🔌 Disconnected from remote agent")
+		fmt.Println("Disconnected from remote agent")
 	}
 
-	fmt.Println("\n✅ Remote agent client demonstration completed!")
+	fmt.Println("\nRemote agent client demonstration completed!")
 }

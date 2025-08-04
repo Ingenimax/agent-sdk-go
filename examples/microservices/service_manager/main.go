@@ -24,7 +24,7 @@ func main() {
 	// Create an LLM client
 	llm := openai.NewClient(apiKey)
 
-	fmt.Println("🏗️  Setting up Microservice Manager...")
+	fmt.Println("Setting up Microservice Manager...")
 
 	// Create a microservice manager
 	manager := microservice.NewMicroserviceManager()
@@ -64,7 +64,7 @@ func main() {
 
 	// Create and register microservices
 	for _, agentConfig := range agents {
-		fmt.Printf("📦 Creating %s...\n", agentConfig.name)
+		fmt.Printf("Creating %s...\n", agentConfig.name)
 		
 		// Create the agent
 		ag, err := agent.NewAgent(
@@ -90,10 +90,10 @@ func main() {
 			log.Fatalf("Failed to register %s: %v", agentConfig.name, err)
 		}
 
-		fmt.Printf("✅ %s registered on port %d\n", agentConfig.name, agentConfig.port)
+		fmt.Printf("%s registered on port %d\n", agentConfig.name, agentConfig.port)
 	}
 
-	fmt.Printf("\n🚀 Starting all %d microservices...\n", len(agents))
+	fmt.Printf("\nStarting all %d microservices...\n", len(agents))
 
 	// Start all services
 	if err := manager.StartAll(); err != nil {
@@ -101,7 +101,7 @@ func main() {
 	}
 
 	// Wait for all services to be ready
-	fmt.Println("⏳ Waiting for all services to be ready...")
+	fmt.Println("Waiting for all services to be ready...")
 	for _, agentConfig := range agents {
 		service, exists := manager.GetService(agentConfig.name)
 		if !exists {
@@ -113,8 +113,8 @@ func main() {
 		}
 	}
 
-	fmt.Println("\n✅ All microservices are running!")
-	fmt.Println("\n📋 Service Registry:")
+	fmt.Println("\nAll microservices are running!")
+	fmt.Println("\nService Registry:")
 	for _, serviceName := range manager.ListServices() {
 		service, _ := manager.GetService(serviceName)
 		fmt.Printf("   • %s: %s (Port: %d)\n", 
@@ -124,7 +124,7 @@ func main() {
 	}
 
 	// Demonstrate using the remote agents
-	fmt.Println("\n🔄 Testing distributed agent system...")
+	fmt.Println("\nTesting distributed agent system...")
 	
 	// Create remote connections to all our services
 	var remoteAgents []*agent.Agent
@@ -151,7 +151,7 @@ func main() {
 		log.Fatalf("Failed to create orchestrator: %v", err)
 	}
 
-	fmt.Printf("🎭 Created orchestrator with %d remote agents\n", len(remoteAgents))
+	fmt.Printf("Created orchestrator with %d remote agents\n", len(remoteAgents))
 
 	// Test the distributed system
 	testTasks := []string{
@@ -163,43 +163,43 @@ func main() {
 
 	ctx := context.Background()
 	for i, task := range testTasks {
-		fmt.Printf("\n🎯 Task %d: %s\n", i+1, task)
+		fmt.Printf("\nTask %d: %s\n", i+1, task)
 		
 		start := time.Now()
 		result, err := orchestrator.Run(ctx, task)
 		duration := time.Since(start)
 		
 		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 		} else {
 			// Truncate long responses for display
 			displayResult := result
 			if len(displayResult) > 200 {
 				displayResult = displayResult[:200] + "..."
 			}
-			fmt.Printf("✅ Result (took %v): %s\n", duration, displayResult)
+			fmt.Printf("Result (took %v): %s\n", duration, displayResult)
 		}
 	}
 
-	fmt.Println("\n📊 Service Health Check:")
+	fmt.Println("\nService Health Check:")
 	for _, serviceName := range manager.ListServices() {
 		service, _ := manager.GetService(serviceName)
 		if service.IsRunning() {
-			fmt.Printf("   ✅ %s: Running on port %d\n", serviceName, service.GetPort())
+			fmt.Printf("   %s: Running on port %d\n", serviceName, service.GetPort())
 		} else {
-			fmt.Printf("   ❌ %s: Not running\n", serviceName)
+			fmt.Printf("   %s: Not running\n", serviceName)
 		}
 	}
 
 	// Set up graceful shutdown
-	fmt.Println("\n🎮 Microservice Manager is running. Press Ctrl+C to shutdown all services...")
+	fmt.Println("\nMicroservice Manager is running. Press Ctrl+C to shutdown all services...")
 	
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Wait for shutdown signal
 	<-sigChan
-	fmt.Println("\n🛑 Shutting down all microservices...")
+	fmt.Println("\nShutting down all microservices...")
 
 	// Disconnect remote agents
 	for _, remoteAgent := range remoteAgents {
@@ -211,8 +211,8 @@ func main() {
 		log.Printf("Error stopping services: %v", err)
 	}
 
-	fmt.Println("✅ All microservices stopped successfully")
-	fmt.Println("\n📈 Session Summary:")
+	fmt.Println("All microservices stopped successfully")
+	fmt.Println("\nSession Summary:")
 	fmt.Printf("   • Managed %d microservices\n", len(agents))
 	fmt.Printf("   • Processed %d distributed tasks\n", len(testTasks))
 	fmt.Println("   • Demonstrated seamless local/remote agent integration")

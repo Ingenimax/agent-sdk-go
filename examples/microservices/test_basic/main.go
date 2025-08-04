@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create math agent: %v", err)
 	}
-	fmt.Println("✓ MathAgent created successfully")
+	fmt.Println("MathAgent created successfully")
 
 	// Step 2: Test the agent locally first
 	fmt.Println("\n2. Testing MathAgent locally...")
@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Printf("Local test failed: %v", err)
 	} else {
-		fmt.Printf("✓ Local test result: %s\n", result)
+		fmt.Printf("Local test result: %s\n", result)
 	}
 
 	// Step 3: Wrap as microservice
@@ -56,7 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create microservice: %v", err)
 	}
-	fmt.Println("✓ Microservice wrapper created")
+	fmt.Println("Microservice wrapper created")
 
 	// Step 4: Start the microservice
 	fmt.Println("\n4. Starting microservice...")
@@ -69,7 +69,7 @@ func main() {
 	if err := service.WaitForReady(10 * time.Second); err != nil {
 		log.Fatalf("Service failed to become ready: %v", err)
 	}
-	fmt.Printf("✓ Service is ready on port %d\n", service.GetPort())
+	fmt.Printf("Service is ready on port %d\n", service.GetPort())
 
 	// Step 6: Create a remote agent client
 	fmt.Println("\n6. Creating remote agent client...")
@@ -80,7 +80,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create remote agent: %v", err)
 	}
-	fmt.Println("✓ Remote agent client created")
+	fmt.Println("Remote agent client created")
 
 	// Step 7: Test the remote agent
 	fmt.Println("\n7. Testing remote agent...")
@@ -88,7 +88,7 @@ func main() {
 	if err != nil {
 		log.Printf("Remote test failed: %v", err)
 	} else {
-		fmt.Printf("✓ Remote test result: %s\n", remoteResult)
+		fmt.Printf("Remote test result: %s\n", remoteResult)
 	}
 
 	// Step 8: Test using remote agent as subagent
@@ -107,14 +107,14 @@ func main() {
 	if err != nil {
 		log.Printf("Orchestrator test failed: %v", err)
 	} else {
-		fmt.Printf("✓ Orchestrator result: %s\n", orchResult)
+		fmt.Printf("Orchestrator result: %s\n", orchResult)
 	}
 
 	// Clean up
 	fmt.Println("\n9. Cleaning up...")
 	remoteAgent.Disconnect()
 	service.Stop()
-	fmt.Println("✓ Cleanup complete")
+	fmt.Println("Cleanup complete")
 
 	fmt.Println("\n=== All tests completed successfully! ===")
 }

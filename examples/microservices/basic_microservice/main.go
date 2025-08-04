@@ -58,7 +58,7 @@ func main() {
 		log.Fatalf("Microservice failed to become ready: %v", err)
 	}
 
-	fmt.Printf("✅ Math Agent microservice is running on %s\n", service.GetURL())
+	fmt.Printf("Math Agent microservice is running on %s\n", service.GetURL())
 	fmt.Println("You can now connect to this agent from other processes using:")
 	fmt.Printf("  agent.NewAgent(agent.WithURL(\"%s\"))\n", service.GetURL())
 	fmt.Println()

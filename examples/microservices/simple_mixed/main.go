@@ -22,10 +22,10 @@ func main() {
 	// Create an LLM client
 	llm := openai.NewClient(apiKey)
 
-	fmt.Println("🚀 Simple Mixed Agents Example\n")
+	fmt.Println("Simple Mixed Agents Example\n")
 
 	// Step 1: Create and start a Math Agent microservice
-	fmt.Println("1️⃣ Creating Math Agent microservice...")
+	fmt.Println("1. Creating Math Agent microservice...")
 	mathAgent, err := agent.NewAgent(
 		agent.WithName("MathAgent"),
 		agent.WithDescription("Mathematical calculations"),
@@ -49,10 +49,10 @@ func main() {
 
 	// Give it time to start
 	time.Sleep(500 * time.Millisecond)
-	fmt.Printf("✅ Math Agent running on port %d\n", mathService.GetPort())
+	fmt.Printf("Math Agent running on port %d\n", mathService.GetPort())
 
 	// Step 2: Create a local Code Agent
-	fmt.Println("\n2️⃣ Creating local Code Agent...")
+	fmt.Println("\n2. Creating local Code Agent...")
 	codeAgent, err := agent.NewAgent(
 		agent.WithName("CodeAgent"),
 		agent.WithDescription("Programming and code generation"),
@@ -62,10 +62,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create code agent: %v", err)
 	}
-	fmt.Println("✅ Code Agent created locally")
+	fmt.Println("Code Agent created locally")
 
 	// Step 3: Connect to the Math Agent as a remote agent
-	fmt.Println("\n3️⃣ Connecting to Math Agent remotely...")
+	fmt.Println("\n3. Connecting to Math Agent remotely...")
 	remoteMathAgent, err := agent.NewAgent(
 		agent.WithURL("localhost:9001"),
 		agent.WithName("RemoteMathAgent"),
@@ -73,10 +73,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to remote math agent: %v", err)
 	}
-	fmt.Println("✅ Connected to remote Math Agent")
+	fmt.Println("Connected to remote Math Agent")
 
 	// Step 4: Create orchestrator with both local and remote agents
-	fmt.Println("\n4️⃣ Creating orchestrator with mixed agents...")
+	fmt.Println("\n4. Creating orchestrator with mixed agents...")
 	orchestrator, err := agent.NewAgent(
 		agent.WithName("Orchestrator"),
 		agent.WithLLM(llm),
@@ -86,10 +86,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create orchestrator: %v", err)
 	}
-	fmt.Println("✅ Orchestrator created with local and remote agents")
+	fmt.Println("Orchestrator created with local and remote agents")
 
 	// Step 5: Test the system
-	fmt.Println("\n5️⃣ Testing mixed agent system...")
+	fmt.Println("\n5. Testing mixed agent system...")
 	ctx := context.Background()
 	
 	tests := []string{
@@ -102,17 +102,17 @@ func main() {
 		fmt.Printf("\nTest %d: %s\n", i+1, test)
 		result, err := orchestrator.Run(ctx, test)
 		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
+			fmt.Printf("Error: %v\n", err)
 		} else {
-			fmt.Printf("✅ Result: %s\n", result)
+			fmt.Printf("Result: %s\n", result)
 		}
 	}
 
 	// Clean up
-	fmt.Println("\n6️⃣ Cleaning up...")
+	fmt.Println("\n6. Cleaning up...")
 	remoteMathAgent.Disconnect()
 	mathService.Stop()
-	fmt.Println("✅ Cleanup complete")
+	fmt.Println("Cleanup complete")
 
-	fmt.Println("\n🎉 Mixed agents example completed successfully!")
+	fmt.Println("\nMixed agents example completed successfully!")
 }
