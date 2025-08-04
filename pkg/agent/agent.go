@@ -11,6 +11,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
@@ -19,6 +20,7 @@ type Agent struct {
 	llm                  interfaces.LLM
 	memory               interfaces.Memory
 	tools                []interfaces.Tool
+	subAgents            []*Agent               // Sub-agents that can be called as tools
 	orgID                string
 	tracer               interfaces.Tracer
 	guardrails           interfaces.Guardrails
@@ -152,6 +154,21 @@ func WithMaxIterations(maxIterations int) Option {
 	}
 }
 
+// WithAgents sets the sub-agents that can be called as tools
+func WithAgents(subAgents ...*Agent) Option {
+	return func(a *Agent) {
+		a.subAgents = subAgents
+		// Automatically wrap sub-agents as tools
+		for _, subAgent := range subAgents {
+			agentTool := tools.NewAgentTool(subAgent)
+			
+			// Pass logger and tracer if available on parent agent
+			// Note: This will be set later in NewAgent after the agent is fully constructed
+			a.tools = append(a.tools, agentTool)
+		}
+	}
+}
+
 // NewAgent creates a new agent with the given options
 func NewAgent(options ...Option) (*Agent, error) {
 	agent := &Agent{
@@ -167,6 +184,22 @@ func NewAgent(options ...Option) (*Agent, error) {
 	if agent.llm == nil {
 		return nil, fmt.Errorf("LLM is required")
 	}
+
+	// Validate sub-agents if present
+	if len(agent.subAgents) > 0 {
+		// Check for circular dependencies
+		if err := agent.validateSubAgents(); err != nil {
+			return nil, fmt.Errorf("sub-agent validation failed: %w", err)
+		}
+		
+		// Validate agent tree depth (max 5 levels)
+		if err := validateAgentTree(agent, 5); err != nil {
+			return nil, fmt.Errorf("agent tree validation failed: %w", err)
+		}
+	}
+
+	// Configure sub-agent tools with logger and tracer
+	agent.configureSubAgentTools()
 
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
@@ -769,4 +802,18 @@ func (a *Agent) GetCapabilities() string {
 	}
 
 	return "A general-purpose AI agent"
+}
+
+// configureSubAgentTools configures sub-agent tools with logger and tracer from parent agent
+func (a *Agent) configureSubAgentTools() {
+	for _, tool := range a.tools {
+		// Check if this is an AgentTool by trying to cast it
+		if agentTool, ok := tool.(*tools.AgentTool); ok {
+			// Configure with parent agent's logger and tracer
+			if a.tracer != nil {
+				agentTool.WithTracer(a.tracer)
+			}
+			// Note: We could also add logger if we had access to it on the agent
+		}
+	}
 }
