@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
 	github.com/metoro-io/mcp-golang v0.13.0
-	github.com/openai/openai-go v1.11.0
+	github.com/openai/openai-go v1.12.0
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11
