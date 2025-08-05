@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.29.3
-// source: agent.proto
+// source: pkg/grpc/proto/agent.proto
 
 package pb
 
@@ -407,5 +407,5 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "agent.proto",
+	Metadata: "pkg/grpc/proto/agent.proto",
 }

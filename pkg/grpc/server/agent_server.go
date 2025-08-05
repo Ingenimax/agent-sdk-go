@@ -11,6 +11,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
@@ -41,6 +42,11 @@ func (s *AgentServer) Run(ctx context.Context, req *pb.RunRequest) (*pb.RunRespo
 	// Add org_id to context if provided
 	if req.OrgId != "" {
 		ctx = multitenancy.WithOrgID(ctx, req.OrgId)
+	}
+
+	// Add conversation_id to context if provided
+	if req.ConversationId != "" {
+		ctx = memory.WithConversationID(ctx, req.ConversationId)
 	}
 
 	// Add context metadata using typed keys
@@ -159,6 +165,16 @@ func (s *AgentServer) Ready(ctx context.Context, req *pb.ReadinessRequest) (*pb.
 
 // GenerateExecutionPlan generates an execution plan (if the agent supports it)
 func (s *AgentServer) GenerateExecutionPlan(ctx context.Context, req *pb.PlanRequest) (*pb.PlanResponse, error) {
+	// Add org_id to context if provided
+	if req.OrgId != "" {
+		ctx = multitenancy.WithOrgID(ctx, req.OrgId)
+	}
+
+	// Add conversation_id to context if provided
+	if req.ConversationId != "" {
+		ctx = memory.WithConversationID(ctx, req.ConversationId)
+	}
+
 	// Add context metadata using typed keys
 	for key, value := range req.Context {
 		ctx = context.WithValue(ctx, contextKey(key), value)

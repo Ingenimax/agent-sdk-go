@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
@@ -106,6 +107,11 @@ func (r *RemoteAgentClient) Run(ctx context.Context, input string) (string, erro
 		req.OrgId = orgID
 	}
 
+	// Add conversation_id from context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		req.ConversationId = conversationID
+	}
+
 	// Add timeout to context
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -191,6 +197,16 @@ func (r *RemoteAgentClient) GenerateExecutionPlan(ctx context.Context, input str
 	req := &pb.PlanRequest{
 		Input:   input,
 		Context: make(map[string]string),
+	}
+
+	// Add org_id from context if available
+	if orgID, _ := multitenancy.GetOrgID(ctx); orgID != "" {
+		req.OrgId = orgID
+	}
+
+	// Add conversation_id from context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		req.ConversationId = conversationID
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

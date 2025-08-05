@@ -37,6 +37,7 @@ message RunRequest {
     map<string, string> context = 2;
     string org_id = 3;
     int32 max_iterations = 4;
+    string conversation_id = 5;
 }
 
 // RunResponse contains the agent's response
@@ -105,6 +106,8 @@ message ReadinessResponse {
 message PlanRequest {
     string input = 1;
     map<string, string> context = 2;
+    string org_id = 3;
+    string conversation_id = 4;
 }
 
 // PlanResponse contains the execution plan
