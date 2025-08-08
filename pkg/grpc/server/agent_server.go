@@ -7,6 +7,8 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
@@ -20,15 +22,17 @@ type contextKey string
 // AgentServer implements the gRPC AgentService
 type AgentServer struct {
 	pb.UnimplementedAgentServiceServer
-	agent    *agent.Agent
-	server   *grpc.Server
-	listener net.Listener
+	agent        *agent.Agent
+	server       *grpc.Server
+	listener     net.Listener
+	healthServer *health.Server
 }
 
 // NewAgentServer creates a new AgentServer wrapping the provided agent
 func NewAgentServer(agent *agent.Agent) *AgentServer {
 	return &AgentServer{
-		agent: agent,
+		agent:        agent,
+		healthServer: health.NewServer(),
 	}
 }
 
@@ -254,6 +258,13 @@ func (s *AgentServer) StartWithListener(listener net.Listener) error {
 
 	// Register the agent service
 	pb.RegisterAgentServiceServer(s.server, s)
+	
+	// Register the standard gRPC health service
+	grpc_health_v1.RegisterHealthServer(s.server, s.healthServer)
+	
+	// Set the health status to SERVING for the overall service and agent service
+	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	s.healthServer.SetServingStatus("AgentService", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	fmt.Printf("Agent server starting on port %d...\n", port)
@@ -262,6 +273,12 @@ func (s *AgentServer) StartWithListener(listener net.Listener) error {
 
 // Stop stops the gRPC server
 func (s *AgentServer) Stop() {
+	if s.healthServer != nil {
+		// Set health status to NOT_SERVING before stopping
+		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		s.healthServer.SetServingStatus("AgentService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	}
+	
 	if s.server != nil {
 		s.server.GracefulStop()
 	}
