@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
@@ -19,6 +21,9 @@ import (
 
 // contextKey is a custom type for context keys to avoid collisions
 type contextKey string
+
+// JWTTokenKey is used for JWT token context propagation - must match starops-tools exactly
+const JWTTokenKey contextKey = "jwtToken"
 
 // AgentServer implements the gRPC AgentService
 type AgentServer struct {
@@ -51,6 +56,17 @@ func (s *AgentServer) Run(ctx context.Context, req *pb.RunRequest) (*pb.RunRespo
 	// Add conversation_id to context if provided
 	if req.ConversationId != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationId)
+	}
+
+	// Extract JWT token from gRPC metadata and add to context
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if auths := md.Get("authorization"); len(auths) > 0 {
+			auth := auths[0]
+			if strings.HasPrefix(auth, "Bearer ") {
+				jwtToken := strings.TrimPrefix(auth, "Bearer ")
+				ctx = context.WithValue(ctx, JWTTokenKey, jwtToken)
+			}
+		}
 	}
 
 	// Add context metadata using typed keys
@@ -127,10 +143,10 @@ func (s *AgentServer) GetCapabilities(ctx context.Context, req *pb.CapabilitiesR
 	// For now, we'll just return basic capabilities
 
 	return &pb.CapabilitiesResponse{
-		Tools:                   toolNames,
+		Tools:                  toolNames,
 		SubAgents:              subAgentNames,
-		SupportsExecutionPlans: true, // Most agents support execution plans
-		SupportsMemory:         true, // Most agents support memory
+		SupportsExecutionPlans: true,  // Most agents support execution plans
+		SupportsMemory:         true,  // Most agents support memory
 		SupportsStreaming:      false, // Not implemented yet
 	}, nil
 }
@@ -179,6 +195,17 @@ func (s *AgentServer) GenerateExecutionPlan(ctx context.Context, req *pb.PlanReq
 		ctx = memory.WithConversationID(ctx, req.ConversationId)
 	}
 
+	// Extract JWT token from gRPC metadata and add to context
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if auths := md.Get("authorization"); len(auths) > 0 {
+			auth := auths[0]
+			if strings.HasPrefix(auth, "Bearer ") {
+				jwtToken := strings.TrimPrefix(auth, "Bearer ")
+				ctx = context.WithValue(ctx, JWTTokenKey, jwtToken)
+			}
+		}
+	}
+
 	// Add context metadata using typed keys
 	for key, value := range req.Context {
 		ctx = context.WithValue(ctx, contextKey(key), value)
@@ -200,7 +227,7 @@ func (s *AgentServer) GenerateExecutionPlan(ctx context.Context, req *pb.PlanReq
 		for k, v := range step.Parameters {
 			paramMap[k] = fmt.Sprintf("%v", v)
 		}
-		
+
 		steps = append(steps, &pb.PlanStep{
 			Id:          fmt.Sprintf("step_%d", i+1), // Generate ID since ExecutionStep doesn't have one
 			Description: step.Description,
@@ -274,10 +301,10 @@ func (s *AgentServer) StartWithListener(listener net.Listener) error {
 
 	// Register the agent service
 	pb.RegisterAgentServiceServer(s.server, s)
-	
+
 	// Register the standard gRPC health service
 	grpc_health_v1.RegisterHealthServer(s.server, s.healthServer)
-	
+
 	// Set the health status to SERVING for the overall service and agent service
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	s.healthServer.SetServingStatus("AgentService", grpc_health_v1.HealthCheckResponse_SERVING)
@@ -294,7 +321,7 @@ func (s *AgentServer) Stop() {
 		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 		s.healthServer.SetServingStatus("AgentService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 	}
-	
+
 	if s.server != nil {
 		s.server.GracefulStop()
 	}
@@ -314,4 +341,3 @@ func formatExecutionPlan(plan interface{}) string {
 	// In reality, you would use the actual execution plan formatting logic
 	return fmt.Sprintf("Execution Plan: %+v", plan)
 }
-

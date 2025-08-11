@@ -7,11 +7,24 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
+
+// contextKey is a custom type for context keys
+type contextKey string
+
+// JWTTokenKey is used for JWT token context propagation
+const JWTTokenKey contextKey = "jwtToken"
+
+// jwtContextKey matches starops-agent middleware exactly
+type jwtContextKey struct{}
+
+// Use exact same variable name and type as starops-agent middleware
+var JWTTokenKeyStruct = jwtContextKey{}
 
 // RemoteAgentClient handles communication with remote agents via gRPC
 type RemoteAgentClient struct {
@@ -32,7 +45,7 @@ type RemoteAgentConfig struct {
 // NewRemoteAgentClient creates a new remote agent client
 func NewRemoteAgentClient(config RemoteAgentConfig) *RemoteAgentClient {
 	if config.Timeout == 0 {
-		config.Timeout = 30 * time.Second
+		config.Timeout = 5 * time.Minute
 	}
 	if config.RetryCount == 0 {
 		config.RetryCount = 3
@@ -98,7 +111,7 @@ func (r *RemoteAgentClient) Run(ctx context.Context, input string) (string, erro
 
 	// Create request
 	req := &pb.RunRequest{
-		Input: input,
+		Input:   input,
 		Context: make(map[string]string),
 	}
 
@@ -110,6 +123,62 @@ func (r *RemoteAgentClient) Run(ctx context.Context, input string) (string, erro
 	// Add conversation_id from context if available
 	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
 		req.ConversationId = conversationID
+	}
+
+	// Add timeout to context
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// Execute with retry logic
+	var lastErr error
+	for attempt := 0; attempt < r.retryCount; attempt++ {
+		resp, err := r.client.Run(ctx, req)
+		if err != nil {
+			lastErr = err
+			// Exponential backoff
+			if attempt < r.retryCount-1 {
+				backoff := time.Duration(attempt+1) * time.Second
+				time.Sleep(backoff)
+			}
+			continue
+		}
+
+		if resp.Error != "" {
+			return "", fmt.Errorf("remote agent error: %s", resp.Error)
+		}
+
+		return resp.Output, nil
+	}
+
+	return "", fmt.Errorf("failed after %d attempts, last error: %w", r.retryCount, lastErr)
+}
+
+// RunWithAuth executes the remote agent with explicit auth token
+func (r *RemoteAgentClient) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+	if err := r.ensureConnected(); err != nil {
+		return "", err
+	}
+
+	// Create request
+	req := &pb.RunRequest{
+		Input:   input,
+		Context: make(map[string]string),
+	}
+
+	// Add org_id from context if available
+	if orgID, _ := multitenancy.GetOrgID(ctx); orgID != "" {
+		req.OrgId = orgID
+	}
+
+	// Add conversation_id from context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		req.ConversationId = conversationID
+	}
+
+	// Add explicit auth token to gRPC metadata
+	if authToken != "" {
+		md := metadata.Pairs("authorization", "Bearer "+authToken)
+		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
 	// Add timeout to context

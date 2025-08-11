@@ -19,7 +19,7 @@ const (
 	subAgentNameKey   contextKey = "sub_agent_name"
 	parentAgentKey    contextKey = "parent_agent"
 	invocationIDKey   contextKey = "invocation_id"
-	
+
 	// MaxRecursionDepth is the maximum allowed recursion depth
 	MaxRecursionDepth = 5
 )
@@ -47,8 +47,8 @@ func NewAgentTool(agent SubAgent) *AgentTool {
 		agent:       agent,
 		name:        fmt.Sprintf("%s_agent", agent.GetName()),
 		description: agent.GetDescription(),
-		timeout:     30 * time.Second, // Default timeout
-		logger:      logging.New(),    // Default logger
+		timeout:     600 * time.Second, // Default timeout
+		logger:      logging.New(),     // Default logger
 	}
 }
 
@@ -103,13 +103,13 @@ func (at *AgentTool) Parameters() map[string]interfaces.ParameterSpec {
 func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	startTime := time.Now()
 	agentName := at.agent.GetName()
-	
+
 	// Start tracing span if tracer is available
 	var span interfaces.Span
 	if at.tracer != nil {
 		ctx, span = at.tracer.StartSpan(ctx, fmt.Sprintf("sub_agent.%s", agentName))
 		defer span.End()
-		
+
 		// Add span attributes
 		span.SetAttribute("sub_agent.name", agentName)
 		span.SetAttribute("sub_agent.input", input)
@@ -118,7 +118,7 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 
 	// Add agent name to context for tracing
 	ctx = tracing.WithAgentName(ctx, agentName)
-	
+
 	// Check recursion depth
 	depth := getRecursionDepth(ctx)
 	if depth > MaxRecursionDepth {
@@ -136,12 +136,12 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 		})
 		return "", err
 	}
-	
+
 	// Update context with sub-agent metadata
 	ctx = context.WithValue(ctx, subAgentNameKey, agentName)
 	ctx = context.WithValue(ctx, parentAgentKey, "main")
 	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
-	
+
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, at.timeout)
 	defer cancel()
@@ -158,7 +158,7 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	// Run the sub-agent
 	result, err := at.agent.Run(ctx, input)
 	duration := time.Since(startTime)
-	
+
 	if err != nil {
 		// Log error details
 		at.logger.Error(ctx, "Sub-agent execution failed", map[string]interface{}{
@@ -168,7 +168,7 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 			"duration":  duration.String(),
 			"input":     input,
 		})
-		
+
 		// Record error in span
 		if span != nil {
 			span.AddEvent("error", map[string]interface{}{
@@ -177,20 +177,20 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 			span.SetAttribute("sub_agent.error", err.Error())
 			span.SetAttribute("sub_agent.duration_ms", duration.Milliseconds())
 		}
-		
+
 		return "", fmt.Errorf("sub-agent %s failed: %w", agentName, err)
 	}
 
 	// Log successful execution with response details
 	at.logger.Debug(ctx, "Sub-agent execution completed", map[string]interface{}{
-		"sub_agent":     agentName,
-		"tool_name":     at.name,
-		"input_prompt":  input,
-		"response":      result,
-		"duration":      duration.String(),
-		"response_len":  len(result),
+		"sub_agent":    agentName,
+		"tool_name":    at.name,
+		"input_prompt": input,
+		"response":     result,
+		"duration":     duration.String(),
+		"response_len": len(result),
 	})
-	
+
 	// Record success in span
 	if span != nil {
 		span.SetAttribute("sub_agent.response", result)
@@ -205,14 +205,14 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 // Execute implements interfaces.Tool.Execute
 func (at *AgentTool) Execute(ctx context.Context, args string) (string, error) {
 	agentName := at.agent.GetName()
-	
+
 	// Log the tool execution start
 	at.logger.Debug(ctx, "Sub-agent tool execution started", map[string]interface{}{
 		"sub_agent": agentName,
 		"tool_name": at.name,
 		"raw_args":  args,
 	})
-	
+
 	// Parse the JSON arguments
 	var params struct {
 		Query   string                 `json:"query"`
@@ -240,10 +240,10 @@ func (at *AgentTool) Execute(ctx context.Context, args string) (string, error) {
 
 	// Log parsed parameters
 	at.logger.Debug(ctx, "Sub-agent tool parameters parsed", map[string]interface{}{
-		"sub_agent":       agentName,
-		"tool_name":       at.name,
-		"parsed_query":    params.Query,
-		"parsed_context":  params.Context,
+		"sub_agent":      agentName,
+		"tool_name":      at.name,
+		"parsed_query":   params.Query,
+		"parsed_context": params.Context,
 	})
 
 	// If context is provided, add it to the context
@@ -255,7 +255,6 @@ func (at *AgentTool) Execute(ctx context.Context, args string) (string, error) {
 
 	return at.Run(ctx, params.Query)
 }
-
 
 // SetDescription allows updating the tool description
 func (at *AgentTool) SetDescription(description string) {

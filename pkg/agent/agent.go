@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/client"
@@ -40,9 +41,10 @@ type Agent struct {
 	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
 	
 	// Remote agent fields
-	isRemote     bool                     // Whether this is a remote agent
-	remoteURL    string                   // URL of the remote agent service
-	remoteClient *client.RemoteAgentClient // gRPC client for remote communication
+	isRemote        bool                     // Whether this is a remote agent
+	remoteURL       string                   // URL of the remote agent service
+	remoteTimeout   time.Duration            // Timeout for remote agent operations
+	remoteClient    *client.RemoteAgentClient // gRPC client for remote communication
 }
 
 // Option represents an option for configuring an agent
@@ -170,6 +172,13 @@ func WithURL(url string) Option {
 	}
 }
 
+// WithRemoteTimeout sets the timeout for remote agent operations
+func WithRemoteTimeout(timeout time.Duration) Option {
+	return func(a *Agent) {
+		a.remoteTimeout = timeout
+	}
+}
+
 // WithAgents sets the sub-agents that can be called as tools
 func WithAgents(subAgents ...*Agent) Option {
 	return func(a *Agent) {
@@ -243,9 +252,14 @@ func validateRemoteAgent(agent *Agent) (*Agent, error) {
 	}
 	
 	// Initialize remote client
-	agent.remoteClient = client.NewRemoteAgentClient(client.RemoteAgentConfig{
+	config := client.RemoteAgentConfig{
 		URL: agent.remoteURL,
-	})
+	}
+	// Use custom timeout if specified, otherwise the default 5 minutes will be used
+	if agent.remoteTimeout > 0 {
+		config.Timeout = agent.remoteTimeout
+	}
+	agent.remoteClient = client.NewRemoteAgentClient(config)
 
 	// Test connection and fetch metadata
 	if err := agent.initializeRemoteAgent(); err != nil {
@@ -343,6 +357,17 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	return a.runLocal(ctx, input)
 }
 
+// RunWithAuth executes the agent with an explicit auth token
+func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+	// If this is a remote agent, delegate to remote execution with auth token
+	if a.isRemote {
+		return a.runRemoteWithAuth(ctx, input, authToken)
+	}
+
+	// For local agents, the auth token isn't used but we maintain compatibility
+	return a.runLocal(ctx, input)
+}
+
 // runRemote executes a remote agent via gRPC
 func (a *Agent) runRemote(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
@@ -355,6 +380,20 @@ func (a *Agent) runRemote(ctx context.Context, input string) (string, error) {
 	}
 
 	return a.remoteClient.Run(ctx, input)
+}
+
+// runRemoteWithAuth executes a remote agent via gRPC with explicit auth token
+func (a *Agent) runRemoteWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+	if a.remoteClient == nil {
+		return "", fmt.Errorf("remote client not initialized")
+	}
+
+	// If orgID is set on the agent, add it to the context
+	if a.orgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	return a.remoteClient.RunWithAuth(ctx, input, authToken)
 }
 
 // runLocal executes a local agent
