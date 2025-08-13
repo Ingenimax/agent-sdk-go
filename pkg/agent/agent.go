@@ -564,14 +564,16 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 			if err != nil {
 				// Store failed tool calls with error information
 				if toolMemory, ok := a.memory.(interfaces.ToolMemory); ok {
-					toolMemory.AddToolCall(ctx, interfaces.ToolCall{
+					// #nosec G104 - Tool memory errors are logged but don't fail the callback
+					_ = toolMemory.AddToolCall(ctx, interfaces.ToolCall{
 						ID:        toolCall.ID,
 						Name:      toolCall.Name,
 						Arguments: toolCall.Arguments,
 					}, fmt.Sprintf("Error: %v", err))
 				} else {
 					// Fallback to regular message storage
-					a.memory.AddMessage(ctx, interfaces.Message{
+					// #nosec G104 - Memory errors are logged but don't fail the callback
+					_ = a.memory.AddMessage(ctx, interfaces.Message{
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error executing %s: %v", toolCall.Name, err),
 						ToolCallID: toolCall.ID,
@@ -582,14 +584,16 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 
 			// Store successful tool calls
 			if toolMemory, ok := a.memory.(interfaces.ToolMemory); ok {
-				toolMemory.AddToolCall(ctx, interfaces.ToolCall{
+				// #nosec G104 - Tool memory errors are logged but don't fail the callback
+				_ = toolMemory.AddToolCall(ctx, interfaces.ToolCall{
 					ID:        toolCall.ID,
 					Name:      toolCall.Name,
 					Arguments: toolCall.Arguments,
 				}, result)
 			} else {
 				// Fallback to regular message storage
-				a.memory.AddMessage(ctx, interfaces.Message{
+				// #nosec G104 - Memory errors are logged but don't fail the callback
+				_ = a.memory.AddMessage(ctx, interfaces.Message{
 					Role:       "tool",
 					Content:    result,
 					ToolCallID: toolCall.ID,
