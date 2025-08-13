@@ -727,12 +727,31 @@ func formatHistoryIntoPrompt(history []interfaces.Message) string {
 	// Implementation depends on the LLM's expected format
 	var prompt string
 
-	// Simple implementation that concatenates messages
-	for _, msg := range history {
-		role := msg.Role
-		content := msg.Content
+	// Format messages with clear role markers and proper separation
+	for i, msg := range history {
+		// Convert role to uppercase for clarity
+		var roleMarker string
+		switch msg.Role {
+		case "user":
+			roleMarker = "USER"
+		case "assistant":
+			roleMarker = "ASSISTANT"
+		case "tool":
+			roleMarker = "TOOL"
+		case "system":
+			roleMarker = "SYSTEM"
+		default:
+			roleMarker = strings.ToUpper(msg.Role)
+		}
 
-		prompt += role + ": " + content + "\n"
+		// Add role marker and content
+		prompt += roleMarker + ": " + msg.Content
+		
+		// Add double newline between messages for clear separation
+		// Except for the last message
+		if i < len(history)-1 {
+			prompt += "\n\n"
+		}
 	}
 
 	return prompt
