@@ -293,13 +293,42 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			// Execute the tool
 			toolResult, execErr := selectedTool.Execute(ctx, string(argsJSON))
 			
-			// Call tool callback if provided
-			if params.ToolCallback != nil {
-				params.ToolCallback(ctx, interfaces.ToolCall{
-					ID:        fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name), // Generate a unique ID
-					Name:      funcCall.Name,
-					Arguments: string(argsJSON),
-				}, toolResult, execErr)
+			// Store tool call and result in memory if provided
+			toolCallID := fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name)
+			if params.Memory != nil {
+				if execErr != nil {
+					// Store failed tool call result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCallID,
+							Name:      funcCall.Name,
+							Arguments: string(argsJSON),
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error: %v", execErr),
+						ToolCallID: toolCallID,
+					})
+				} else {
+					// Store successful tool call and result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCallID,
+							Name:      funcCall.Name,
+							Arguments: string(argsJSON),
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCallID,
+					})
+				}
 			}
 			
 			if execErr != nil {

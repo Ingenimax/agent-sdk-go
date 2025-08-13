@@ -684,13 +684,41 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 						result, err := tool.Execute(ctx, string(paramsBytes))
 						
-						// Call tool callback if provided
-						if params.ToolCallback != nil {
-							params.ToolCallback(ctx, interfaces.ToolCall{
-								ID:        toolCall.ID, // Use the parent tool call ID for parallel execution
-								Name:      toolName,
-								Arguments: string(paramsBytes),
-							}, result, err)
+						// Store tool call and result in memory if provided
+						if params.Memory != nil {
+							if err != nil {
+								// Store failed parallel tool call result
+								_ = params.Memory.AddMessage(ctx, interfaces.Message{
+									Role:       "assistant",
+									Content:    "",
+									ToolCalls: []interfaces.ToolCall{{
+										ID:        toolCall.ID,
+										Name:      toolName,
+										Arguments: string(paramsBytes),
+									}},
+								})
+								_ = params.Memory.AddMessage(ctx, interfaces.Message{
+									Role:       "tool",
+									Content:    fmt.Sprintf("Error: %v", err),
+									ToolCallID: toolCall.ID,
+								})
+							} else {
+								// Store successful parallel tool call and result
+								_ = params.Memory.AddMessage(ctx, interfaces.Message{
+									Role:       "assistant",
+									Content:    "",
+									ToolCalls: []interfaces.ToolCall{{
+										ID:        toolCall.ID,
+										Name:      toolName,
+										Arguments: string(paramsBytes),
+									}},
+								})
+								_ = params.Memory.AddMessage(ctx, interfaces.Message{
+									Role:       "tool",
+									Content:    result,
+									ToolCallID: toolCall.ID,
+								})
+							}
 						}
 						
 						resultCh <- toolResult{index: index, result: result, err: err}
@@ -762,13 +790,41 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				DurationMs: executionDuration.Milliseconds(),
 			}
 
-			// Call tool callback if provided
-			if params.ToolCallback != nil {
-				params.ToolCallback(ctx, interfaces.ToolCall{
-					ID:        toolCall.ID,
-					Name:      toolCall.Function.Name,
-					Arguments: toolCall.Function.Arguments,
-				}, toolResult, err)
+			// Store tool call and result in memory if provided
+			if params.Memory != nil {
+				if err != nil {
+					// Store failed tool call result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Function.Name,
+							Arguments: toolCall.Function.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error: %v", err),
+						ToolCallID: toolCall.ID,
+					})
+				} else {
+					// Store successful tool call and result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Function.Name,
+							Arguments: toolCall.Function.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCall.ID,
+					})
+				}
 			}
 
 			if err != nil {

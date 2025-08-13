@@ -8,47 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// MockToolMemory implements both Memory and ToolMemory interfaces for testing
-type MockToolMemory struct {
-	messages  []interfaces.Message
-	toolCalls []MockToolCall
-}
-
-type MockToolCall struct {
-	toolCall interfaces.ToolCall
-	result   string
-}
-
-func (m *MockToolMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
-	m.messages = append(m.messages, message)
-	return nil
-}
-
-func (m *MockToolMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
-	return m.messages, nil
-}
-
-func (m *MockToolMemory) Clear(ctx context.Context) error {
-	m.messages = nil
-	m.toolCalls = nil
-	return nil
-}
-
-func (m *MockToolMemory) AddToolCall(ctx context.Context, toolCall interfaces.ToolCall, result string) error {
-	m.toolCalls = append(m.toolCalls, MockToolCall{toolCall: toolCall, result: result})
-	return nil
-}
-
-func (m *MockToolMemory) AddAssistantMessageWithToolCalls(ctx context.Context, content string, toolCalls []interfaces.ToolCall) error {
-	m.messages = append(m.messages, interfaces.Message{
-		Role:      "assistant",
-		Content:   content,
-		ToolCalls: toolCalls,
-	})
-	return nil
-}
-
-// MockMemory implements only the basic Memory interface (not ToolMemory)
+// MockMemory implements the Memory interface for testing
 type MockMemory struct {
 	messages []interfaces.Message
 }
@@ -67,7 +27,7 @@ func (m *MockMemory) Clear(ctx context.Context) error {
 	return nil
 }
 
-// MockLLMWithTools implements LLM interface and supports tool callbacks
+// MockLLMWithTools implements LLM interface and stores tool calls in memory
 type MockLLMWithTools struct {
 	responses []string
 	callCount int
@@ -83,7 +43,7 @@ func (m *MockLLMWithTools) Generate(ctx context.Context, prompt string, options 
 }
 
 func (m *MockLLMWithTools) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
-	// Parse options to get callback
+	// Parse options to get memory
 	params := &interfaces.GenerateOptions{}
 	for _, opt := range options {
 		if opt != nil {
@@ -91,8 +51,8 @@ func (m *MockLLMWithTools) GenerateWithTools(ctx context.Context, prompt string,
 		}
 	}
 
-	// Simulate tool execution with callback
-	if params.ToolCallback != nil && len(tools) > 0 {
+	// Simulate tool execution with memory storage
+	if params.Memory != nil && len(tools) > 0 {
 		// Simulate calling the first tool
 		tool := tools[0]
 		toolCall := interfaces.ToolCall{
@@ -101,11 +61,30 @@ func (m *MockLLMWithTools) GenerateWithTools(ctx context.Context, prompt string,
 			Arguments: `{"test": "value"}`,
 		}
 		
+		// Store assistant message with tool call
+		_ = params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:      "assistant",
+			Content:   "",
+			ToolCalls: []interfaces.ToolCall{toolCall},
+		})
+		
 		// Simulate tool execution
 		result, err := tool.Execute(ctx, `{"test": "value"}`)
 		
-		// Call the callback
-		params.ToolCallback(ctx, toolCall, result, err)
+		// Store tool result
+		if err != nil {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:       "tool",
+				Content:    "Error: " + err.Error(),
+				ToolCallID: toolCall.ID,
+			})
+		} else {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: toolCall.ID,
+			})
+		}
 	}
 
 	if m.callCount < len(m.responses) {
@@ -152,86 +131,8 @@ func (m *MockTool) Execute(ctx context.Context, input string) (string, error) {
 	return "tool executed successfully", nil
 }
 
-func TestAgentWithToolMemory(t *testing.T) {
-	// Create mock memory that supports tool memory
-	mockMemory := &MockToolMemory{}
-	
-	// Create mock LLM
-	mockLLM := &MockLLMWithTools{
-		responses: []string{"I'll use the test tool"},
-	}
-	
-	// Create mock tool
-	mockTool := &MockTool{
-		name:        "test_tool",
-		description: "A test tool",
-	}
-	
-	// Create agent with tool memory enabled
-	agent, err := NewAgent(
-		WithLLM(mockLLM),
-		WithMemory(mockMemory),
-		WithTools(mockTool),
-		WithToolMemory(true), // Enable tool memory
-		WithRequirePlanApproval(false), // Disable execution plans for direct testing
-		WithName("test-agent"),
-	)
-	assert.NoError(t, err)
-	
-	// Run the agent
-	response, err := agent.Run(context.Background(), "Please use the test tool")
-	
-	// Verify no error
-	assert.NoError(t, err)
-	assert.NotEmpty(t, response)
-	
-	// Verify that tool calls were stored in memory
-	assert.Len(t, mockMemory.toolCalls, 1, "Expected one tool call to be stored in memory")
-	
-	storedToolCall := mockMemory.toolCalls[0]
-	assert.Equal(t, "test-tool-call-1", storedToolCall.toolCall.ID)
-	assert.Equal(t, "test_tool", storedToolCall.toolCall.Name)
-	assert.Equal(t, "tool executed successfully", storedToolCall.result)
-}
-
-func TestAgentWithoutToolMemory(t *testing.T) {
+func TestAgentWithToolsStoresInMemory(t *testing.T) {
 	// Create mock memory
-	mockMemory := &MockToolMemory{}
-	
-	// Create mock LLM
-	mockLLM := &MockLLMWithTools{
-		responses: []string{"I'll use the test tool"},
-	}
-	
-	// Create mock tool
-	mockTool := &MockTool{
-		name:        "test_tool",
-		description: "A test tool",
-	}
-	
-	// Create agent with tool memory disabled (default)
-	agent, err := NewAgent(
-		WithLLM(mockLLM),
-		WithMemory(mockMemory),
-		WithTools(mockTool),
-		WithRequirePlanApproval(false), // Disable execution plans for direct testing
-		WithName("test-agent"),
-	)
-	assert.NoError(t, err)
-	
-	// Run the agent
-	response, err := agent.Run(context.Background(), "Please use the test tool")
-	
-	// Verify no error
-	assert.NoError(t, err)
-	assert.NotEmpty(t, response)
-	
-	// Verify that tool calls were NOT stored in memory
-	assert.Len(t, mockMemory.toolCalls, 0, "Expected no tool calls to be stored in memory when tool memory is disabled")
-}
-
-func TestAgentWithRegularMemoryFallback(t *testing.T) {
-	// Create regular mock memory (without ToolMemory interface)
 	mockMemory := &MockMemory{}
 	
 	// Create mock LLM
@@ -245,12 +146,11 @@ func TestAgentWithRegularMemoryFallback(t *testing.T) {
 		description: "A test tool",
 	}
 	
-	// Create agent with tool memory enabled but regular memory
+	// Create agent
 	agent, err := NewAgent(
 		WithLLM(mockLLM),
 		WithMemory(mockMemory),
 		WithTools(mockTool),
-		WithToolMemory(true), // Enable tool memory
 		WithRequirePlanApproval(false), // Disable execution plans for direct testing
 		WithName("test-agent"),
 	)
@@ -263,18 +163,58 @@ func TestAgentWithRegularMemoryFallback(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response)
 	
-	// Verify that tool results were stored as regular messages
+	// Verify that tool calls and results were stored in memory
 	messages, err := mockMemory.GetMessages(context.Background())
 	assert.NoError(t, err)
+	assert.True(t, len(messages) >= 3, "Expected at least 3 messages: user, assistant with tool call, tool result")
 	
-	// Check if any message is a tool message
-	foundToolMessage := false
+	// Check for assistant message with tool call
+	foundAssistantWithToolCall := false
+	foundToolResult := false
+	
 	for _, msg := range messages {
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			foundAssistantWithToolCall = true
+			assert.Equal(t, "test-tool-call-1", msg.ToolCalls[0].ID)
+			assert.Equal(t, "test_tool", msg.ToolCalls[0].Name)
+		}
 		if msg.Role == "tool" {
-			foundToolMessage = true
+			foundToolResult = true
 			assert.Equal(t, "tool executed successfully", msg.Content)
-			break
+			assert.Equal(t, "test-tool-call-1", msg.ToolCallID)
 		}
 	}
-	assert.True(t, foundToolMessage, "Expected to find a tool message in regular memory fallback")
+	
+	assert.True(t, foundAssistantWithToolCall, "Expected to find assistant message with tool call")
+	assert.True(t, foundToolResult, "Expected to find tool result message")
+}
+
+func TestAgentWithoutMemoryDoesNotCrash(t *testing.T) {
+	// Create mock LLM
+	mockLLM := &MockLLMWithTools{
+		responses: []string{"I'll use the test tool"},
+	}
+	
+	// Create mock tool
+	mockTool := &MockTool{
+		name:        "test_tool",
+		description: "A test tool",
+	}
+	
+	// Create agent without memory
+	agent, err := NewAgent(
+		WithLLM(mockLLM),
+		// No memory provided
+		WithTools(mockTool),
+		WithRequirePlanApproval(false), // Disable execution plans for direct testing
+		WithName("test-agent"),
+	)
+	assert.NoError(t, err)
+	
+	// Run the agent
+	response, err := agent.Run(context.Background(), "Please use the test tool")
+	
+	// Verify no error (should work without memory)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, response)
 }

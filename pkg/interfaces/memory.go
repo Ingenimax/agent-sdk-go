@@ -41,19 +41,6 @@ type Memory interface {
 	Clear(ctx context.Context) error
 }
 
-// ToolMemory is an optional interface that memory implementations can implement
-// to handle tool call storage more efficiently. If not implemented, tool calls
-// will be stored as regular messages.
-type ToolMemory interface {
-	Memory
-
-	// AddToolCall adds a tool call and its result to memory
-	AddToolCall(ctx context.Context, toolCall ToolCall, result string) error
-
-	// AddAssistantMessageWithToolCalls adds an assistant message containing tool calls
-	AddAssistantMessageWithToolCalls(ctx context.Context, content string, toolCalls []ToolCall) error
-}
-
 // GetMessagesOptions contains options for retrieving messages
 type GetMessagesOptions struct {
 	// Limit is the maximum number of messages to retrieve

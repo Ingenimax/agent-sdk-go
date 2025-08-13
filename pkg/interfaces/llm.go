@@ -24,11 +24,8 @@ type GenerateOptions struct {
 	SystemMessage  string          // System message for chat models
 	ResponseFormat *ResponseFormat // Optional expected response format
 	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
-	ToolCallback   ToolCallback    // Optional callback for tool execution (for memory storage)
+	Memory         Memory          // Optional memory for storing tool calls and results
 }
-
-// ToolCallback is called after each tool execution to allow storing tool calls in memory
-type ToolCallback func(ctx context.Context, toolCall ToolCall, result string, err error)
 
 type LLMConfig struct {
 	Temperature      float64  // Temperature for the generation
@@ -46,9 +43,9 @@ func WithMaxIterations(maxIterations int) GenerateOption {
 	}
 }
 
-// WithToolCallback creates a GenerateOption to set the tool callback for memory storage
-func WithToolCallback(callback ToolCallback) GenerateOption {
+// WithMemory creates a GenerateOption to set the memory for storing tool calls and results
+func WithMemory(memory Memory) GenerateOption {
 	return func(options *GenerateOptions) {
-		options.ToolCallback = callback
+		options.Memory = memory
 	}
 }
