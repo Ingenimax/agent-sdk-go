@@ -39,6 +39,7 @@ type Agent struct {
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer // MCP servers for the agent
 	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
+	toolMemoryEnabled    bool                   // Whether to store tool calls and results in memory
 	
 	// Remote agent fields
 	isRemote        bool                     // Whether this is a remote agent
@@ -162,6 +163,15 @@ func WithMaxIterations(maxIterations int) Option {
 	}
 }
 
+// WithToolMemory enables storing tool calls and results in memory.
+// This prevents infinite loops and maintains context across tool interactions.
+// Currently defaults to false, but will default to true in future versions.
+func WithToolMemory(enabled bool) Option {
+	return func(a *Agent) {
+		a.toolMemoryEnabled = enabled
+	}
+}
+
 // WithURL creates a remote agent that communicates via gRPC
 func WithURL(url string) Option {
 	return func(a *Agent) {
@@ -240,6 +250,14 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	agent.planStore = executionplan.NewStore()
 	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
 	agent.planExecutor = executionplan.NewExecutor(agent.tools)
+
+	// Warn if tool memory is disabled and agent has tools
+	if !agent.toolMemoryEnabled && len(agent.tools) > 0 {
+		fmt.Printf("⚠️  WARNING: Tool memory is disabled for agent '%s'. Tool calls and results will not be stored in memory.\n", agent.name)
+		fmt.Printf("   This may cause infinite loops and context loss in agent interactions.\n")
+		fmt.Printf("   Enable it with: WithToolMemory(true)\n")
+		fmt.Printf("   Note: Tool memory will be enabled by default in future versions.\n\n")
+	}
 
 	return agent, nil
 }
@@ -539,6 +557,47 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 
 	// Add max iterations option
 	generateOptions = append(generateOptions, interfaces.WithMaxIterations(a.maxIterations))
+
+	// Add tool memory callback if enabled
+	if a.toolMemoryEnabled && a.memory != nil && len(tools) > 0 {
+		toolCallback := func(ctx context.Context, toolCall interfaces.ToolCall, result string, err error) {
+			if err != nil {
+				// Store failed tool calls with error information
+				if toolMemory, ok := a.memory.(interfaces.ToolMemory); ok {
+					toolMemory.AddToolCall(ctx, interfaces.ToolCall{
+						ID:        toolCall.ID,
+						Name:      toolCall.Name,
+						Arguments: toolCall.Arguments,
+					}, fmt.Sprintf("Error: %v", err))
+				} else {
+					// Fallback to regular message storage
+					a.memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error executing %s: %v", toolCall.Name, err),
+						ToolCallID: toolCall.ID,
+					})
+				}
+				return
+			}
+
+			// Store successful tool calls
+			if toolMemory, ok := a.memory.(interfaces.ToolMemory); ok {
+				toolMemory.AddToolCall(ctx, interfaces.ToolCall{
+					ID:        toolCall.ID,
+					Name:      toolCall.Name,
+					Arguments: toolCall.Arguments,
+				}, result)
+			} else {
+				// Fallback to regular message storage
+				a.memory.AddMessage(ctx, interfaces.Message{
+					Role:       "tool",
+					Content:    result,
+					ToolCallID: toolCall.ID,
+				})
+			}
+		}
+		generateOptions = append(generateOptions, interfaces.WithToolCallback(toolCallback))
+	}
 
 	if len(tools) > 0 {
 		response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)

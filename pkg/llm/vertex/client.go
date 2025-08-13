@@ -291,11 +291,21 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			}
 
 			// Execute the tool
-			toolResult, err := selectedTool.Execute(ctx, string(argsJSON))
-			if err != nil {
-				c.logger.Error("Tool execution failed", "toolName", selectedTool.Name(), "iteration", iteration+1, "error", err)
+			toolResult, execErr := selectedTool.Execute(ctx, string(argsJSON))
+			
+			// Call tool callback if provided
+			if params.ToolCallback != nil {
+				params.ToolCallback(ctx, interfaces.ToolCall{
+					ID:        fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name), // Generate a unique ID
+					Name:      funcCall.Name,
+					Arguments: string(argsJSON),
+				}, toolResult, execErr)
+			}
+			
+			if execErr != nil {
+				c.logger.Error("Tool execution failed", "toolName", selectedTool.Name(), "iteration", iteration+1, "error", execErr)
 				// Instead of failing, provide error message as tool result
-				toolResult = fmt.Sprintf("Error: %v", err)
+				toolResult = fmt.Sprintf("Error: %v", execErr)
 			}
 
 			// Create function response

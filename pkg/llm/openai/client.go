@@ -683,6 +683,16 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": toolName, "parameters": string(paramsBytes)})
 
 						result, err := tool.Execute(ctx, string(paramsBytes))
+						
+						// Call tool callback if provided
+						if params.ToolCallback != nil {
+							params.ToolCallback(ctx, interfaces.ToolCall{
+								ID:        toolCall.ID, // Use the parent tool call ID for parallel execution
+								Name:      toolName,
+								Arguments: string(paramsBytes),
+							}, result, err)
+						}
+						
 						resultCh <- toolResult{index: index, result: result, err: err}
 					}(i, toolUse)
 				}
@@ -750,6 +760,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				StartTime:  toolStartTime,
 				Duration:   executionDuration,
 				DurationMs: executionDuration.Milliseconds(),
+			}
+
+			// Call tool callback if provided
+			if params.ToolCallback != nil {
+				params.ToolCallback(ctx, interfaces.ToolCall{
+					ID:        toolCall.ID,
+					Name:      toolCall.Function.Name,
+					Arguments: toolCall.Function.Arguments,
+				}, toolResult, err)
 			}
 
 			if err != nil {

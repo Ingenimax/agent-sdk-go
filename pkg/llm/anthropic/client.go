@@ -867,6 +867,16 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 				"iteration": iteration + 1,
 			})
 			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
+			
+			// Call tool callback if provided
+			if params.ToolCallback != nil {
+				params.ToolCallback(ctx, interfaces.ToolCall{
+					ID:        toolCall.ID,
+					Name:      toolName,
+					Arguments: string(toolCallJSON),
+				}, toolResult, err)
+			}
+			
 			if err != nil {
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
 					"toolName":  selectedTool.Name(),
