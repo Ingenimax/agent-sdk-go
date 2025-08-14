@@ -483,6 +483,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)
+	var toolCallHistoryMu sync.Mutex
 
 	// Add system message if available
 	if params.SystemMessage != "" {
@@ -689,18 +690,22 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 						// Check for repetitive calls and add warning if needed
 						cacheKey := toolName + ":" + string(paramsBytes)
+						
+						toolCallHistoryMu.Lock()
 						toolCallHistory[cacheKey]++
+						callCount := toolCallHistory[cacheKey]
+						toolCallHistoryMu.Unlock()
 
-						if toolCallHistory[cacheKey] > 2 {
+						if callCount > 2 {
 							warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
-								toolCallHistory[cacheKey],
+								callCount,
 								toolName)
 							if err == nil {
 								result += warning
 							}
 							c.logger.Warn(ctx, "Repetitive tool call detected in parallel execution", map[string]interface{}{
 								"toolName":  toolName,
-								"callCount": toolCallHistory[cacheKey],
+								"callCount": callCount,
 							})
 						}
 
@@ -806,18 +811,22 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 			// Check for repetitive calls and add warning if needed
 			cacheKey := toolCall.Function.Name + ":" + toolCall.Function.Arguments
+			
+			toolCallHistoryMu.Lock()
 			toolCallHistory[cacheKey]++
+			callCount := toolCallHistory[cacheKey]
+			toolCallHistoryMu.Unlock()
 
-			if toolCallHistory[cacheKey] > 1 {
+			if callCount > 1 {
 				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
-					toolCallHistory[cacheKey],
+					callCount,
 					toolCall.Function.Name)
 				if err == nil {
 					toolResult += warning
 				}
 				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
 					"toolName":  toolCall.Function.Name,
-					"callCount": toolCallHistory[cacheKey],
+					"callCount": callCount,
 				})
 			}
 
