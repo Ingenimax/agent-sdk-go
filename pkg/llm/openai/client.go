@@ -478,59 +478,33 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 	}
 
-	// Create messages array with system message if provided
-	messages := []openai.ChatCompletionMessageParamUnion{}
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
 
-	// Add system message if available
-	if params.SystemMessage != "" {
-		// If reasoning is enabled, enhance the system message
-		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			switch params.LLMConfig.Reasoning {
-			case "minimal":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
-			case "comprehensive":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
-			case "none":
-				params.SystemMessage = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-			default:
-				c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+	// Store initial user prompt in memory if not already present
+	if params.Memory != nil {
+		historyMessages, _ := params.Memory.GetMessages(ctx)
+		isLastMessageCurrentPrompt := false
+		if len(historyMessages) > 0 {
+			lastMsg := historyMessages[len(historyMessages)-1]
+			if lastMsg.Role == "user" && lastMsg.Content == prompt {
+				isLastMessageCurrentPrompt = true
 			}
 		}
-
-		messages = append(messages, openai.SystemMessage(params.SystemMessage))
-		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
-	} else if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		// If no system message but reasoning is enabled, create a system message just for reasoning
-		var systemMessage string
-		switch params.LLMConfig.Reasoning {
-		case "minimal":
-			systemMessage = "When responding, briefly explain your thought process."
-			c.logger.Debug(ctx, "Using minimal reasoning mode with default system message", nil)
-		case "comprehensive":
-			systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
-			c.logger.Debug(ctx, "Using comprehensive reasoning mode with default system message", nil)
-		case "none":
-			// No system message needed
-			c.logger.Debug(ctx, "Using no reasoning mode", nil)
-		default:
-			c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-		}
-
-		if systemMessage != "" {
-			messages = append(messages, openai.SystemMessage(systemMessage))
-			c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
+		
+		if !isLastMessageCurrentPrompt {
+			if err := params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			}); err != nil {
+				c.logger.Error(ctx, "Failed to store user message in memory", map[string]interface{}{"error": err.Error()})
+			}
 		}
 	}
 
-	// Add user message
-	messages = append(messages, openai.UserMessage(prompt))
-
 	req := openai.ChatCompletionNewParams{
 		Model:             openai.ChatModel(c.Model),
-		Messages:          messages,
+		Messages:          nil, // Will be set in each iteration from memory
 		Tools:             openaiTools,
 		Temperature:       openai.Float(params.LLMConfig.Temperature),
 		TopP:              openai.Float(params.LLMConfig.TopP),
@@ -560,8 +534,92 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		c.logger.Debug(ctx, "Using response format", map[string]interface{}{"format": *params.ResponseFormat})
 	}
 
+	// Initialize messages array - use different approaches based on memory availability
+	var localMessages []openai.ChatCompletionMessageParamUnion
+	if params.Memory == nil {
+		// Fallback to local message handling for backward compatibility
+		localMessages = []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage(prompt),
+		}
+	}
+
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		var messages []openai.ChatCompletionMessageParamUnion
+		
+		if params.Memory != nil {
+			// Load fresh messages from memory at each iteration
+			historyMessages, err := params.Memory.GetMessages(ctx)
+			if err == nil && len(historyMessages) > 0 {
+				messages = c.ConvertFromMemoryMessages(historyMessages)
+			} else {
+				// If no memory messages, ensure we have at least the user prompt
+				messages = []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(prompt),
+				}
+			}
+		} else {
+			// Use local message accumulation for backward compatibility
+			messages = localMessages
+		}
+		
+		// Check if we already have a system message from memory
+		hasSystemMessage := false
+		if params.Memory != nil {
+			historyMessages, _ := params.Memory.GetMessages(ctx)
+			for _, msg := range historyMessages {
+				if msg.Role == "system" {
+					hasSystemMessage = true
+					break
+				}
+			}
+		}
+
+		// Add system message if provided and not already in memory
+		if !hasSystemMessage && params.SystemMessage != "" {
+			// Apply reasoning mode if specified
+			systemMsg := params.SystemMessage
+			if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
+				switch params.LLMConfig.Reasoning {
+				case "minimal":
+					systemMsg = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", systemMsg)
+					c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
+				case "comprehensive":
+					systemMsg = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", systemMsg)
+					c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
+				case "none":
+					systemMsg = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", systemMsg)
+					c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
+				default:
+					c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+				}
+			}
+			// Prepend system message to maintain it as the first message
+			messages = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemMsg)}, messages...)
+			c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": systemMsg})
+		} else if !hasSystemMessage && params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
+			// If no system message but reasoning is enabled, create a system message just for reasoning
+			var systemMessage string
+			switch params.LLMConfig.Reasoning {
+			case "minimal":
+				systemMessage = "When responding, briefly explain your thought process."
+				c.logger.Debug(ctx, "Using minimal reasoning mode with default system message", nil)
+			case "comprehensive":
+				systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
+				c.logger.Debug(ctx, "Using comprehensive reasoning mode with default system message", nil)
+			case "none":
+				// No system message needed
+				c.logger.Debug(ctx, "Using no reasoning mode", nil)
+			default:
+				c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+			}
+
+			if systemMessage != "" {
+				messages = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(systemMessage)}, messages...)
+				c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
+			}
+		}
+		
 		// Update request with current messages
 		req.Messages = messages
 
@@ -598,6 +656,23 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			return "", fmt.Errorf("no completions returned")
 		}
 
+		// Store assistant response in memory immediately after receiving it
+		if params.Memory != nil {
+			assistantMsg := interfaces.Message{
+				Role:    "assistant",
+				Content: resp.Choices[0].Message.Content,
+			}
+			
+			// Add tool calls if present
+			if len(resp.Choices[0].Message.ToolCalls) > 0 {
+				assistantMsg.ToolCalls = c.convertOpenAIToolCallsToInterface(resp.Choices[0].Message.ToolCalls)
+			}
+			
+			if err := params.Memory.AddMessage(ctx, assistantMsg); err != nil {
+				c.logger.Error(ctx, "Failed to store assistant message in memory", map[string]interface{}{"error": err.Error()})
+			}
+		}
+
 		// Check if the model wants to use tools
 		if len(resp.Choices[0].Message.ToolCalls) == 0 {
 			// No tool calls, return the response
@@ -612,8 +687,10 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			"iteration": iteration + 1,
 		})
 
-		// Add the assistant's message with tool calls to the conversation
-		messages = append(messages, resp.Choices[0].Message.ToParam())
+		// Add assistant message to local array if no memory is being used
+		if params.Memory == nil {
+			localMessages = append(localMessages, resp.Choices[0].Message.ToParam())
+		}
 
 		// Process each tool call
 		for _, toolCall := range toolCalls {
@@ -683,44 +760,47 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": toolName, "parameters": string(paramsBytes)})
 
 						result, err := tool.Execute(ctx, string(paramsBytes))
-						
-						// Store tool call and result in memory if provided
+
+						// Check for repetitive calls and add warning if needed
+						cacheKey := toolName + ":" + string(paramsBytes)
+						toolCallHistory[cacheKey]++
+
+						if toolCallHistory[cacheKey] > 2 {
+							warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+								toolCallHistory[cacheKey],
+								toolName)
+							if err == nil {
+								result += warning
+							}
+							c.logger.Warn(ctx, "Repetitive tool call detected in parallel execution", map[string]interface{}{
+								"toolName":  toolName,
+								"callCount": toolCallHistory[cacheKey],
+							})
+						}
+
+						// Store only tool result in memory if provided (assistant message already stored)
 						if params.Memory != nil {
 							if err != nil {
-								// Store failed parallel tool call result
-								_ = params.Memory.AddMessage(ctx, interfaces.Message{
-									Role:       "assistant",
-									Content:    "",
-									ToolCalls: []interfaces.ToolCall{{
-										ID:        toolCall.ID,
-										Name:      toolName,
-										Arguments: string(paramsBytes),
-									}},
-								})
 								_ = params.Memory.AddMessage(ctx, interfaces.Message{
 									Role:       "tool",
 									Content:    fmt.Sprintf("Error: %v", err),
 									ToolCallID: toolCall.ID,
+									Metadata: map[string]interface{}{
+										"tool_name": toolName,
+									},
 								})
 							} else {
-								// Store successful parallel tool call and result
-								_ = params.Memory.AddMessage(ctx, interfaces.Message{
-									Role:       "assistant",
-									Content:    "",
-									ToolCalls: []interfaces.ToolCall{{
-										ID:        toolCall.ID,
-										Name:      toolName,
-										Arguments: string(paramsBytes),
-									}},
-								})
 								_ = params.Memory.AddMessage(ctx, interfaces.Message{
 									Role:       "tool",
 									Content:    result,
 									ToolCallID: toolCall.ID,
+									Metadata: map[string]interface{}{
+										"tool_name": toolName,
+									},
 								})
 							}
 						}
-						
+
 						resultCh <- toolResult{index: index, result: result, err: err}
 					}(i, toolUse)
 				}
@@ -750,7 +830,10 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					result := toolsResults[i]
 					structuredResults = append(structuredResults, fmt.Sprintf("Tool: %s\nResult: %s", toolName, result))
 				}
-				messages = append(messages, openai.ToolMessage(strings.Join(structuredResults, "\n\n"), toolCall.ID))
+				// Add tool result to local array if no memory is being used  
+				if params.Memory == nil {
+					localMessages = append(localMessages, openai.ToolMessage(strings.Join(structuredResults, "\n\n"), toolCall.ID))
+				}
 				continue
 			}
 
@@ -778,6 +861,23 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Function.Arguments)
 			toolEndTime := time.Now()
 
+			// Check for repetitive calls and add warning if needed
+			cacheKey := toolCall.Function.Name + ":" + toolCall.Function.Arguments
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 1 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					toolCall.Function.Name)
+				if err == nil {
+					toolResult += warning
+				}
+				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
+					"toolName":  toolCall.Function.Name,
+					"callCount": toolCallHistory[cacheKey],
+				})
+			}
+
 			// Add tool call to tracing context
 			executionDuration := toolEndTime.Sub(toolStartTime)
 			toolCallTrace := tracing.ToolCall{
@@ -790,39 +890,25 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				DurationMs: executionDuration.Milliseconds(),
 			}
 
-			// Store tool call and result in memory if provided
+			// Store only tool result in memory if provided (assistant message already stored)
 			if params.Memory != nil {
 				if err != nil {
-					// Store failed tool call result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Function.Name,
-							Arguments: toolCall.Function.Arguments,
-						}},
-					})
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", err),
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Function.Name,
+						},
 					})
 				} else {
-					// Store successful tool call and result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Function.Name,
-							Arguments: toolCall.Function.Arguments,
-						}},
-					})
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Function.Name,
+						},
 					})
 				}
 			}
@@ -831,12 +917,16 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{"toolName": selectedTool.Name(), "error": err.Error()})
 				toolCallTrace.Error = err.Error()
 				toolCallTrace.Result = fmt.Sprintf("Error: %v", err)
-				// Add error message as tool response
-				messages = append(messages, openai.ToolMessage(fmt.Sprintf("Error: %v", err), toolCall.ID))
+				// Add error to local array if no memory is being used
+				if params.Memory == nil {
+					localMessages = append(localMessages, openai.ToolMessage(fmt.Sprintf("Error: %v", err), toolCall.ID))
+				}
 			} else {
 				toolCallTrace.Result = toolResult
-				// Add tool result to messages
-				messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
+				// Add tool result to local array if no memory is being used
+				if params.Memory == nil {
+					localMessages = append(localMessages, openai.ToolMessage(toolResult, toolCall.ID))
+				}
 			}
 
 			// Add the tool call to the tracing context
@@ -852,10 +942,22 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		"maxIterations": maxIterations,
 	})
 
+	// Load final messages for conclusion
+	var finalMessages []openai.ChatCompletionMessageParamUnion
+	if params.Memory != nil {
+		historyMessages, err := params.Memory.GetMessages(ctx)
+		if err == nil && len(historyMessages) > 0 {
+			finalMessages = c.ConvertFromMemoryMessages(historyMessages)
+		}
+	} else {
+		// Use local messages for backward compatibility
+		finalMessages = localMessages
+	}
+
 	// Create a final request without tools to force the LLM to provide a conclusion
 	finalReq := openai.ChatCompletionNewParams{
 		Model:            openai.ChatModel(c.Model),
-		Messages:         messages,
+		Messages:         finalMessages,
 		Tools:            nil, // No tools for final call
 		Temperature:      openai.Float(params.LLMConfig.Temperature),
 		TopP:             openai.Float(params.LLMConfig.TopP),
@@ -901,8 +1003,109 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	content := strings.TrimSpace(finalResp.Choices[0].Message.Content)
+	
+	// Store final assistant response in memory
+	if params.Memory != nil {
+		if err := params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:    "assistant",
+			Content: content,
+		}); err != nil {
+			c.logger.Error(ctx, "Failed to store final assistant message in memory", map[string]interface{}{"error": err.Error()})
+		}
+	}
+	
 	c.logger.Info(ctx, "Successfully received final response without tools", nil)
 	return content, nil
+}
+
+// ConvertFromMemoryMessages converts memory messages to OpenAI format
+func (c *OpenAIClient) ConvertFromMemoryMessages(memoryMsgs []interfaces.Message) []openai.ChatCompletionMessageParamUnion {
+	messages := make([]openai.ChatCompletionMessageParamUnion, 0)
+	
+	// Filter out duplicate assistant messages and ensure proper message sequencing
+	// The issue is we were storing duplicate assistant messages in memory during tool execution
+	seenToolCallIDs := make(map[string]bool)
+	
+	for _, msg := range memoryMsgs {
+		switch msg.Role {
+		case "system":
+			messages = append(messages, openai.SystemMessage(msg.Content))
+		case "user":
+			messages = append(messages, openai.UserMessage(msg.Content))
+		case "assistant":
+			// Only include assistant messages that have either:
+			// 1. No tool calls (regular messages)
+			// 2. Tool calls that we haven't seen before (first occurrence)
+			if len(msg.ToolCalls) == 0 {
+				messages = append(messages, openai.AssistantMessage(msg.Content))
+			} else {
+				// Check if this is the first time we see these tool calls
+				isFirstOccurrence := true
+				for _, tc := range msg.ToolCalls {
+					if seenToolCallIDs[tc.ID] {
+						isFirstOccurrence = false
+						break
+					}
+				}
+				
+				if isFirstOccurrence {
+					// Mark these tool call IDs as seen
+					for _, tc := range msg.ToolCalls {
+						seenToolCallIDs[tc.ID] = true
+					}
+					
+					// Create assistant message WITH tool calls (required by OpenAI API)
+					// Convert ToolCalls back to OpenAI format
+					openaiToolCalls := make([]openai.ChatCompletionMessageToolCall, len(msg.ToolCalls))
+					for i, tc := range msg.ToolCalls {
+						openaiToolCalls[i] = openai.ChatCompletionMessageToolCall{
+							ID:   tc.ID,
+							Type: "function",
+							Function: openai.ChatCompletionMessageToolCallFunction{
+								Name:      tc.Name,
+								Arguments: tc.Arguments,
+							},
+						}
+					}
+					
+					// Create a ChatCompletionMessage and convert it to param format
+					// This mimics what resp.Choices[0].Message.ToParam() does in array-based approach
+					assistantMessage := openai.ChatCompletionMessage{
+						Role:      "assistant",
+						Content:   msg.Content,
+						ToolCalls: openaiToolCalls,
+					}
+					
+					messages = append(messages, assistantMessage.ToParam())
+				}
+			}
+		case "tool":
+			// Only add tool messages if we haven't already seen this tool call ID processed
+			// This helps prevent orphaned tool messages
+			if seenToolCallIDs[msg.ToolCallID] {
+				messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
+			} else {
+				c.logger.Debug(context.Background(), "Skipping orphaned tool message", map[string]interface{}{
+					"tool_call_id": msg.ToolCallID,
+				})
+			}
+		}
+	}
+	
+	return messages
+}
+
+// convertOpenAIToolCallsToInterface converts OpenAI tool calls to interfaces.ToolCall
+func (c *OpenAIClient) convertOpenAIToolCallsToInterface(openaiToolCalls []openai.ChatCompletionMessageToolCall) []interfaces.ToolCall {
+	toolCalls := make([]interfaces.ToolCall, len(openaiToolCalls))
+	for i, tc := range openaiToolCalls {
+		toolCalls[i] = interfaces.ToolCall{
+			ID:        tc.ID,
+			Name:      tc.Function.Name,
+			Arguments: tc.Function.Arguments,
+		}
+	}
+	return toolCalls
 }
 
 // Name implements interfaces.LLM.Name

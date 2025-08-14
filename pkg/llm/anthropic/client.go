@@ -609,16 +609,59 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		}
 	}
 
-	// Create messages array with user message
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
+
+	// Store initial user prompt in memory if not already present
+	if params.Memory != nil {
+		historyMessages, _ := params.Memory.GetMessages(ctx)
+		isLastMessageCurrentPrompt := false
+		if len(historyMessages) > 0 {
+			lastMsg := historyMessages[len(historyMessages)-1]
+			if lastMsg.Role == "user" && lastMsg.Content == prompt {
+				isLastMessageCurrentPrompt = true
+			}
+		}
+		
+		if !isLastMessageCurrentPrompt {
+			if err := params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			}); err != nil {
+				c.logger.Error(ctx, "Failed to store user message in memory", map[string]interface{}{"error": err.Error()})
+			}
+		}
+	}
+
+	// Initialize messages array - use different approaches based on memory availability
+	var localMessages []Message
+	if params.Memory == nil {
+		// Fallback to local message handling for backward compatibility
+		localMessages = []Message{
+			{Role: "user", Content: prompt},
+		}
 	}
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		var messages []Message
+		
+		if params.Memory != nil {
+			// Load fresh messages from memory at each iteration
+			historyMessages, err := params.Memory.GetMessages(ctx)
+			if err == nil && len(historyMessages) > 0 {
+				messages = c.convertFromMemoryMessages(historyMessages)
+			} else {
+				// If no memory messages, ensure we have at least the user prompt
+				messages = []Message{
+					{Role: "user", Content: prompt},
+				}
+			}
+		} else {
+			// Use local message accumulation for backward compatibility
+			messages = localMessages
+		}
+
 		// Create request
 		req := CompletionRequest{
 			Model:       c.Model,
@@ -732,6 +775,38 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			return "", fmt.Errorf("no content in response (iteration %d)", iteration+1)
 		}
 
+		// Store assistant response in memory immediately after receiving it
+		if params.Memory != nil {
+			assistantMsg := interfaces.Message{
+				Role:    "assistant",
+				Content: "",
+			}
+			
+			// Collect text content and tool calls for memory
+			var textContent []string
+			var toolCallsForMemory []interfaces.ToolCall
+			
+			for _, contentBlock := range resp.Content {
+				if contentBlock.Type == "tool_use" && contentBlock.ToolUse != nil {
+					inputJSON, _ := json.Marshal(contentBlock.ToolUse.Input)
+					toolCallsForMemory = append(toolCallsForMemory, interfaces.ToolCall{
+						ID:        contentBlock.ToolUse.ID,
+						Name:      contentBlock.ToolUse.Name,
+						Arguments: string(inputJSON),
+					})
+				} else if contentBlock.Type == "text" {
+					textContent = append(textContent, contentBlock.Text)
+				}
+			}
+			
+			assistantMsg.Content = strings.Join(textContent, "\n")
+			assistantMsg.ToolCalls = toolCallsForMemory
+			
+			if err := params.Memory.AddMessage(ctx, assistantMsg); err != nil {
+				c.logger.Error(ctx, "Failed to store assistant message in memory", map[string]interface{}{"error": err.Error()})
+			}
+		}
+
 		// Check if the model wants to use tools
 		var hasToolUse bool
 		var toolCalls []ToolUse
@@ -782,7 +857,20 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			if len(textContent) == 0 {
 				return "", fmt.Errorf("no text content in response (iteration %d)", iteration+1)
 			}
-			return strings.Join(textContent, "\n"), nil
+			
+			content := strings.Join(textContent, "\n")
+			
+			// Store final assistant response in memory if no tool use
+			if params.Memory != nil {
+				if err := params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "assistant",
+					Content: content,
+				}); err != nil {
+					c.logger.Error(ctx, "Failed to store final assistant message in memory", map[string]interface{}{"error": err.Error()})
+				}
+			}
+			
+			return content, nil
 		}
 
 		// The model wants to use tools
@@ -791,11 +879,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			"iteration": iteration + 1,
 		})
 
-		// Add the assistant response to messages
-		messages = append(messages, Message{
-			Role: "assistant",
-			// We don't need the content here as we'll be adding tool results
-		})
+		// Add assistant message to local array if no memory is being used
+		if params.Memory == nil {
+			localMessages = append(localMessages, Message{
+				Role: "assistant",
+				// We don't need the content here as we'll be adding tool results
+			})
+		}
 
 		// Process each tool call
 		var toolResults []ToolResult
@@ -867,14 +957,32 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 				"iteration": iteration + 1,
 			})
 			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
-			
+
+			// Check for repetitive calls and add warning if needed
+			cacheKey := toolName + ":" + string(toolCallJSON)
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 2 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					toolName)
+				if err == nil {
+					toolResult += warning
+				}
+				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
+					"toolName":  toolName,
+					"callCount": toolCallHistory[cacheKey],
+					"iteration": iteration + 1,
+				})
+			}
+
 			// Store tool call and result in memory if provided
 			if params.Memory != nil {
 				if err != nil {
 					// Store failed tool call result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolName,
@@ -885,12 +993,15 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", err),
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolName,
+						},
 					})
 				} else {
 					// Store successful tool call and result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolName,
@@ -901,10 +1012,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolName,
+						},
 					})
 				}
 			}
-			
+
 			if err != nil {
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
 					"toolName":  selectedTool.Name(),
@@ -934,11 +1048,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			return "", fmt.Errorf("failed to marshal tool results (iteration %d): %w", iteration+1, err)
 		}
 
-		// Add a user message with the tool results
-		messages = append(messages, Message{
-			Role:    "user",
-			Content: fmt.Sprintf("Here are the tool results: %s", string(toolResultsJSON)),
-		})
+		// Add tool results to local array if no memory is being used
+		if params.Memory == nil {
+			localMessages = append(localMessages, Message{
+				Role:    "user",
+				Content: fmt.Sprintf("Here are the tool results: %s", string(toolResultsJSON)),
+			})
+		}
 
 		// Continue to the next iteration with updated messages
 	}
@@ -949,10 +1065,22 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		"maxIterations": maxIterations,
 	})
 
+	// Load final messages for conclusion
+	var finalMessages []Message
+	if params.Memory != nil {
+		historyMessages, err := params.Memory.GetMessages(ctx)
+		if err == nil && len(historyMessages) > 0 {
+			finalMessages = c.convertFromMemoryMessages(historyMessages)
+		}
+	} else {
+		// Use local messages for backward compatibility
+		finalMessages = localMessages
+	}
+
 	// Create a final request without tools to force the LLM to provide a conclusion
 	finalReq := CompletionRequest{
 		Model:       c.Model,
-		Messages:    messages,
+		Messages:    finalMessages,
 		MaxTokens:   2048,
 		Temperature: params.LLMConfig.Temperature,
 		TopP:        params.LLMConfig.TopP,
@@ -965,11 +1093,11 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	}
 
 	// Add a user message to encourage conclusion
-	messages = append(messages, Message{
+	finalMessages = append(finalMessages, Message{
 		Role:    "user",
 		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
 	})
-	finalReq.Messages = messages
+	finalReq.Messages = finalMessages
 
 	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
 		"messages": len(finalReq.Messages),
@@ -1049,13 +1177,56 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		return "", fmt.Errorf("no text content in final response")
 	}
 
+	content := strings.Join(finalTextContent, "\n")
+	
+	// Store final assistant response in memory
+	if params.Memory != nil {
+		if err := params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:    "assistant",
+			Content: content,
+		}); err != nil {
+			c.logger.Error(ctx, "Failed to store final assistant message in memory", map[string]interface{}{"error": err.Error()})
+		}
+	}
+
 	c.logger.Info(ctx, "Successfully received final response without tools", nil)
-	return strings.Join(finalTextContent, "\n"), nil
+	return content, nil
 }
 
 // Name implements interfaces.LLM.Name
 func (c *AnthropicClient) Name() string {
 	return "anthropic"
+}
+
+// convertFromMemoryMessages converts memory messages to Anthropic format
+func (c *AnthropicClient) convertFromMemoryMessages(memoryMsgs []interfaces.Message) []Message {
+	messages := make([]Message, 0, len(memoryMsgs))
+	
+	for _, msg := range memoryMsgs {
+		// Skip system messages as they go in the request.System field for Anthropic
+		if msg.Role != "system" {
+			messages = append(messages, Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+	return messages
+}
+
+// convertAnthropicToolCallsToInterface converts Anthropic tool calls to interfaces.ToolCall
+func (c *AnthropicClient) convertAnthropicToolCallsToInterface(anthropicToolCalls []ToolUse) []interfaces.ToolCall {
+	toolCalls := make([]interfaces.ToolCall, len(anthropicToolCalls))
+	for i, tc := range anthropicToolCalls {
+		// Convert input to JSON string
+		inputJSON, _ := json.Marshal(tc.Input)
+		toolCalls[i] = interfaces.ToolCall{
+			ID:        tc.ID,
+			Name:      tc.Name,
+			Arguments: string(inputJSON),
+		}
+	}
+	return toolCalls
 }
 
 // WithTemperature creates a GenerateOption to set the temperature

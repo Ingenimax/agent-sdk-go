@@ -737,7 +737,16 @@ func formatHistoryIntoPrompt(history []interfaces.Message) string {
 		case "assistant":
 			roleMarker = "ASSISTANT"
 		case "tool":
-			roleMarker = "TOOL"
+			// Include tool name if available in metadata
+			if msg.Metadata != nil {
+				if toolName, ok := msg.Metadata["tool_name"].(string); ok {
+					roleMarker = fmt.Sprintf("TOOL[%s]", toolName)
+				} else {
+					roleMarker = "TOOL"
+				}
+			} else {
+				roleMarker = "TOOL"
+			}
 		case "system":
 			roleMarker = "SYSTEM"
 		default:

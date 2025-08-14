@@ -209,15 +209,56 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		model.Tools = vertexTools
 	}
 
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
+
 	// Create a chat session for iterative conversation
 	session := model.StartChat()
 
-	// Add the original user message to start the conversation
-	session.History = []*genai.Content{
-		{
+	// Initialize session history from memory if available
+	if params.Memory != nil {
+		historyMessages, err := params.Memory.GetMessages(ctx)
+		if err == nil && len(historyMessages) > 0 {
+			var history []*genai.Content
+			for _, msg := range historyMessages {
+				if msg.Role == "user" || msg.Role == "model" {
+					history = append(history, &genai.Content{
+						Parts: []genai.Part{genai.Text(msg.Content)},
+						Role:  msg.Role,
+					})
+				}
+			}
+			session.History = history
+		}
+	}
+
+	// Store initial user prompt in memory if not already present and track if we need to add to session
+	isLastMessageCurrentPrompt := false
+	if params.Memory != nil {
+		historyMessages, _ := params.Memory.GetMessages(ctx)
+		if len(historyMessages) > 0 {
+			lastMsg := historyMessages[len(historyMessages)-1]
+			if lastMsg.Role == "user" && lastMsg.Content == prompt {
+				isLastMessageCurrentPrompt = true
+			}
+		}
+		
+		if !isLastMessageCurrentPrompt {
+			if err := params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			}); err != nil {
+				c.logger.Error("Failed to store user message in memory", "error", err)
+			}
+		}
+	}
+
+	// Add the original user message to session if not already in history
+	if !isLastMessageCurrentPrompt {
+		session.History = append(session.History, &genai.Content{
 			Parts: parts,
 			Role:  "user",
-		},
+		})
 	}
 
 	// Iterative tool calling loop
@@ -262,6 +303,32 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			}
 		}
 
+		// Store assistant response in memory immediately after receiving it
+		if params.Memory != nil {
+			assistantMsg := interfaces.Message{
+				Role:    "assistant", 
+				Content: text.String(),
+			}
+			
+			// Add tool calls if present
+			if len(functionCalls) > 0 {
+				toolCalls := make([]interfaces.ToolCall, len(functionCalls))
+				for i, fc := range functionCalls {
+					argsJSON, _ := json.Marshal(fc.Args)
+					toolCalls[i] = interfaces.ToolCall{
+						ID:        fmt.Sprintf("tool_%d_%s", iteration, fc.Name),
+						Name:      fc.Name,
+						Arguments: string(argsJSON),
+					}
+				}
+				assistantMsg.ToolCalls = toolCalls
+			}
+			
+			if err := params.Memory.AddMessage(ctx, assistantMsg); err != nil {
+				c.logger.Error("Failed to store assistant message in memory", "error", err)
+			}
+		}
+
 		// If there are no function calls, return the text response
 		if len(functionCalls) == 0 {
 			return text.String(), nil
@@ -292,15 +359,29 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 
 			// Execute the tool
 			toolResult, execErr := selectedTool.Execute(ctx, string(argsJSON))
-			
+
+			// Check for repetitive calls and add warning if needed
+			cacheKey := funcCall.Name + ":" + string(argsJSON)
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 2 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					funcCall.Name)
+				if execErr == nil {
+					toolResult += warning
+				}
+				c.logger.Warn("Repetitive tool call detected", "toolName", funcCall.Name, "callCount", toolCallHistory[cacheKey], "iteration", iteration+1)
+			}
+
 			// Store tool call and result in memory if provided
 			toolCallID := fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name)
 			if params.Memory != nil {
 				if execErr != nil {
 					// Store failed tool call result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCallID,
 							Name:      funcCall.Name,
@@ -311,12 +392,15 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", execErr),
 						ToolCallID: toolCallID,
+						Metadata: map[string]interface{}{
+							"tool_name": funcCall.Name,
+						},
 					})
 				} else {
 					// Store successful tool call and result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCallID,
 							Name:      funcCall.Name,
@@ -327,10 +411,13 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCallID,
+						Metadata: map[string]interface{}{
+							"tool_name": funcCall.Name,
+						},
 					})
 				}
 			}
-			
+
 			if execErr != nil {
 				c.logger.Error("Tool execution failed", "toolName", selectedTool.Name(), "iteration", iteration+1, "error", execErr)
 				// Instead of failing, provide error message as tool result
@@ -376,7 +463,20 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 						finalText.WriteString(string(textPart))
 					}
 				}
-				return finalText.String(), nil
+				
+				content := finalText.String()
+				
+				// Store final assistant response in memory
+				if params.Memory != nil {
+					if err := params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: content,
+					}); err != nil {
+						c.logger.Error("Failed to store final assistant message in memory", "error", err)
+					}
+				}
+				
+				return content, nil
 			}
 
 			return "", fmt.Errorf("no final response received")
@@ -430,8 +530,20 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		}
 	}
 
+	content := finalText.String()
+	
+	// Store final assistant response in memory
+	if params.Memory != nil {
+		if err := params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:    "assistant",
+			Content: content,
+		}); err != nil {
+			c.logger.Error("Failed to store final assistant message in memory", "error", err)
+		}
+	}
+
 	c.logger.Info("Successfully received final response without tools")
-	return finalText.String(), nil
+	return content, nil
 }
 
 // Generate implements interfaces.LLM.Generate
