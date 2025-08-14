@@ -609,6 +609,9 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		}
 	}
 
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
+
 	// Create messages array with user message
 	messages := []Message{
 		{
@@ -867,6 +870,24 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 				"iteration": iteration + 1,
 			})
 			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
+
+			// Check for repetitive calls and add warning if needed
+			cacheKey := toolName + ":" + string(toolCallJSON)
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 2 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					toolName)
+				if err == nil {
+					toolResult += warning
+				}
+				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
+					"toolName":  toolName,
+					"callCount": toolCallHistory[cacheKey],
+					"iteration": iteration + 1,
+				})
+			}
 			
 			// Store tool call and result in memory if provided
 			if params.Memory != nil {
@@ -885,6 +906,9 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", err),
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolName,
+						},
 					})
 				} else {
 					// Store successful tool call and result
@@ -901,6 +925,9 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolName,
+						},
 					})
 				}
 			}

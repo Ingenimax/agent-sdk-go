@@ -481,6 +481,9 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	// Create messages array with system message if provided
 	messages := []openai.ChatCompletionMessageParamUnion{}
 
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
+
 	// Add system message if available
 	if params.SystemMessage != "" {
 		// If reasoning is enabled, enhance the system message
@@ -683,14 +686,31 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": toolName, "parameters": string(paramsBytes)})
 
 						result, err := tool.Execute(ctx, string(paramsBytes))
-						
+
+						// Check for repetitive calls and add warning if needed
+						cacheKey := toolName + ":" + string(paramsBytes)
+						toolCallHistory[cacheKey]++
+
+						if toolCallHistory[cacheKey] > 2 {
+							warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+								toolCallHistory[cacheKey],
+								toolName)
+							if err == nil {
+								result += warning
+							}
+							c.logger.Warn(ctx, "Repetitive tool call detected in parallel execution", map[string]interface{}{
+								"toolName":  toolName,
+								"callCount": toolCallHistory[cacheKey],
+							})
+						}
+
 						// Store tool call and result in memory if provided
 						if params.Memory != nil {
 							if err != nil {
 								// Store failed parallel tool call result
 								_ = params.Memory.AddMessage(ctx, interfaces.Message{
-									Role:       "assistant",
-									Content:    "",
+									Role:    "assistant",
+									Content: "",
 									ToolCalls: []interfaces.ToolCall{{
 										ID:        toolCall.ID,
 										Name:      toolName,
@@ -701,12 +721,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 									Role:       "tool",
 									Content:    fmt.Sprintf("Error: %v", err),
 									ToolCallID: toolCall.ID,
+									Metadata: map[string]interface{}{
+										"tool_name": toolCall.Function.Name,
+									},
 								})
 							} else {
 								// Store successful parallel tool call and result
 								_ = params.Memory.AddMessage(ctx, interfaces.Message{
-									Role:       "assistant",
-									Content:    "",
+									Role:    "assistant",
+									Content: "",
 									ToolCalls: []interfaces.ToolCall{{
 										ID:        toolCall.ID,
 										Name:      toolName,
@@ -717,10 +740,13 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 									Role:       "tool",
 									Content:    result,
 									ToolCallID: toolCall.ID,
+									Metadata: map[string]interface{}{
+										"tool_name": toolCall.Function.Name,
+									},
 								})
 							}
 						}
-						
+
 						resultCh <- toolResult{index: index, result: result, err: err}
 					}(i, toolUse)
 				}
@@ -778,6 +804,23 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Function.Arguments)
 			toolEndTime := time.Now()
 
+			// Check for repetitive calls and add warning if needed
+			cacheKey := toolCall.Function.Name + ":" + toolCall.Function.Arguments
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 1 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					toolCall.Function.Name)
+				if err == nil {
+					toolResult += warning
+				}
+				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
+					"toolName":  toolCall.Function.Name,
+					"callCount": toolCallHistory[cacheKey],
+				})
+			}
+
 			// Add tool call to tracing context
 			executionDuration := toolEndTime.Sub(toolStartTime)
 			toolCallTrace := tracing.ToolCall{
@@ -795,8 +838,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 				if err != nil {
 					// Store failed tool call result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolCall.Function.Name,
@@ -807,12 +850,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", err),
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Function.Name,
+						},
 					})
 				} else {
 					// Store successful tool call and result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolCall.Function.Name,
@@ -823,6 +869,9 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Function.Name,
+						},
 					})
 				}
 			}

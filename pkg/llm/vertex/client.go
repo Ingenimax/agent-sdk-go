@@ -209,6 +209,9 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		model.Tools = vertexTools
 	}
 
+	// Track tool call repetitions for loop detection
+	toolCallHistory := make(map[string]int)
+
 	// Create a chat session for iterative conversation
 	session := model.StartChat()
 
@@ -292,7 +295,21 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 
 			// Execute the tool
 			toolResult, execErr := selectedTool.Execute(ctx, string(argsJSON))
-			
+
+			// Check for repetitive calls and add warning if needed
+			cacheKey := funcCall.Name + ":" + string(argsJSON)
+			toolCallHistory[cacheKey]++
+
+			if toolCallHistory[cacheKey] > 2 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
+					toolCallHistory[cacheKey],
+					funcCall.Name)
+				if execErr == nil {
+					toolResult += warning
+				}
+				c.logger.Warn("Repetitive tool call detected", "toolName", funcCall.Name, "callCount", toolCallHistory[cacheKey], "iteration", iteration+1)
+			}
+
 			// Store tool call and result in memory if provided
 			toolCallID := fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name)
 			if params.Memory != nil {
@@ -311,6 +328,9 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 						Role:       "tool",
 						Content:    fmt.Sprintf("Error: %v", execErr),
 						ToolCallID: toolCallID,
+						Metadata: map[string]interface{}{
+							"tool_name": funcCall.Name,
+						},
 					})
 				} else {
 					// Store successful tool call and result
@@ -327,6 +347,9 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 						Role:       "tool",
 						Content:    toolResult,
 						ToolCallID: toolCallID,
+						Metadata: map[string]interface{}{
+							"tool_name": funcCall.Name,
+						},
 					})
 				}
 			}
