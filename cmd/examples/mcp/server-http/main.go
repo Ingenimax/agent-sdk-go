@@ -1,66 +1,72 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
-	mcp_golang "github.com/metoro-io/mcp-golang"
-	"github.com/metoro-io/mcp-golang/transport/http"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
-// TimeArgs defines the arguments for the time tool
-type TimeArgs struct {
-	Format string `json:"format" jsonschema:"description=The time format to use"`
-}
-
-type WhatToDrinkArgs struct {
-	Objective string `json:"objective" jsonschema:"description=The objective of the drink ('hydrate', 'energize', 'relax', 'focus')" required:"true"`
-}
-
 func main() {
-	// Create an HTTP transport that listens on /mcp endpoint
-	transport := http.NewHTTPTransport("/mcp").WithAddr(":8083")
-
-	// Create a new server with the transport
-	server := mcp_golang.NewServer(
-		transport,
-		mcp_golang.WithName("mcp-golang-stateless-http-example"),
-		mcp_golang.WithInstructions("A simple example of a stateless HTTP server using mcp-golang"),
-		mcp_golang.WithVersion("0.0.1"),
+	// Create a new MCP server
+	mcpServer := server.NewMCPServer(
+		"mcp-golang-stateless-http-example",
+		"0.0.1",
+		server.WithInstructions("A simple example of a stateless HTTP server using mcp-golang"),
 	)
 
-	// Register a simple tool
-	err := server.RegisterTool("time", "Returns the current time in the specified format", func(args TimeArgs) (*mcp_golang.ToolResponse, error) {
-		format := args.Format
-		return mcp_golang.NewToolResponse(mcp_golang.NewTextContent(time.Now().Format(format))), nil
-		// return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("Error calling the tool")), nil
-	})
-	if err != nil {
-		panic(err)
-	}
+	// Register the time tool
+	timeTool := mcp.NewTool("time",
+		mcp.WithDescription("Returns the current time in the specified format"),
+		mcp.WithString("format"),
+	)
 
-	err = server.RegisterTool("what_to_drink", "Returns a drink based on the objective", func(args WhatToDrinkArgs) (*mcp_golang.ToolResponse, error) {
-		objective := args.Objective
+	mcpServer.AddTool(timeTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Get format parameter
+		format := request.GetString("format", time.RFC3339)
+
+		return mcp.NewToolResultText(time.Now().Format(format)), nil
+	})
+
+	// Register the what_to_drink tool
+	drinkTool := mcp.NewTool("what_to_drink",
+		mcp.WithDescription("Returns a drink based on the objective"),
+		mcp.WithString("objective", mcp.Required()),
+	)
+
+	mcpServer.AddTool(drinkTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Get objective parameter
+		objective := request.GetString("objective", "energize")
+
+		var drink string
 		switch objective {
 		case "hydrate":
-			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("water")), nil
+			drink = "water"
 		case "energize":
-			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("coffee")), nil
+			drink = "coffee"
 		case "relax":
-			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("tea")), nil
+			drink = "tea"
 		case "focus":
-			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("coffee")), nil
+			drink = "coffee"
 		default:
-			return mcp_golang.NewToolResponse(mcp_golang.NewTextContent("coffee")), nil
+			drink = "coffee"
 		}
+
+		return mcp.NewToolResultText(drink), nil
 	})
-	if err != nil {
-		panic(err)
-	}
+
+	// Create an SSE server for HTTP transport
+	sseServer := server.NewSSEServer(
+		mcpServer,
+		server.WithBaseURL("http://localhost:8083"),
+		server.WithStaticBasePath("/mcp"),
+	)
 
 	// Start the server
 	log.Println("Starting HTTP server on :8083...")
-	if err := server.Serve(); err != nil {
+	if err := sseServer.Start(":8083"); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }
