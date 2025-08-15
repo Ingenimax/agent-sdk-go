@@ -90,7 +90,7 @@ The MCP integration supports different transports for connecting to MCP servers:
 
 ## Implementation Details
 
-The MCP integration is built on top of the [mcp-golang](https://github.com/metoro-io/mcp-golang) library, which provides a Go implementation of the Model Context Protocol.
+The MCP integration is built on top of the [mcp-go](https://github.com/mark3labs/mcp-go) library, which provides a Go implementation of the Model Context Protocol.
 
 The integration consists of:
 

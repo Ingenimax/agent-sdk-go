@@ -3,13 +3,11 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 
-	mcplib "github.com/metoro-io/mcp-golang"
-	"github.com/metoro-io/mcp-golang/transport"
-	"github.com/metoro-io/mcp-golang/transport/http"
-	"github.com/metoro-io/mcp-golang/transport/stdio"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
@@ -38,47 +36,57 @@ type Tool struct {
 
 // ToolResponse represents a response from a tool call
 type ToolResponse struct {
-	Content []*mcplib.Content
+	Content []*mcp.Content
 	IsError bool
 }
 
 // MCPServerImpl is the implementation of interfaces.MCPServer
 type MCPServerImpl struct {
-	client *mcplib.Client
+	client *client.Client
 }
 
-// NewMCPServer creates a new MCPServer with the given transport
-func NewMCPServer(ctx context.Context, transport transport.Transport) (interfaces.MCPServer, error) {
-	client := mcplib.NewClient(transport)
-	_, err := client.Initialize(ctx)
+// NewMCPServer creates a new MCPServer with the given client
+func NewMCPServer(ctx context.Context, c *client.Client) (interfaces.MCPServer, error) {
+	// Initialize the client
+	initReq := mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			Capabilities: mcp.ClientCapabilities{
+				Sampling: &struct{}{},
+			},
+			ClientInfo: mcp.Implementation{
+				Name:    "agent-sdk-go",
+				Version: "1.0.0",
+			},
+		},
+	}
+
+	_, err := c.Initialize(ctx, initReq)
 	if err != nil {
 		return nil, err
 	}
 
 	return &MCPServerImpl{
-		client: client,
+		client: c,
 	}, nil
 }
 
 // Initialize initializes the connection to the MCP server
 func (s *MCPServerImpl) Initialize(ctx context.Context) error {
-	_, err := s.client.Initialize(ctx)
-	return err
+	// Client is already initialized in NewMCPServer, so this is a no-op
+	return nil
 }
 
 // ListTools lists the tools available on the MCP server
 func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, error) {
-	resp, err := s.client.ListTools(ctx, nil)
+	resp, err := s.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, err
 	}
 
 	tools := make([]interfaces.MCPTool, 0, len(resp.Tools))
 	for _, t := range resp.Tools {
-		description := ""
-		if t.Description != nil {
-			description = *t.Description
-		}
+		description := t.Description // Description is now string, not *string
 
 		tools = append(tools, interfaces.MCPTool{
 			Name:        t.Name,
@@ -92,22 +100,25 @@ func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, er
 
 // CallTool calls a tool on the MCP server
 func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interface{}) (*interfaces.MCPToolResponse, error) {
-	resp, err := s.client.CallTool(ctx, name, args)
+	resp, err := s.client.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      name,
+			Arguments: args,
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &interfaces.MCPToolResponse{
-		Content: resp.Content,
-		IsError: false, // MCP-golang doesn't have an IsError field, so we default to false
+		Content: resp.Content, // This is now interface{} which can hold []*mcp.Content
+		IsError: false,        // The new client API handles errors differently
 	}, nil
 }
 
 // Close closes the connection to the MCP server
 func (s *MCPServerImpl) Close() error {
-	// The mcp-golang client doesn't have a Close method yet
-	// We'll implement this when it becomes available
-	return nil
+	return s.client.Close()
 }
 
 // StdioServerConfig holds configuration for a stdio MCP server
@@ -131,32 +142,22 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("invalid command %q: %v", config.Command, err)
 	}
 
-	// #nosec
-	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
-	if len(config.Env) > 0 {
-		cmd.Env = append(os.Environ(), config.Env...)
-	}
-	stdin, err := cmd.StdinPipe()
+	// Create client using the new API
+	c, err := client.NewStdioMCPClient(commandPath, config.Env, config.Args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stdin pipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stdout pipe: %v", err)
+		return nil, fmt.Errorf("failed to create stdio client: %v", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start server: %v", err)
+	// Start the client
+	err = c.Start(ctx)
+	if err != nil {
+		c.Close()
+		return nil, fmt.Errorf("failed to start client: %v", err)
 	}
 
-	clientTransport := stdio.NewStdioServerTransportWithIO(stdout, stdin)
-
-	server, err := NewMCPServer(ctx, clientTransport)
+	server, err := NewMCPServer(ctx, c)
 	if err != nil {
-		killErr := cmd.Process.Kill() // Clean up the process if server creation fails
-		if killErr != nil {
-			return nil, fmt.Errorf("failed to create server: %v and failed to kill process: %v", err, killErr)
-		}
+		c.Close()
 		return nil, err
 	}
 
@@ -172,13 +173,36 @@ type HTTPServerConfig struct {
 
 // NewHTTPServer creates a new MCPServer that communicates over HTTP
 func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCPServer, error) {
-	transport := http.NewHTTPClientTransport(config.BaseURL + config.Path)
+	baseURL := config.BaseURL + config.Path
+
+	// Create SSE client using the new API
+	var c *client.Client
+	var err error
+
 	if config.Token != "" {
-		transport.WithHeader("Authorization", "Bearer "+config.Token)
+		// Use SSE client with headers for authentication
+		headers := map[string]string{
+			"Authorization": "Bearer " + config.Token,
+		}
+		c, err = client.NewStreamableHttpClient(baseURL, transport.WithHTTPHeaders(headers))
+	} else {
+		c, err = client.NewStreamableHttpClient(baseURL)
 	}
 
-	server, err := NewMCPServer(ctx, transport)
 	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %v", err)
+	}
+
+	// Start the client
+	err = c.Start(ctx)
+	if err != nil {
+		c.Close()
+		return nil, fmt.Errorf("failed to start client: %v", err)
+	}
+
+	server, err := NewMCPServer(ctx, c)
+	if err != nil {
+		c.Close()
 		return nil, err
 	}
 
