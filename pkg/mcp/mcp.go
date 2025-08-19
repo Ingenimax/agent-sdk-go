@@ -151,13 +151,17 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 	// Start the client
 	err = c.Start(ctx)
 	if err != nil {
-		c.Close()
+		if closeErr := c.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to start client: %v (close error: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to start client: %v", err)
 	}
 
 	server, err := NewMCPServer(ctx, c)
 	if err != nil {
-		c.Close()
+		if closeErr := c.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to create MCP server: %v (close error: %v)", err, closeErr)
+		}
 		return nil, err
 	}
 
@@ -196,13 +200,17 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 	// Start the client
 	err = c.Start(ctx)
 	if err != nil {
-		c.Close()
+		if closeErr := c.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to start client: %v (close error: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to start client: %v", err)
 	}
 
 	server, err := NewMCPServer(ctx, c)
 	if err != nil {
-		c.Close()
+		if closeErr := c.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to create MCP server: %v (close error: %v)", err, closeErr)
+		}
 		return nil, err
 	}
 
