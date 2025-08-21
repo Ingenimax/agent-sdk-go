@@ -513,7 +513,12 @@ func (c *Client) convertMessages(messages []llm.Message) ([]*genai.Part, error) 
 
 // convertTools converts tools to Vertex AI format
 func (c *Client) convertTools(tools []interfaces.Tool) []*genai.Tool {
-	var vertexTools []*genai.Tool
+	if len(tools) == 0 {
+		return nil
+	}
+
+	// Create a single tool with multiple function declarations
+	var functionDeclarations []*genai.FunctionDeclaration
 
 	for _, tool := range tools {
 		schema := &genai.Schema{
@@ -553,20 +558,19 @@ func (c *Client) convertTools(tools []interfaces.Tool) []*genai.Tool {
 			}
 		}
 
-		vertexTool := &genai.Tool{
-			FunctionDeclarations: []*genai.FunctionDeclaration{
-				{
-					Name:        tool.Name(),
-					Description: tool.Description(),
-					Parameters:  schema,
-				},
-			},
-		}
-
-		vertexTools = append(vertexTools, vertexTool)
+		functionDeclarations = append(functionDeclarations, &genai.FunctionDeclaration{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			Parameters:  schema,
+		})
 	}
 
-	return vertexTools
+	// Return a single tool with all function declarations
+	return []*genai.Tool{
+		{
+			FunctionDeclarations: functionDeclarations,
+		},
+	}
 }
 
 // getReasoningInstruction returns the reasoning instruction based on the mode
