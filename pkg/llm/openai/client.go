@@ -14,9 +14,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/retry"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/shared"
+	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v2/shared"
 )
 
 // Define a custom type for context keys to avoid collisions
@@ -27,13 +27,14 @@ const organizationKey contextKey = "organization"
 
 // OpenAIClient implements the LLM interface for OpenAI
 type OpenAIClient struct {
-	Client        openai.Client
-	ChatService   openai.ChatService
-	Model         string
-	apiKey        string
-	baseURL       string
-	logger        logging.Logger
-	retryExecutor *retry.Executor
+	Client          openai.Client
+	ChatService     openai.ChatService
+	ResponseService openai.Client
+	Model           string
+	apiKey          string
+	baseURL         string
+	logger          logging.Logger
+	retryExecutor   *retry.Executor
 }
 
 // Option represents an option for configuring the OpenAI client
@@ -44,6 +45,54 @@ func WithModel(model string) Option {
 	return func(c *OpenAIClient) {
 		c.Model = model
 	}
+}
+
+// isReasoningModel returns true if the model is a reasoning model that requires temperature = 1
+func isReasoningModel(model string) bool {
+	reasoningModels := []string{
+		"o1-", "o1-mini", "o1-preview",
+		"o3-", "o3-mini", 
+		"o4-", "o4-mini",
+		"gpt-5", "gpt-5-mini", "gpt-5-nano",
+	}
+	
+	for _, prefix := range reasoningModels {
+		if strings.HasPrefix(model, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldUseResponsesAPI returns true if the model should use the Responses API for better reasoning token support
+func shouldUseResponsesAPI(model string) bool {
+	// For now, disable Responses API since OpenAI doesn't expose reasoning tokens in streaming
+	// Keep this function for future use if OpenAI changes their API
+	return false
+	
+	// Original logic preserved for future:
+	// responsesAPIModels := []string{
+	//     "o1-", "o1-mini", "o1-preview",
+	//     "o3-", "o3-mini", 
+	//     "o4-", "o4-mini",
+	//     "gpt-5", "gpt-5-mini", "gpt-5-nano",
+	// }
+}
+
+// getTemperatureForModel returns the appropriate temperature for a model
+func (c *OpenAIClient) getTemperatureForModel(requestedTemp float64) float64 {
+	if isReasoningModel(c.Model) {
+		if requestedTemp != 1.0 {
+			c.logger.Debug(context.Background(), "Overriding temperature for reasoning model", map[string]interface{}{
+				"model": c.Model,
+				"requested_temperature": requestedTemp,
+				"forced_temperature": 1.0,
+				"reason": "reasoning models only support temperature = 1",
+			})
+		}
+		return 1.0
+	}
+	return requestedTemp
 }
 
 // WithLogger sets the logger for the OpenAI client
@@ -64,9 +113,10 @@ func WithRetry(opts ...retry.Option) Option {
 func WithBaseURL(baseURL string) Option {
 	return func(c *OpenAIClient) {
 		c.baseURL = baseURL
-		// Recreate the client and chat service with the new base URL
+		// Recreate the client and services with the new base URL
 		c.Client = openai.NewClient(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
 		c.ChatService = openai.NewChatService(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
+		c.ResponseService = openai.NewClient(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
 	}
 }
 
@@ -74,12 +124,13 @@ func WithBaseURL(baseURL string) Option {
 func NewClient(apiKey string, options ...Option) *OpenAIClient {
 	// Create client with default options
 	client := &OpenAIClient{
-		Client:      openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
-		ChatService: openai.NewChatService(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
-		Model:       "gpt-4o-mini",
-		apiKey:      apiKey,
-		baseURL:     "https://api.openai.com/v1",
-		logger:      logging.New(),
+		Client:          openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
+		ChatService:     openai.NewChatService(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
+		ResponseService: openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL("https://api.openai.com/v1")),
+		Model:           "gpt-4o-mini",
+		apiKey:          apiKey,
+		baseURL:         "https://api.openai.com/v1",
+		logger:          logging.New(),
 	}
 
 	// Apply options
@@ -166,7 +217,7 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 	}
 
 	if params.LLMConfig != nil {
-		req.Temperature = openai.Float(params.LLMConfig.Temperature)
+		req.Temperature = openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature))
 		req.TopP = openai.Float(params.LLMConfig.TopP)
 		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
 		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
@@ -340,7 +391,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 	req := openai.ChatCompletionNewParams{
 		Model:            openai.ChatModel(c.Model),
 		Messages:         chatMessages,
-		Temperature:      openai.Float(params.Temperature),
+		Temperature:      openai.Float(c.getTemperatureForModel(params.Temperature)),
 		TopP:             openai.Float(params.TopP),
 		FrequencyPenalty: openai.Float(params.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.PresencePenalty),
@@ -434,7 +485,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	ctx = context.WithValue(ctx, organizationKey, orgID)
 
 	// Convert tools to OpenAI format
-	openaiTools := make([]openai.ChatCompletionToolParam, len(tools))
+	openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
 	for i, tool := range tools {
 		// Convert ParameterSpec to JSON Schema
 		properties := make(map[string]interface{})
@@ -464,18 +515,15 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			}
 		}
 
-		openaiTools[i] = openai.ChatCompletionToolParam{
-			Type: "function",
-			Function: shared.FunctionDefinitionParam{
-				Name:        tool.Name(),
-				Description: openai.String(tool.Description()),
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": properties,
-					"required":   required,
-				},
+		openaiTools[i] = openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
+			Name:        tool.Name(),
+			Description: openai.String(tool.Description()),
+			Parameters: map[string]interface{}{
+				"type":       "object",
+				"properties": properties,
+				"required":   required,
 			},
-		}
+		})
 	}
 
 	// Create messages array with system message if provided
@@ -533,14 +581,18 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	messages = append(messages, openai.UserMessage(prompt))
 
 	req := openai.ChatCompletionNewParams{
-		Model:             openai.ChatModel(c.Model),
-		Messages:          messages,
-		Tools:             openaiTools,
-		Temperature:       openai.Float(params.LLMConfig.Temperature),
-		TopP:              openai.Float(params.LLMConfig.TopP),
-		FrequencyPenalty:  openai.Float(params.LLMConfig.FrequencyPenalty),
-		PresencePenalty:   openai.Float(params.LLMConfig.PresencePenalty),
-		ParallelToolCalls: openai.Bool(true),
+		Model:            openai.ChatModel(c.Model),
+		Messages:         messages,
+		Tools:            openaiTools,
+		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
+		TopP:             openai.Float(params.LLMConfig.TopP),
+		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
+		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+	}
+
+	// Only set ParallelToolCalls for non-reasoning models
+	if !isReasoningModel(c.Model) {
+		req.ParallelToolCalls = openai.Bool(true)
 	}
 
 	if len(params.LLMConfig.StopSequences) > 0 {
@@ -915,7 +967,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Model:            openai.ChatModel(c.Model),
 		Messages:         messages,
 		Tools:            nil, // No tools for final call
-		Temperature:      openai.Float(params.LLMConfig.Temperature),
+		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
 		TopP:             openai.Float(params.LLMConfig.TopP),
 		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
@@ -966,6 +1018,11 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 // Name implements interfaces.LLM.Name
 func (c *OpenAIClient) Name() string {
 	return "openai"
+}
+
+// SupportsStreaming implements interfaces.LLM.SupportsStreaming
+func (c *OpenAIClient) SupportsStreaming() bool {
+	return true
 }
 
 // GetModel returns the model name being used

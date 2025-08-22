@@ -13,6 +13,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mark3labs/mcp-go v0.37.0
 	github.com/openai/openai-go v1.12.0
+	github.com/openai/openai-go/v2 v2.1.1
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
 	github.com/supabase-community/postgrest-go v0.0.11

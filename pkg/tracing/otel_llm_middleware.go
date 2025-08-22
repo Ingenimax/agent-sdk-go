@@ -139,3 +139,8 @@ func (m *OTELLLMMiddleware) GenerateWithTools(ctx context.Context, prompt string
 func (m *OTELLLMMiddleware) Name() string {
 	return m.llm.Name()
 }
+
+// SupportsStreaming implements interfaces.LLM.SupportsStreaming
+func (m *OTELLLMMiddleware) SupportsStreaming() bool {
+	return m.llm.SupportsStreaming()
+}

@@ -278,6 +278,11 @@ func (c *OllamaClient) Name() string {
 	return "ollama"
 }
 
+// SupportsStreaming returns false as streaming is not yet implemented for Ollama
+func (c *OllamaClient) SupportsStreaming() bool {
+	return false
+}
+
 // makeRequest makes an HTTP request to the Ollama API
 func (c *OllamaClient) makeRequest(ctx context.Context, endpoint string, payload interface{}) ([]byte, error) {
 	// Marshal payload

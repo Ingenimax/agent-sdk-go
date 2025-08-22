@@ -144,6 +144,11 @@ func (c *Client) Name() string {
 	return fmt.Sprintf("vertex:%s", c.model)
 }
 
+// SupportsStreaming returns false as streaming is not yet implemented for Vertex
+func (c *Client) SupportsStreaming() bool {
+	return false
+}
+
 // GenerateWithTools implements interfaces.LLM.GenerateWithTools
 func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
 	// Apply options

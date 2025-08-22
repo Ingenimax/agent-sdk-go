@@ -80,3 +80,8 @@ func (m *LLMOTelMiddleware) GenerateWithTools(ctx context.Context, prompt string
 func (m *LLMOTelMiddleware) Name() string {
 	return m.llm.Name()
 }
+
+// SupportsStreaming implements interfaces.LLM.SupportsStreaming
+func (m *LLMOTelMiddleware) SupportsStreaming() bool {
+	return m.llm.SupportsStreaming()
+}

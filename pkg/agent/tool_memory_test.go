@@ -99,6 +99,10 @@ func (m *MockLLMWithTools) Name() string {
 	return "mock-llm-with-tools"
 }
 
+func (m *MockLLMWithTools) SupportsStreaming() bool {
+	return false
+}
+
 // MockTool for testing
 type MockTool struct {
 	name        string

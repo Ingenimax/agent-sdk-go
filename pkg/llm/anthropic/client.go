@@ -95,8 +95,28 @@ const (
 	Claude35Haiku  = "claude-3-5-haiku-latest"
 	Claude35Sonnet = "claude-3-5-sonnet-latest"
 	Claude3Opus    = "claude-3-opus-latest"
-	Claude37Sonnet = "claude-3-7-sonnet-latest"
+	Claude37Sonnet = "claude-3-7-sonnet-20250219"  // Supports thinking tokens
+	ClaudeSonnet4  = "claude-sonnet-4-20250514"    // Latest model with thinking
+	ClaudeOpus4    = "claude-opus-4-20250514"      // Latest Opus with thinking
+	ClaudeOpus41   = "claude-opus-4-1-20250805"    // Latest Opus 4.1
 )
+
+// SupportsThinking returns true if the model supports thinking tokens
+func SupportsThinking(model string) bool {
+	supportedModels := []string{
+		"claude-3-7-sonnet-20250219",
+		"claude-sonnet-4-20250514",
+		"claude-opus-4-20250514",
+		"claude-opus-4-1-20250805",
+	}
+	
+	for _, supportedModel := range supportedModels {
+		if model == supportedModel {
+			return true
+		}
+	}
+	return false
+}
 
 // Message represents a message for Anthropic API
 type Message struct {
@@ -122,18 +142,26 @@ type ToolResult struct {
 
 // CompletionRequest represents a request for Anthropic API
 type CompletionRequest struct {
-	Model         string      `json:"model"`
-	Messages      []Message   `json:"messages"`
-	MaxTokens     int         `json:"max_tokens,omitempty"`
-	Temperature   float64     `json:"temperature,omitempty"`
-	TopP          float64     `json:"top_p,omitempty"`
-	TopK          int         `json:"top_k,omitempty"`
-	StopSequences []string    `json:"stop_sequences,omitempty"`
-	System        string      `json:"system,omitempty"`
-	Tools         []Tool      `json:"tools,omitempty"`
-	ToolChoice    interface{} `json:"tool_choice,omitempty"`
-	Stream        bool        `json:"stream,omitempty"`
-	MetadataKey   string      `json:"metadata,omitempty"`
+	Model         string        `json:"model"`
+	Messages      []Message     `json:"messages"`
+	MaxTokens     int           `json:"max_tokens,omitempty"`
+	Temperature   float64       `json:"temperature,omitempty"`
+	TopP          float64       `json:"top_p,omitempty"`
+	TopK          int           `json:"top_k,omitempty"`
+	StopSequences []string      `json:"stop_sequences,omitempty"`
+	System        string        `json:"system,omitempty"`
+	Tools         []Tool        `json:"tools,omitempty"`
+	ToolChoice    interface{}   `json:"tool_choice,omitempty"`
+	Stream        bool          `json:"stream,omitempty"`
+	MetadataKey   string        `json:"metadata,omitempty"`
+	Thinking      *ReasoningSpec `json:"thinking,omitempty"` // Keep "thinking" for API compatibility
+}
+
+// ReasoningSpec represents the reasoning configuration for Anthropic API
+// Note: API still uses "thinking" parameter name for compatibility
+type ReasoningSpec struct {
+	Type         string `json:"type"`           // "enabled" to enable reasoning
+	BudgetTokens int    `json:"budget_tokens,omitempty"` // Optional token budget for reasoning
 }
 
 // Tool represents a tool definition for Anthropic API
@@ -1083,6 +1111,11 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 // Name implements interfaces.LLM.Name
 func (c *AnthropicClient) Name() string {
 	return "anthropic"
+}
+
+// SupportsStreaming implements interfaces.LLM.SupportsStreaming
+func (c *AnthropicClient) SupportsStreaming() bool {
+	return true
 }
 
 // WithTemperature creates a GenerateOption to set the temperature

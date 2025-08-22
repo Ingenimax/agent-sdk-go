@@ -170,3 +170,8 @@ func (m *LLMMiddleware) GenerateWithTools(ctx context.Context, prompt string, to
 func (m *LLMMiddleware) Name() string {
 	return m.llm.Name()
 }
+
+// SupportsStreaming implements interfaces.LLM.SupportsStreaming
+func (m *LLMMiddleware) SupportsStreaming() bool {
+	return m.llm.SupportsStreaming()
+}

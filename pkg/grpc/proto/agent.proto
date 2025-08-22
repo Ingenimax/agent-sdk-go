@@ -52,6 +52,35 @@ message RunStreamResponse {
     string chunk = 1;
     bool is_final = 2;
     string error = 3;
+    
+    // Enhanced fields for richer streaming events
+    EventType event_type = 4;
+    ToolCall tool_call = 5;
+    string thinking = 6;
+    map<string, string> metadata = 7;
+    int64 timestamp = 8; // Unix timestamp in milliseconds
+}
+
+// EventType enum for different types of streaming events
+enum EventType {
+    EVENT_TYPE_UNSPECIFIED = 0;
+    EVENT_TYPE_MESSAGE_START = 1;
+    EVENT_TYPE_CONTENT = 2;
+    EVENT_TYPE_THINKING = 3;
+    EVENT_TYPE_TOOL_CALL = 4;
+    EVENT_TYPE_TOOL_RESULT = 5;
+    EVENT_TYPE_ERROR = 6;
+    EVENT_TYPE_COMPLETE = 7;
+    EVENT_TYPE_MESSAGE_STOP = 8;
+}
+
+// ToolCall message for tool execution information
+message ToolCall {
+    string id = 1;
+    string name = 2;
+    string arguments = 3;
+    string result = 4;
+    string status = 5; // "received", "executing", "completed", "error"
 }
 
 // MetadataRequest for getting agent metadata

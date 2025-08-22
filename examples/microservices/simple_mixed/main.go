@@ -47,8 +47,10 @@ func main() {
 		log.Fatalf("Failed to start math microservice: %v", err)
 	}
 
-	// Give it time to start
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the service to be ready
+	if err := mathService.WaitForReady(10 * time.Second); err != nil {
+		log.Fatalf("Math microservice failed to become ready: %v", err)
+	}
 	fmt.Printf("Math Agent running on port %d\n", mathService.GetPort())
 
 	// Step 2: Create a local Code Agent

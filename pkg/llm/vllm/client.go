@@ -300,6 +300,11 @@ func (c *VLLMClient) Name() string {
 	return "vllm"
 }
 
+// SupportsStreaming returns false as streaming is not yet implemented for VLLM
+func (c *VLLMClient) SupportsStreaming() bool {
+	return false
+}
+
 // makeRequest makes an HTTP request to the vLLM API
 func (c *VLLMClient) makeRequest(ctx context.Context, endpoint string, payload interface{}) ([]byte, error) {
 	// Marshal payload

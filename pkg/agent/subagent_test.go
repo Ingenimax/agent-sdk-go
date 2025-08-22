@@ -25,6 +25,10 @@ func (m *TestMockLLM) Name() string {
 	return m.llmName
 }
 
+func (m *TestMockLLM) SupportsStreaming() bool {
+	return false
+}
+
 func TestWithAgents(t *testing.T) {
 	// Create mock LLMs
 	mainLLM := &TestMockLLM{llmName: "main"}

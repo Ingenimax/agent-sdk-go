@@ -15,6 +15,10 @@ func (m *MockLLM) Name() string {
 	return "MockLLM"
 }
 
+func (m *MockLLM) SupportsStreaming() bool {
+	return false
+}
+
 func (m *MockLLM) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
 	// Return a mock YAML response
 	return `

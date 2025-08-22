@@ -34,6 +34,10 @@ func (m *MockLLM) Name() string {
 	return args.String(0)
 }
 
+func (m *MockLLM) SupportsStreaming() bool {
+	return false
+}
+
 func setupTestRedisClient(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 	// Create a miniredis server
 	mr, err := miniredis.Run()

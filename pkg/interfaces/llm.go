@@ -12,6 +12,9 @@ type LLM interface {
 
 	// Name returns the name of the LLM provider
 	Name() string
+	
+	// SupportsStreaming returns true if this LLM supports streaming
+	SupportsStreaming() bool
 }
 
 // GenerateOption represents options for text generation
@@ -25,6 +28,7 @@ type GenerateOptions struct {
 	ResponseFormat *ResponseFormat // Optional expected response format
 	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
 	Memory         Memory          // Optional memory for storing tool calls and results
+	StreamConfig   *StreamConfig   // Optional streaming configuration
 }
 
 type LLMConfig struct {
@@ -34,6 +38,8 @@ type LLMConfig struct {
 	PresencePenalty  float64  // Presence penalty for the generation
 	StopSequences    []string // Stop sequences for the generation
 	Reasoning        string   // Reasoning mode (none, minimal, comprehensive) to control explanation detail
+	EnableReasoning  bool     // Enable native reasoning tokens (Anthropic thinking/OpenAI o1)
+	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only)
 }
 
 // WithMaxIterations creates a GenerateOption to set the maximum number of tool-calling iterations
@@ -47,5 +53,25 @@ func WithMaxIterations(maxIterations int) GenerateOption {
 func WithMemory(memory Memory) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.Memory = memory
+	}
+}
+
+// WithStreamConfig creates a GenerateOption to set the streaming configuration
+func WithStreamConfig(config StreamConfig) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.StreamConfig = &config
+	}
+}
+
+// WithReasoning creates a GenerateOption to enable native reasoning tokens
+func WithReasoning(enabled bool, budget ...int) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.EnableReasoning = enabled
+		if len(budget) > 0 {
+			options.LLMConfig.ReasoningBudget = budget[0]
+		}
 	}
 }
