@@ -158,7 +158,6 @@ func NewClient(ctx context.Context, options ...ClientOption) (*Client, error) {
 	if client.credentialsFile != "" {
 		cred, err := credentials.DetectDefault(&credentials.DetectOptions{
 			CredentialsFile: client.credentialsFile,
-			Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to load credentials: %w", err)
@@ -513,7 +512,7 @@ func (c *Client) convertMessages(messages []llm.Message) ([]*genai.Part, error) 
 			// System messages are handled separately in Vertex AI
 			continue
 		case "user", "assistant":
-			parts = append(parts, &genai.Part{Text: msg.Content})
+			parts = append(parts, genai.NewPartFromText(msg.Content))
 		default:
 			return nil, fmt.Errorf("unsupported message role: %s", msg.Role)
 		}
