@@ -63,6 +63,7 @@ func main() {
 		agent.WithLLM(llm),
 		agent.WithMemory(memoryStore),
 		agent.WithTools(calculatorTool),
+		agent.WithRequirePlanApproval(false),
 		agent.WithSystemPrompt("You are a helpful AI assistant. You can perform calculations and explain complex topics. Show your reasoning process when thinking through problems."),
 		agent.WithName("StreamingAssistant"),
 		agent.WithDescription("An AI assistant with streaming capabilities for real-time responses"),
