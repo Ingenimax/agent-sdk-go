@@ -65,9 +65,8 @@ func (r *RemoteAgentClient) Connect() error {
 		return nil // Already connected
 	}
 
-	conn, err := grpc.Dial(r.url,
+	conn, err := grpc.NewClient(r.url,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(), // Wait for connection to be established
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", r.url, err)

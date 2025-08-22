@@ -239,15 +239,9 @@ func displayStructuredResponse(responseText string) {
 	cleanedResponse := strings.TrimSpace(responseText)
 
 	// Remove markdown code block markers if they exist
-	if strings.HasPrefix(cleanedResponse, "```json") {
-		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```json")
-	}
-	if strings.HasPrefix(cleanedResponse, "```") {
-		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```")
-	}
-	if strings.HasSuffix(cleanedResponse, "```") {
-		cleanedResponse = strings.TrimSuffix(cleanedResponse, "```")
-	}
+	cleanedResponse = strings.TrimPrefix(cleanedResponse, "```json")
+	cleanedResponse = strings.TrimPrefix(cleanedResponse, "```")
+	cleanedResponse = strings.TrimSuffix(cleanedResponse, "```")
 
 	cleanedResponse = strings.TrimSpace(cleanedResponse)
 

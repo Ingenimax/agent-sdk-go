@@ -123,7 +123,8 @@ func (c *AnthropicClient) GenerateStream(
 			// Safe close with recovery
 			defer func() {
 				if r := recover(); r != nil {
-					// Channel was already closed
+					// Channel was already closed, ignore panic
+					_ = r
 				}
 			}()
 			close(eventChan)
@@ -209,7 +210,7 @@ func (c *AnthropicClient) executeStreamingRequest(
 			var errorBody []byte
 			if httpResp.Body != nil {
 				errorBody, _ = io.ReadAll(httpResp.Body)
-				httpResp.Body.Close() // #nosec G104
+				_ = httpResp.Body.Close()
 			}
 			
 			c.logger.Error(ctx, "Error from Anthropic streaming API", map[string]interface{}{
@@ -279,12 +280,6 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 		if opt != nil {
 			opt(params)
 		}
-	}
-
-	// Get maxIterations from params
-	maxIterations := params.MaxIterations
-	if maxIterations == 0 {
-		maxIterations = 2 // Default to match non-streaming behavior
 	}
 
 	// Check for organization ID in context, and add a default one if missing
@@ -357,7 +352,8 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 			// Safe close with recovery
 			defer func() {
 				if r := recover(); r != nil {
-					// Channel was already closed
+					// Channel was already closed, ignore panic
+					_ = r
 				}
 			}()
 			close(eventChan)
@@ -398,9 +394,9 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	}
 
 	// Get maxIterations from params
-	maxIterations := params.MaxIterations
-	if maxIterations == 0 {
-		maxIterations = 2 // Default to match non-streaming behavior
+	maxIterations := 2 // Default to match non-streaming behavior
+	if params.MaxIterations > 0 {
+		maxIterations = params.MaxIterations
 	}
 
 	// Create base request configuration
@@ -634,7 +630,8 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 			// Safe close with recovery
 			defer func() {
 				if r := recover(); r != nil {
-					// Channel was already closed
+					// Channel was already closed, ignore panic
+					_ = r
 				}
 			}()
 			close(tempEventChan)

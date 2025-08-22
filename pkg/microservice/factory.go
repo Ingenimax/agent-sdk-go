@@ -213,12 +213,9 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 	}
 
 	// Create gRPC client
-	// Note: Using grpc.Dial instead of grpc.NewClient because we need immediate connection
-	// establishment for streaming. grpc.NewClient doesn't guarantee connection readiness.
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", m.port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to microservice: %w", err)
@@ -229,7 +226,7 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 		Input: input,
 	})
 	if err != nil {
-		conn.Close() // #nosec G104
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to start stream: %w", err)
 	}
 
@@ -239,7 +236,7 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 	// Start goroutine to process stream
 	go func() {
 		defer func() {
-			conn.Close() // #nosec G104
+			_ = conn.Close()
 			close(outputCh)
 		}()
 
@@ -451,12 +448,10 @@ func (m *AgentMicroservice) testGRPCHealth() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	
-	// Note: Using grpc.Dial instead of grpc.NewClient because we need immediate connection
-	// establishment for health checks. grpc.NewClient doesn't guarantee connection readiness.
-	conn, err := grpc.Dial(
+	// Create gRPC client for health check
+	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", m.port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(), // Wait for connection to be established
 	)
 	if err != nil {
 		fmt.Printf("Debug: Failed to create gRPC connection to localhost:%d: %v\n", m.port, err)

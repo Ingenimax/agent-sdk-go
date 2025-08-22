@@ -398,16 +398,16 @@ func (h *HTTPServer) sendSSEEventWithID(w http.ResponseWriter, flusher http.Flus
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		// Fallback to error event
-		fmt.Fprintf(w, "event: error\ndata: {\"error\": \"Failed to marshal event data\"}\n\n")
+		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\": \"Failed to marshal event data\"}\n\n")
 		flusher.Flush()
 		return
 	}
 	
 	// Write SSE event
 	if id != "" {
-		fmt.Fprintf(w, "id: %s\n", id)
+		_, _ = fmt.Fprintf(w, "id: %s\n", id)
 	}
-	fmt.Fprintf(w, "event: %s\n", eventType)
+	_, _ = fmt.Fprintf(w, "event: %s\n", eventType)
 	fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
 	
 	flusher.Flush()

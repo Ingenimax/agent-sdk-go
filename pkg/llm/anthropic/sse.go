@@ -322,7 +322,7 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	
 	// Process any remaining event
 	if currentEvent != nil && len(currentEvent.Data) > 0 {
-		c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks) // #nosec G104
+		_ = c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks)
 	}
 	
 	// Check for scanner error
