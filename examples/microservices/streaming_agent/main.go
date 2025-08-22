@@ -20,14 +20,14 @@ import (
 // ProgrammingConcept represents a structured explanation of a programming concept
 // This matches Anthropic Claude's flattened structure preference
 type ProgrammingConcept struct {
-	Concept           string            `json:"concept" description:"The main concept being explained"`
-	Definition        string            `json:"definition" description:"Clear definition of the concept"`
-	Analogy           string            `json:"analogy,omitempty" description:"An analogy to help understand the concept"`
-	KeyComponents     []KeyComponent    `json:"key_components" description:"Key components or requirements"`
-	CodeExample       CodeExample       `json:"code_example" description:"A practical code example"`
-	Benefits          []string          `json:"benefits" description:"List of benefits"`
-	Considerations    []string          `json:"considerations,omitempty" description:"Important considerations"`
-	CommonApps        []string          `json:"common_applications,omitempty" description:"Common applications"`
+	Concept             string               `json:"concept" description:"The main concept being explained"`
+	Definition          string               `json:"definition" description:"Clear definition of the concept"`
+	Analogy             string               `json:"analogy,omitempty" description:"An analogy to help understand the concept"`
+	KeyComponents       []KeyComponent       `json:"key_components" description:"Key components or requirements"`
+	CodeExample         CodeExample          `json:"code_example" description:"A practical code example"`
+	Benefits            []string             `json:"benefits" description:"List of benefits"`
+	Considerations      []string             `json:"considerations,omitempty" description:"Important considerations"`
+	CommonApps          []string             `json:"common_applications,omitempty" description:"Common applications"`
 	AlternativeApproach *AlternativeApproach `json:"alternative_approach,omitempty" description:"Alternative implementation approach"`
 }
 
@@ -92,7 +92,7 @@ func main() {
 
 	// Step 1: Create streaming agent with thinking support and structured output
 	fmt.Println("\n1. Creating streaming agent with thinking support and structured output...")
-	
+
 	// Create response format from Go struct using the utility
 	responseFormat := structuredoutput.NewResponseFormat(ProgrammingConcept{})
 
@@ -215,25 +215,17 @@ func streamWithHandlers(service *microservice.AgentMicroservice, input string) e
 				fmt.Printf("\n%s</thinking>%s\n", ColorGray, ColorReset)
 			}
 			fmt.Printf("\n%s[LOG]%s Stream completed successfully\n", ColorBlue, ColorReset)
-			
+
 			// Parse and display the structured response
 			responseText := completeResponse.String()
 			if responseText != "" {
-				fmt.Printf("\n%s[DEBUG]%s Complete response length: %d characters\n", ColorBlue, ColorReset, len(responseText))
-				fmt.Printf("%s[DEBUG]%s First 100 chars: %s...\n", ColorBlue, ColorReset, 
-					func() string {
-						if len(responseText) > 100 {
-							return responseText[:100]
-						}
-						return responseText
-					}())
-				
+
 				fmt.Printf("\n%s=== STRUCTURED OUTPUT ===%s\n", ColorBold, ColorReset)
 				displayStructuredResponse(responseText)
 			} else {
 				fmt.Printf("%s[WARNING]%s No response content accumulated\n", ColorRed, ColorReset)
 			}
-			
+
 			fmt.Printf("%sStream completed%s\n", ColorGreen, ColorReset)
 		})
 
@@ -245,7 +237,7 @@ func streamWithHandlers(service *microservice.AgentMicroservice, input string) e
 func displayStructuredResponse(responseText string) {
 	// Clean the response text - remove markdown code blocks if present
 	cleanedResponse := strings.TrimSpace(responseText)
-	
+
 	// Remove markdown code block markers if they exist
 	if strings.HasPrefix(cleanedResponse, "```json") {
 		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```json")
@@ -256,21 +248,21 @@ func displayStructuredResponse(responseText string) {
 	if strings.HasSuffix(cleanedResponse, "```") {
 		cleanedResponse = strings.TrimSuffix(cleanedResponse, "```")
 	}
-	
+
 	cleanedResponse = strings.TrimSpace(cleanedResponse)
-	
+
 	// Find JSON object boundaries
 	start := strings.Index(cleanedResponse, "{")
 	end := strings.LastIndex(cleanedResponse, "}")
-	
+
 	if start == -1 || end == -1 || start >= end {
 		fmt.Printf("%sError: Could not find valid JSON in response%s\n", ColorRed, ColorReset)
 		fmt.Printf("Response text: %s\n", responseText)
 		return
 	}
-	
+
 	jsonText := cleanedResponse[start : end+1]
-	
+
 	var concept ProgrammingConcept
 	if err := json.Unmarshal([]byte(jsonText), &concept); err != nil {
 		fmt.Printf("%sError parsing JSON: %v%s\n", ColorRed, err, ColorReset)
@@ -279,10 +271,10 @@ func displayStructuredResponse(responseText string) {
 	}
 
 	fmt.Printf("\n%s📚 Concept:%s %s\n", ColorBold, ColorReset, concept.Concept)
-	
+
 	fmt.Printf("\n%s📖 Definition:%s\n", ColorBold, ColorReset)
 	fmt.Printf("  %s\n", concept.Definition)
-	
+
 	if concept.Analogy != "" {
 		fmt.Printf("\n%s💡 Analogy:%s\n", ColorBold, ColorReset)
 		fmt.Printf("  %s\n", concept.Analogy)
@@ -300,7 +292,7 @@ func displayStructuredResponse(responseText string) {
 
 	fmt.Printf("\n%s💻 Code Example:%s %s\n", ColorBold, ColorReset, concept.CodeExample.Problem)
 	fmt.Printf("```%s\n%s\n```\n", concept.CodeExample.Language, concept.CodeExample.Code)
-	
+
 	if concept.CodeExample.Explanation != "" {
 		fmt.Printf("\n%sExplanation:%s\n", ColorBold, ColorReset)
 		fmt.Printf("  %s\n", concept.CodeExample.Explanation)

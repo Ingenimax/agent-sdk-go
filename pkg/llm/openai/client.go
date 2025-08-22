@@ -51,11 +51,11 @@ func WithModel(model string) Option {
 func isReasoningModel(model string) bool {
 	reasoningModels := []string{
 		"o1-", "o1-mini", "o1-preview",
-		"o3-", "o3-mini", 
+		"o3-", "o3-mini",
 		"o4-", "o4-mini",
 		"gpt-5", "gpt-5-mini", "gpt-5-nano",
 	}
-	
+
 	for _, prefix := range reasoningModels {
 		if strings.HasPrefix(model, prefix) {
 			return true
@@ -64,30 +64,15 @@ func isReasoningModel(model string) bool {
 	return false
 }
 
-// shouldUseResponsesAPI returns true if the model should use the Responses API for better reasoning token support
-func shouldUseResponsesAPI(model string) bool {
-	// For now, disable Responses API since OpenAI doesn't expose reasoning tokens in streaming
-	// Keep this function for future use if OpenAI changes their API
-	return false
-	
-	// Original logic preserved for future:
-	// responsesAPIModels := []string{
-	//     "o1-", "o1-mini", "o1-preview",
-	//     "o3-", "o3-mini", 
-	//     "o4-", "o4-mini",
-	//     "gpt-5", "gpt-5-mini", "gpt-5-nano",
-	// }
-}
-
 // getTemperatureForModel returns the appropriate temperature for a model
 func (c *OpenAIClient) getTemperatureForModel(requestedTemp float64) float64 {
 	if isReasoningModel(c.Model) {
 		if requestedTemp != 1.0 {
 			c.logger.Debug(context.Background(), "Overriding temperature for reasoning model", map[string]interface{}{
-				"model": c.Model,
+				"model":                 c.Model,
 				"requested_temperature": requestedTemp,
-				"forced_temperature": 1.0,
-				"reason": "reasoning models only support temperature = 1",
+				"forced_temperature":    1.0,
+				"reason":                "reasoning models only support temperature = 1",
 			})
 		}
 		return 1.0
@@ -742,7 +727,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 						// Check for repetitive calls and add warning if needed
 						cacheKey := toolName + ":" + string(paramsBytes)
-						
+
 						toolCallHistoryMu.Lock()
 						toolCallHistory[cacheKey]++
 						callCount := toolCallHistory[cacheKey]
@@ -863,7 +848,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 			// Check for repetitive calls and add warning if needed
 			cacheKey := toolCall.Function.Name + ":" + toolCall.Function.Arguments
-			
+
 			toolCallHistoryMu.Lock()
 			toolCallHistory[cacheKey]++
 			callCount := toolCallHistory[cacheKey]

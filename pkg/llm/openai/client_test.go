@@ -12,8 +12,8 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
 	openai_client "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/option"
 )
 
 func TestGenerate(t *testing.T) {
@@ -358,10 +358,10 @@ func TestParallelToolExecution(t *testing.T) {
 						Message: openai.ChatCompletionMessage{
 							Content: "",
 							Role:    "assistant",
-							ToolCalls: []openai.ChatCompletionMessageToolCall{
+							ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
 								{
 									ID: "call_123",
-									Function: openai.ChatCompletionMessageToolCallFunction{
+									Function: openai.ChatCompletionMessageFunctionToolCallFunction{
 										Name: "parallel_tool_use",
 										Arguments: `{
 											"tool_uses": [

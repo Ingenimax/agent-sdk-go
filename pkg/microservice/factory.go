@@ -229,7 +229,7 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 		Input: input,
 	})
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104
 		return nil, fmt.Errorf("failed to start stream: %w", err)
 	}
 
@@ -239,7 +239,7 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 	// Start goroutine to process stream
 	go func() {
 		defer func() {
-			conn.Close()
+			conn.Close() // #nosec G104
 			close(outputCh)
 		}()
 

@@ -209,7 +209,7 @@ func (c *AnthropicClient) executeStreamingRequest(
 			var errorBody []byte
 			if httpResp.Body != nil {
 				errorBody, _ = io.ReadAll(httpResp.Body)
-				httpResp.Body.Close()
+				httpResp.Body.Close() // #nosec G104
 			}
 			
 			c.logger.Error(ctx, "Error from Anthropic streaming API", map[string]interface{}{
