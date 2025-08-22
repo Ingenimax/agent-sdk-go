@@ -251,20 +251,20 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		return "", fmt.Errorf("failed to create chat: %w", err)
 	}
 
-	nextMessage := []*genai.Part{genai.NewPartFromText(prompt)}
+	// Generate content with retry logic
+	var response *genai.GenerateContentResponse
+	err = c.withRetry(ctx, func() error {
+		var genErr error
+		response, genErr = chatSession.Send(ctx, genai.NewPartFromText(prompt))
+		return genErr
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate content for initial prompt: %w", err)
+	}
+
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Generate content with retry logic
-		var response *genai.GenerateContentResponse
-		err := c.withRetry(ctx, func() error {
-			var genErr error
-			response, genErr = chatSession.Send(ctx, nextMessage...)
-			return genErr
-		})
-
-		if err != nil {
-			return "", fmt.Errorf("failed to generate content (iteration %d): %w", iteration+1, err)
-		}
 
 		// Extract response
 		if len(response.Candidates) == 0 {
@@ -383,7 +383,25 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		}
 
 		// Continue conversation by sending tool responses
-		nextMessage = functionResponses
+		err = c.withRetry(ctx, func() error {
+			var genErr error
+			response, genErr = chatSession.Send(ctx, functionResponses...)
+			return genErr
+		})
+
+		if err != nil {
+			return "", fmt.Errorf("failed to generate content for tool responses: %w", err)
+		}
+	}
+
+	if response.FunctionCalls() == nil || len(response.FunctionCalls()) == 0 {
+		var text strings.Builder
+		for _, part := range response.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				text.WriteString(part.Text)
+			}
+		}
+		return text.String(), nil
 	}
 
 	// Final call asking for conclusion
