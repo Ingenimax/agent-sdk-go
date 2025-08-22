@@ -69,8 +69,9 @@ func main() {
 
 	// Create client options
 	options := []vertex.ClientOption{
-		vertex.WithModel(vertex.ModelGemini15Pro),
+		vertex.WithProjectID(projectID),
 		vertex.WithLocation("us-central1"),
+		vertex.WithModel(vertex.ModelGemini15Pro),
 		vertex.WithMaxRetries(3),
 	}
 
@@ -79,7 +80,7 @@ func main() {
 	}
 
 	// Create Vertex AI client
-	client, err := vertex.NewClient(ctx, projectID, options...)
+	client, err := vertex.NewClient(ctx, options...)
 	if err != nil {
 		log.Fatalf("Failed to create Vertex AI client: %v", err)
 	}
@@ -194,7 +195,8 @@ func main() {
 	fmt.Println("\n=== Example 5: Different Models ===")
 
 	// Test with Gemini 1.5 Flash (faster, cheaper)
-	flashClient, err := vertex.NewClient(ctx, projectID,
+	flashClient, err := vertex.NewClient(ctx,
+		vertex.WithProjectID(projectID),
 		vertex.WithModel(vertex.ModelGemini15Flash),
 		vertex.WithLocation("us-central1"),
 	)

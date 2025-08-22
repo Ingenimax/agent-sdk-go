@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/vertexai/genai"
+	"cloud.google.com/go/auth/credentials"
 	"github.com/cenkalti/backoff/v4"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
@@ -101,15 +101,33 @@ func WithCredentialsFile(credentialsFile string) ClientOption {
 	}
 }
 
-// NewClient creates a new Vertex AI client
-func NewClient(ctx context.Context, projectID string, options ...ClientOption) (*Client, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("projectID is required")
+// WithProjectID sets the GCP project ID for Vertex AI
+func WithProjectID(projectID string) ClientOption {
+	return func(c *Client) {
+		c.projectID = projectID
 	}
+}
 
+// WithClient injects an already initialized genai.Client. If set, NewClient won't build a new client
+func WithClient(existing *genai.Client) ClientOption {
+	return func(c *Client) {
+		c.client = existing
+		if existing != nil {
+			cfg := existing.ClientConfig()
+			if cfg.Project != "" {
+				c.projectID = cfg.Project
+			}
+			if cfg.Location != "" {
+				c.location = cfg.Location
+			}
+		}
+	}
+}
+
+// NewClient creates a Vertex AI client wrapper. Provide project and other settings via options
+func NewClient(ctx context.Context, options ...ClientOption) (*Client, error) {
 	client := &Client{
 		model:         DefaultModel,
-		projectID:     projectID,
 		location:      "us-central1",
 		maxRetries:    3,
 		retryDelay:    time.Second,
@@ -122,19 +140,35 @@ func NewClient(ctx context.Context, projectID string, options ...ClientOption) (
 		opt(client)
 	}
 
-	// Initialize Vertex AI client
-	var clientOptions []option.ClientOption
-
-	// Add credentials file if specified
-	if client.credentialsFile != "" {
-		clientOptions = append(clientOptions, option.WithCredentialsFile(client.credentialsFile))
+	// If an existing client was injected, use it
+	if client.client != nil {
+		return client, nil
 	}
 
-	vertexClient, err := genai.NewClient(ctx, projectID, client.location, clientOptions...)
+	if client.projectID == "" {
+		return nil, fmt.Errorf("projectID is required")
+	}
+
+	cc := &genai.ClientConfig{
+		Backend:  genai.BackendVertexAI,
+		Project:  client.projectID,
+		Location: client.location,
+	}
+
+	if client.credentialsFile != "" {
+		cred, err := credentials.DetectDefault(&credentials.DetectOptions{
+			CredentialsFile: client.credentialsFile,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to load credentials: %w", err)
+		}
+		cc.Credentials = cred
+	}
+
+	vertexClient, err := genai.NewClient(ctx, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Vertex AI client: %w", err)
 	}
-
 	client.client = vertexClient
 	return client, nil
 }
@@ -163,8 +197,8 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		maxIterations = 2 // Default to current behavior
 	}
 
-	// Create parts for the prompt
-	parts := []genai.Part{genai.Text(prompt)}
+	// Create contents for the prompt
+	contents := []*genai.Content{}
 
 	// Add system message if provided
 	if params.SystemMessage != "" {
@@ -182,66 +216,54 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			}
 		}
 
-		parts = append([]genai.Part{genai.Text(systemMessage)}, parts...)
+		contents = append([]*genai.Content{{
+			Role:  genai.RoleUser,
+			Parts: []*genai.Part{genai.NewPartFromText(systemMessage)},
+		}}, contents...)
 	}
 
-	model := c.client.GenerativeModel(c.model)
-
-	// Configure model parameters
+	config := &genai.GenerateContentConfig{}
 	if params.LLMConfig != nil {
 		if params.LLMConfig.Temperature > 0 {
 			temp := float32(params.LLMConfig.Temperature)
-			model.Temperature = &temp
+			config.Temperature = &temp
 		}
 		if params.LLMConfig.TopP > 0 {
 			topP := float32(params.LLMConfig.TopP)
-			model.TopP = &topP
+			config.TopP = &topP
 		}
 		if len(params.LLMConfig.StopSequences) > 0 {
-			model.StopSequences = params.LLMConfig.StopSequences
+			config.StopSequences = params.LLMConfig.StopSequences
 		}
 	}
 
 	// Convert tools to Vertex AI format
-	var vertexTools []*genai.Tool
 	if len(tools) > 0 {
-		vertexTools = c.convertTools(tools)
-		model.Tools = vertexTools
+		config.Tools = c.convertTools(tools)
 	}
 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)
 
-	// Create a chat session for iterative conversation
-	session := model.StartChat()
+	chatSession, err := c.client.Chats.Create(ctx, c.model, config, contents)
+	if err != nil {
+		return "", fmt.Errorf("failed to create chat: %w", err)
+	}
 
-	// Add the original user message to start the conversation
-	session.History = []*genai.Content{
-		{
-			Parts: parts,
-			Role:  "user",
-		},
+	// Generate content with retry logic
+	var response *genai.GenerateContentResponse
+	err = c.withRetry(ctx, func() error {
+		var genErr error
+		response, genErr = chatSession.Send(ctx, genai.NewPartFromText(prompt))
+		return genErr
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate content for initial prompt: %w", err)
 	}
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Generate content with retry logic
-		var response *genai.GenerateContentResponse
-		err := c.withRetry(ctx, func() error {
-			var genErr error
-			if iteration == 0 {
-				// First iteration: use the initial model with tools
-				response, genErr = model.GenerateContent(ctx, parts...)
-			} else {
-				// Subsequent iterations: continue the chat session
-				response, genErr = session.SendMessage(ctx)
-			}
-			return genErr
-		})
-
-		if err != nil {
-			return "", fmt.Errorf("failed to generate content (iteration %d): %w", iteration+1, err)
-		}
 
 		// Extract response
 		if len(response.Candidates) == 0 {
@@ -254,16 +276,12 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		}
 
 		var text strings.Builder
-		var functionCalls []genai.FunctionCall
-
 		for _, part := range candidate.Content.Parts {
-			switch p := part.(type) {
-			case genai.Text:
-				text.WriteString(string(p))
-			case genai.FunctionCall:
-				functionCalls = append(functionCalls, p)
+			if part.Text != "" {
+				text.WriteString(part.Text)
 			}
 		}
+		functionCalls := response.FunctionCalls()
 
 		// If there are no function calls, return the text response
 		if len(functionCalls) == 0 {
@@ -271,7 +289,7 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 		}
 
 		// Execute all function calls and collect responses
-		var functionResponses []genai.Part
+		var functionResponses []*genai.Part
 
 		for _, funcCall := range functionCalls {
 			// Find the corresponding tool
@@ -316,8 +334,8 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 				if execErr != nil {
 					// Store failed tool call result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCallID,
 							Name:      funcCall.Name,
@@ -335,8 +353,8 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 				} else {
 					// Store successful tool call and result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCallID,
 							Name:      funcCall.Name,
@@ -353,107 +371,53 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 					})
 				}
 			}
-			
+
 			if execErr != nil {
 				c.logger.Error("Tool execution failed", "toolName", selectedTool.Name(), "iteration", iteration+1, "error", execErr)
 				// Instead of failing, provide error message as tool result
 				toolResult = fmt.Sprintf("Error: %v", execErr)
 			}
 
-			// Create function response
-			funcResponse := genai.FunctionResponse{
-				Name:     funcCall.Name,
-				Response: map[string]any{"result": toolResult},
-			}
-
-			functionResponses = append(functionResponses, funcResponse)
+			functionResponses = append(functionResponses, genai.NewPartFromFunctionResponse(funcCall.Name, map[string]any{"result": toolResult}))
 		}
 
-		// Add the assistant's response with function calls to the session history
-		if iteration == 0 {
-			// For the first iteration, we need to add the assistant response to the session
-			session.History = append(session.History, &genai.Content{
-				Parts: candidate.Content.Parts,
-				Role:  "model",
-			})
-		}
+		// Continue conversation by sending tool responses
+		err = c.withRetry(ctx, func() error {
+			var genErr error
+			response, genErr = chatSession.Send(ctx, functionResponses...)
+			return genErr
+		})
 
-		// Send function responses for the next iteration
-		if iteration < maxIterations-1 {
-			// Continue the conversation with function responses
-			_, err = session.SendMessage(ctx, functionResponses...)
-			if err != nil {
-				return "", fmt.Errorf("failed to send function responses (iteration %d): %w", iteration+1, err)
-			}
-		} else {
-			// Last iteration, send function responses and get final response
-			finalResponse, err := session.SendMessage(ctx, functionResponses...)
-			if err != nil {
-				return "", fmt.Errorf("failed to send final function responses: %w", err)
-			}
-
-			if len(finalResponse.Candidates) > 0 && finalResponse.Candidates[0].Content != nil {
-				var finalText strings.Builder
-				for _, part := range finalResponse.Candidates[0].Content.Parts {
-					if textPart, ok := part.(genai.Text); ok {
-						finalText.WriteString(string(textPart))
-					}
-				}
-				return finalText.String(), nil
-			}
-
-			return "", fmt.Errorf("no final response received")
+		if err != nil {
+			return "", fmt.Errorf("failed to generate content for tool responses: %w", err)
 		}
 	}
 
-	// If we've reached the maximum iterations and the model is still requesting tools,
-	// make one final call without tools to get a conclusion
-	c.logger.Info("Maximum iterations reached, making final call without tools", "maxIterations", maxIterations)
-
-	// Create a model without tools for the final call
-	finalModel := c.client.GenerativeModel(c.model)
-
-	// Configure model parameters
-	if params.LLMConfig != nil {
-		if params.LLMConfig.Temperature > 0 {
-			temp := float32(params.LLMConfig.Temperature)
-			finalModel.Temperature = &temp
+	if response.FunctionCalls() == nil || len(response.FunctionCalls()) == 0 {
+		var text strings.Builder
+		for _, part := range response.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				text.WriteString(part.Text)
+			}
 		}
-		if params.LLMConfig.TopP > 0 {
-			topP := float32(params.LLMConfig.TopP)
-			finalModel.TopP = &topP
-		}
-		if len(params.LLMConfig.StopSequences) > 0 {
-			finalModel.StopSequences = params.LLMConfig.StopSequences
-		}
+		return text.String(), nil
 	}
 
-	// Add conclusion prompt to the session
-	conclusionPrompt := genai.Text("Please provide your final response based on the information available. Do not request any additional tools.")
-
-	finalResponse, err := session.SendMessage(ctx, conclusionPrompt)
+	// Final call asking for conclusion
+	c.logger.Info("Maximum iterations reached, requesting final conclusion", "maxIterations", maxIterations)
+	finalResponse, err := chatSession.Send(ctx, genai.NewPartFromText("Please provide your final response based on the information available. Do not request any additional tools."))
 	if err != nil {
-		c.logger.Error("Error in final call without tools", "error", err)
-		return "", fmt.Errorf("failed to generate final response without tools: %w", err)
+		return "", fmt.Errorf("failed to generate final response: %w", err)
 	}
-
-	if len(finalResponse.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in final response")
+	if len(finalResponse.Candidates) == 0 || finalResponse.Candidates[0].Content == nil {
+		return "", fmt.Errorf("no final response received")
 	}
-
-	candidate := finalResponse.Candidates[0]
-	if candidate.Content == nil {
-		return "", fmt.Errorf("no content in final response")
-	}
-
 	var finalText strings.Builder
-	for _, part := range candidate.Content.Parts {
-		if textPart, ok := part.(genai.Text); ok {
-			finalText.WriteString(string(textPart))
+	for _, part := range finalResponse.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			finalText.WriteString(part.Text)
 		}
 	}
-
-	c.logger.Info("Successfully received final response without tools")
 	return finalText.String(), nil
 }
 
@@ -470,8 +434,13 @@ func (c *Client) Generate(ctx context.Context, prompt string, options ...interfa
 		option(params)
 	}
 
-	// Create parts for the prompt
-	parts := []genai.Part{genai.Text(prompt)}
+	// Create contents for the prompt
+	contents := []*genai.Content{
+		{
+			Role:  genai.RoleUser,
+			Parts: []*genai.Part{genai.NewPartFromText(prompt)},
+		},
+	}
 
 	// Add system message if provided
 	if params.SystemMessage != "" {
@@ -489,61 +458,53 @@ func (c *Client) Generate(ctx context.Context, prompt string, options ...interfa
 			}
 		}
 
-		parts = append([]genai.Part{genai.Text(systemMessage)}, parts...)
+		contents = append([]*genai.Content{{
+			Role:  genai.RoleUser,
+			Parts: []*genai.Part{genai.NewPartFromText(systemMessage)},
+		}}, contents...)
 	}
 
-	model := c.client.GenerativeModel(c.model)
-
-	// Configure model parameters
+	config := &genai.GenerateContentConfig{}
 	if params.LLMConfig != nil {
 		if params.LLMConfig.Temperature > 0 {
 			temp := float32(params.LLMConfig.Temperature)
-			model.Temperature = &temp
+			config.Temperature = &temp
 		}
 		if params.LLMConfig.TopP > 0 {
 			topP := float32(params.LLMConfig.TopP)
-			model.TopP = &topP
+			config.TopP = &topP
 		}
 		if len(params.LLMConfig.StopSequences) > 0 {
-			model.StopSequences = params.LLMConfig.StopSequences
+			config.StopSequences = params.LLMConfig.StopSequences
 		}
 	}
 
-	// Generate content with retry logic
 	var response *genai.GenerateContentResponse
 	err := c.withRetry(ctx, func() error {
 		var genErr error
-		response, genErr = model.GenerateContent(ctx, parts...)
+		response, genErr = c.client.Models.GenerateContent(ctx, c.model, contents, config)
 		return genErr
 	})
-
 	if err != nil {
 		return "", fmt.Errorf("failed to generate content: %w", err)
 	}
 
-	// Extract text from response
-	if len(response.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates in response")
-	}
-
-	candidate := response.Candidates[0]
-	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return "", fmt.Errorf("no content in response")
+	if len(response.Candidates) == 0 || response.Candidates[0].Content == nil {
+		return "", fmt.Errorf("no candidates/content in response")
 	}
 
 	var result strings.Builder
-	for _, part := range candidate.Content.Parts {
-		if textPart, ok := part.(genai.Text); ok {
-			result.WriteString(string(textPart))
+	for _, part := range response.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			result.WriteString(part.Text)
 		}
 	}
-
 	return result.String(), nil
 }
 
 // convertMessages converts llm.Message to Vertex AI parts
-func (c *Client) convertMessages(messages []llm.Message) ([]genai.Part, error) {
-	var parts []genai.Part
+func (c *Client) convertMessages(messages []llm.Message) ([]*genai.Part, error) {
+	var parts []*genai.Part
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -551,7 +512,7 @@ func (c *Client) convertMessages(messages []llm.Message) ([]genai.Part, error) {
 			// System messages are handled separately in Vertex AI
 			continue
 		case "user", "assistant":
-			parts = append(parts, genai.Text(msg.Content))
+			parts = append(parts, genai.NewPartFromText(msg.Content))
 		default:
 			return nil, fmt.Errorf("unsupported message role: %s", msg.Role)
 		}
@@ -562,7 +523,12 @@ func (c *Client) convertMessages(messages []llm.Message) ([]genai.Part, error) {
 
 // convertTools converts tools to Vertex AI format
 func (c *Client) convertTools(tools []interfaces.Tool) []*genai.Tool {
-	var vertexTools []*genai.Tool
+	if len(tools) == 0 {
+		return nil
+	}
+
+	// Create a single tool with multiple function declarations
+	var functionDeclarations []*genai.FunctionDeclaration
 
 	for _, tool := range tools {
 		schema := &genai.Schema{
@@ -602,20 +568,19 @@ func (c *Client) convertTools(tools []interfaces.Tool) []*genai.Tool {
 			}
 		}
 
-		vertexTool := &genai.Tool{
-			FunctionDeclarations: []*genai.FunctionDeclaration{
-				{
-					Name:        tool.Name(),
-					Description: tool.Description(),
-					Parameters:  schema,
-				},
-			},
-		}
-
-		vertexTools = append(vertexTools, vertexTool)
+		functionDeclarations = append(functionDeclarations, &genai.FunctionDeclaration{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			Parameters:  schema,
+		})
 	}
 
-	return vertexTools
+	// Return a single tool with all function declarations
+	return []*genai.Tool{
+		{
+			FunctionDeclarations: functionDeclarations,
+		},
+	}
 }
 
 // getReasoningInstruction returns the reasoning instruction based on the mode
@@ -641,8 +606,6 @@ func (c *Client) withRetry(ctx context.Context, fn func() error) error {
 
 // Close closes the Vertex AI client
 func (c *Client) Close() error {
-	if c.client != nil {
-		return c.client.Close()
-	}
+	// google.golang.org/genai client does not expose a Close method
 	return nil
 }
