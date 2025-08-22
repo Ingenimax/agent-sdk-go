@@ -16,8 +16,8 @@ import (
 
 // HTTPServer provides HTTP/SSE endpoints for agent streaming
 type HTTPServer struct {
-	agent *agent.Agent
-	port  int
+	agent  *agent.Agent
+	port   int
 	server *http.Server
 }
 
@@ -32,11 +32,11 @@ type StreamRequest struct {
 
 // SSEEvent represents a Server-Sent Event
 type SSEEvent struct {
-	Event     string                 `json:"event"`
-	Data      interface{}            `json:"data"`
-	ID        string                 `json:"id,omitempty"`
-	Retry     int                    `json:"retry,omitempty"`
-	Timestamp int64                  `json:"timestamp"`
+	Event     string      `json:"event"`
+	Data      interface{} `json:"data"`
+	ID        string      `json:"id,omitempty"`
+	Retry     int         `json:"retry,omitempty"`
+	Timestamp int64       `json:"timestamp"`
 }
 
 // StreamEventData represents the data structure for streaming events
@@ -71,19 +71,19 @@ func NewHTTPServer(agent *agent.Agent, port int) *HTTPServer {
 // Start starts the HTTP server
 func (h *HTTPServer) Start() error {
 	mux := http.NewServeMux()
-	
+
 	// Add CORS middleware
 	corsHandler := h.addCORS(mux)
-	
+
 	// Register endpoints
 	mux.HandleFunc("/health", h.handleHealth)
 	mux.HandleFunc("/api/v1/agent/run", h.handleRun)
 	mux.HandleFunc("/api/v1/agent/stream", h.handleStream)
 	mux.HandleFunc("/api/v1/agent/metadata", h.handleMetadata)
-	
+
 	// Serve static files for browser example (if they exist)
 	mux.Handle("/", http.FileServer(http.Dir("./web/")))
-	
+
 	h.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", h.port),
 		Handler:      corsHandler,
@@ -91,14 +91,14 @@ func (h *HTTPServer) Start() error {
 		WriteTimeout: 300 * time.Second, // Longer timeout for streaming
 		IdleTimeout:  60 * time.Second,
 	}
-	
+
 	fmt.Printf("HTTP server starting on port %d\n", h.port)
 	fmt.Printf("Endpoints available:\n")
 	fmt.Printf("  - POST /api/v1/agent/run (non-streaming)\n")
 	fmt.Printf("  - POST /api/v1/agent/stream (SSE streaming)\n")
 	fmt.Printf("  - GET /api/v1/agent/metadata\n")
 	fmt.Printf("  - GET /health\n")
-	
+
 	return h.server.ListenAndServe()
 }
 
@@ -118,13 +118,13 @@ func (h *HTTPServer) addCORS(handler http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type")
-		
+
 		// Handle preflight requests
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		handler.ServeHTTP(w, r)
 	})
 }
@@ -135,7 +135,7 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "healthy",
@@ -152,18 +152,18 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	var req StreamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
-	
+
 	if req.Input == "" {
 		http.Error(w, "Input is required", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Build context
 	ctx := r.Context()
 	if req.OrgID != "" {
@@ -172,7 +172,7 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	if req.ConversationID != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
 	}
-	
+
 	// Execute agent
 	result, err := h.agent.Run(ctx, req.Input)
 	if err != nil {
@@ -183,7 +183,7 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Return result
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
@@ -200,32 +200,32 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Parse request
 	var req StreamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
-	
+
 	if req.Input == "" {
 		http.Error(w, "Input is required", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
-	
+
 	// Get flusher for immediate response sending
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "SSE not supported", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Build context
 	ctx := r.Context()
 	if req.OrgID != "" {
@@ -234,7 +234,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	if req.ConversationID != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
 	}
-	
+
 	// Check if agent supports streaming
 	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
 	if !ok {
@@ -248,7 +248,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		
+
 		h.sendSSEEvent(w, flusher, "content", StreamEventData{
 			Type:    "content",
 			Content: result,
@@ -256,7 +256,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Start streaming
 	eventChan, err := streamingAgent.RunStream(ctx, req.Input)
 	if err != nil {
@@ -267,7 +267,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Send initial connection event
 	h.sendSSEEvent(w, flusher, "connected", StreamEventData{
 		Type: "connected",
@@ -275,15 +275,15 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 			"agent": h.agent.GetName(),
 		},
 	})
-	
+
 	// Stream events to client
 	eventID := 0
 	for event := range eventChan {
 		eventID++
-		
+
 		// Convert agent event to HTTP event data
 		eventData := h.convertAgentEventToHTTPEvent(event)
-		
+
 		// Determine event type for SSE
 		var sseEventType string
 		switch event.Type {
@@ -303,10 +303,10 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		default:
 			sseEventType = "content"
 		}
-		
+
 		// Send SSE event
 		h.sendSSEEventWithID(w, flusher, sseEventType, eventData, strconv.Itoa(eventID))
-		
+
 		// Check if client disconnected
 		select {
 		case <-ctx.Done():
@@ -314,7 +314,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 	}
-	
+
 	// Send final completion event
 	h.sendSSEEvent(w, flusher, "done", StreamEventData{
 		Type:    "done",
@@ -328,12 +328,12 @@ func (h *HTTPServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Check if agent supports streaming
 	_, supportsStreaming := interface{}(h.agent).(interfaces.StreamingAgent)
-	
+
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"name":               h.agent.GetName(),
 		"description":        h.agent.GetDescription(),
@@ -362,11 +362,11 @@ func (h *HTTPServer) convertAgentEventToHTTPEvent(event interfaces.AgentStreamEv
 		Metadata: event.Metadata,
 		IsFinal:  false,
 	}
-	
+
 	if event.ThinkingStep != "" {
 		eventData.ThinkingStep = event.ThinkingStep
 	}
-	
+
 	if event.ToolCall != nil {
 		eventData.ToolCall = &ToolCallData{
 			ID:        event.ToolCall.ID,
@@ -376,11 +376,11 @@ func (h *HTTPServer) convertAgentEventToHTTPEvent(event interfaces.AgentStreamEv
 			Status:    event.ToolCall.Status,
 		}
 	}
-	
+
 	if event.Error != nil {
 		eventData.Error = event.Error.Error()
 	}
-	
+
 	return eventData
 }
 
@@ -393,7 +393,7 @@ func (h *HTTPServer) sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, e
 func (h *HTTPServer) sendSSEEventWithID(w http.ResponseWriter, flusher http.Flusher, eventType string, data StreamEventData, id string) {
 	// Add timestamp
 	data.Timestamp = time.Now().UnixMilli()
-	
+
 	// Convert data to JSON
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -402,13 +402,13 @@ func (h *HTTPServer) sendSSEEventWithID(w http.ResponseWriter, flusher http.Flus
 		flusher.Flush()
 		return
 	}
-	
+
 	// Write SSE event
 	if id != "" {
 		_, _ = fmt.Fprintf(w, "id: %s\n", id)
 	}
 	_, _ = fmt.Fprintf(w, "event: %s\n", eventType)
-	fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
-	
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
+
 	flusher.Flush()
 }
