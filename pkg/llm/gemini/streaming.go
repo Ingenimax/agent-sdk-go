@@ -52,32 +52,19 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	var systemInstruction *genai.Content
 	systemMessage := params.SystemMessage
 	
-	// Apply reasoning instructions even if no system message is provided
+	// Log reasoning mode usage - only affects native thinking models (2.5 series)
 	if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		switch params.LLMConfig.Reasoning {
-		case "minimal":
-			if systemMessage == "" {
-				systemMessage = "When responding, briefly explain your thought process."
-			} else {
-				systemMessage = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", systemMessage)
-			}
-			c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
-		case "comprehensive":
-			if systemMessage == "" {
-				systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
-			} else {
-				systemMessage = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", systemMessage)
-			}
-			c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
-		case "none":
-			if systemMessage == "" {
-				systemMessage = "Provide direct, concise answers without explaining your reasoning or showing calculations."
-			} else {
-				systemMessage = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", systemMessage)
-			}
-			c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-		default:
-			c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+		if SupportsThinking(c.model) {
+			c.logger.Debug(ctx, "Using reasoning mode with thinking-capable model", map[string]interface{}{
+				"reasoning": params.LLMConfig.Reasoning,
+				"model": c.model,
+			})
+		} else {
+			c.logger.Debug(ctx, "Reasoning mode specified for non-thinking model - native thinking tokens not available", map[string]interface{}{
+				"reasoning": params.LLMConfig.Reasoning, 
+				"model": c.model,
+				"supportsThinking": false,
+			})
 		}
 	}
 

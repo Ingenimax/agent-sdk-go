@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
+	"github.com/Ingenimax/agent-sdk-go/pkg/structuredoutput"
 )
 
 // Define structs that match our JSON schemas for type safety
@@ -29,17 +29,17 @@ type Achievement struct {
 }
 
 type BusinessAnalysis struct {
-	CompanyName   string            `json:"company_name"`
-	Industry      string            `json:"industry"`
-	Founded       int               `json:"founded"`
-	Headquarters  string            `json:"headquarters"`
-	Employees     EmployeeRange     `json:"employees"`
-	Revenue       RevenueInfo       `json:"revenue"`
-	Products      []Product         `json:"products"`
-	KeyMetrics    map[string]string `json:"key_metrics"`
-	Strengths     []string          `json:"strengths"`
-	Challenges    []string          `json:"challenges"`
-	FutureOutlook string            `json:"future_outlook"`
+	CompanyName   string        `json:"company_name"`
+	Industry      string        `json:"industry"`
+	Founded       int           `json:"founded"`
+	Headquarters  string        `json:"headquarters"`
+	Employees     EmployeeRange `json:"employees"`
+	Revenue       RevenueInfo   `json:"revenue"`
+	Products      []Product     `json:"products"`
+	KeyMetrics    []string      `json:"key_metrics"`
+	Strengths     []string      `json:"strengths"`
+	Challenges    []string      `json:"challenges"`
+	FutureOutlook string        `json:"future_outlook"`
 }
 
 type EmployeeRange struct {
@@ -61,16 +61,16 @@ type Product struct {
 }
 
 type RecipeAnalysis struct {
-	Name           string       `json:"name"`
-	Cuisine        string       `json:"cuisine"`
-	Difficulty     string       `json:"difficulty"`
-	PrepTime       int          `json:"prep_time_minutes"`
-	CookTime       int          `json:"cook_time_minutes"`
-	Servings       int          `json:"servings"`
-	Ingredients    []Ingredient `json:"ingredients"`
-	Instructions   []string     `json:"instructions"`
-	NutritionalInfo map[string]string `json:"nutritional_info"`
-	Tags           []string     `json:"tags"`
+	Name            string       `json:"name"`
+	Cuisine         string       `json:"cuisine"`
+	Difficulty      string       `json:"difficulty"`
+	PrepTime        int          `json:"prep_time_minutes"`
+	CookTime        int          `json:"cook_time_minutes"`
+	Servings        int          `json:"servings"`
+	Ingredients     []Ingredient `json:"ingredients"`
+	Instructions    []string     `json:"instructions"`
+	NutritionalInfo []string     `json:"nutritional_info"`
+	Tags            []string     `json:"tags"`
 }
 
 type Ingredient struct {
@@ -104,58 +104,7 @@ func main() {
 
 	// Example 1: Person Analysis
 	fmt.Println("=== Example 1: Person Analysis ===")
-	personSchema := interfaces.JSONSchema{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"name": map[string]interface{}{
-				"type":        "string",
-				"description": "Full name of the person",
-			},
-			"profession": map[string]interface{}{
-				"type":        "string",
-				"description": "Primary profession or job title",
-			},
-			"skills": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "string",
-				},
-				"description": "List of key skills and competencies",
-			},
-			"experience_years": map[string]interface{}{
-				"type":        "integer",
-				"description": "Years of professional experience",
-				"minimum":     0,
-			},
-			"achievements": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"title": map[string]interface{}{
-							"type": "string",
-						},
-						"year": map[string]interface{}{
-							"type": "integer",
-						},
-						"description": map[string]interface{}{
-							"type": "string",
-						},
-						"impact": map[string]interface{}{
-							"type": "string",
-						},
-					},
-					"required": []string{"title", "year", "description"},
-				},
-				"description": "Notable achievements and accomplishments",
-			},
-			"summary": map[string]interface{}{
-				"type":        "string",
-				"description": "Brief professional summary",
-			},
-		},
-		"required": []string{"name", "profession", "skills", "experience_years", "summary"},
-	}
+	personFormat := structuredoutput.NewResponseFormat(PersonAnalysis{})
 
 	personPrompt := `Analyze this person: 
 	Marie Curie was a Polish-French physicist and chemist who conducted pioneering research on radioactivity. 
@@ -164,11 +113,7 @@ func main() {
 	She founded the Radium Institute in Paris and Warsaw. She died in 1934 from radiation exposure.`
 
 	response, err := client.Generate(ctx, personPrompt,
-		gemini.WithResponseFormat(interfaces.ResponseFormat{
-			Type:   interfaces.ResponseFormatJSON,
-			Name:   "PersonAnalysis",
-			Schema: personSchema,
-		}),
+		gemini.WithResponseFormat(*personFormat),
 		gemini.WithSystemMessage("You are an expert biographical analyst. Extract structured information about people."),
 	)
 	if err != nil {
@@ -195,68 +140,7 @@ func main() {
 
 	// Example 2: Business Analysis
 	fmt.Println("=== Example 2: Business Analysis ===")
-	businessSchema := interfaces.JSONSchema{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"company_name": map[string]interface{}{
-				"type": "string",
-			},
-			"industry": map[string]interface{}{
-				"type": "string",
-			},
-			"founded": map[string]interface{}{
-				"type": "integer",
-			},
-			"headquarters": map[string]interface{}{
-				"type": "string",
-			},
-			"employees": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"min": map[string]interface{}{"type": "integer"},
-					"max": map[string]interface{}{"type": "integer"},
-				},
-			},
-			"revenue": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"amount":   map[string]interface{}{"type": "number"},
-					"currency": map[string]interface{}{"type": "string"},
-					"year":     map[string]interface{}{"type": "integer"},
-				},
-			},
-			"products": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"name":         map[string]interface{}{"type": "string"},
-						"category":     map[string]interface{}{"type": "string"},
-						"launch_year":  map[string]interface{}{"type": "integer"},
-						"description":  map[string]interface{}{"type": "string"},
-					},
-				},
-			},
-			"key_metrics": map[string]interface{}{
-				"type": "object",
-				"additionalProperties": map[string]interface{}{
-					"type": "string",
-				},
-			},
-			"strengths": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{"type": "string"},
-			},
-			"challenges": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{"type": "string"},
-			},
-			"future_outlook": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"required": []string{"company_name", "industry", "strengths", "challenges"},
-	}
+	businessFormat := structuredoutput.NewResponseFormat(BusinessAnalysis{})
 
 	businessPrompt := `Analyze this company: 
 	Tesla, Inc. is an American multinational automotive and clean energy company headquartered in Austin, Texas. 
@@ -267,11 +151,7 @@ func main() {
 	Model 3, Model X, Model Y vehicles, Powerwall home batteries, and solar roof tiles.`
 
 	response, err = client.Generate(ctx, businessPrompt,
-		gemini.WithResponseFormat(interfaces.ResponseFormat{
-			Type:   interfaces.ResponseFormatJSON,
-			Name:   "BusinessAnalysis",
-			Schema: businessSchema,
-		}),
+		gemini.WithResponseFormat(*businessFormat),
 		gemini.WithSystemMessage("You are a business analyst. Provide comprehensive company analysis."),
 	)
 	if err != nil {
@@ -293,6 +173,7 @@ func main() {
 		for _, product := range businessAnalysis.Products {
 			fmt.Printf("  - %s (%s, %d): %s\n", product.Name, product.Category, product.LaunchYear, product.Description)
 		}
+		fmt.Printf("Key Metrics: %v\n", businessAnalysis.KeyMetrics)
 		fmt.Printf("Strengths: %v\n", businessAnalysis.Strengths)
 		fmt.Printf("Challenges: %v\n", businessAnalysis.Challenges)
 	}
@@ -300,65 +181,7 @@ func main() {
 
 	// Example 3: Recipe Analysis
 	fmt.Println("=== Example 3: Recipe Analysis ===")
-	recipeSchema := interfaces.JSONSchema{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"name": map[string]interface{}{
-				"type": "string",
-			},
-			"cuisine": map[string]interface{}{
-				"type": "string",
-			},
-			"difficulty": map[string]interface{}{
-				"type": "string",
-				"enum": []string{"easy", "medium", "hard"},
-			},
-			"prep_time_minutes": map[string]interface{}{
-				"type": "integer",
-				"minimum": 0,
-			},
-			"cook_time_minutes": map[string]interface{}{
-				"type": "integer",
-				"minimum": 0,
-			},
-			"servings": map[string]interface{}{
-				"type": "integer",
-				"minimum": 1,
-			},
-			"ingredients": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"name":     map[string]interface{}{"type": "string"},
-						"quantity": map[string]interface{}{"type": "number"},
-						"unit":     map[string]interface{}{"type": "string"},
-						"notes":    map[string]interface{}{"type": "string"},
-					},
-					"required": []string{"name", "quantity", "unit"},
-				},
-			},
-			"instructions": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "string",
-				},
-			},
-			"nutritional_info": map[string]interface{}{
-				"type": "object",
-				"additionalProperties": map[string]interface{}{
-					"type": "string",
-				},
-			},
-			"tags": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "string",
-				},
-			},
-		},
-		"required": []string{"name", "cuisine", "difficulty", "prep_time_minutes", "cook_time_minutes", "servings", "ingredients", "instructions"},
-	}
+	recipeFormat := structuredoutput.NewResponseFormat(RecipeAnalysis{})
 
 	recipePrompt := `Analyze this recipe text and extract structured information:
 	
@@ -389,11 +212,7 @@ func main() {
 	This dish is high in protein and carbohydrates. Each serving has approximately 650 calories.`
 
 	response, err = client.Generate(ctx, recipePrompt,
-		gemini.WithResponseFormat(interfaces.ResponseFormat{
-			Type:   interfaces.ResponseFormatJSON,
-			Name:   "RecipeAnalysis",
-			Schema: recipeSchema,
-		}),
+		gemini.WithResponseFormat(*recipeFormat),
 		gemini.WithSystemMessage("You are a culinary expert. Extract detailed recipe information."),
 	)
 	if err != nil {
@@ -426,47 +245,28 @@ func main() {
 	}
 	fmt.Println()
 
+	// Define data extraction structure
+	type DataExtraction struct {
+		Entities struct {
+			People        []string `json:"people"`
+			Places        []string `json:"places"`
+			Organizations []string `json:"organizations"`
+			Dates         []string `json:"dates"`
+			Numbers       []string `json:"numbers"`
+		} `json:"entities"`
+		Sentiment   string `json:"sentiment"`
+		KeyTopics   []string `json:"key_topics"`
+		Summary     string `json:"summary"`
+		ActionItems []struct {
+			Task     string `json:"task"`
+			Priority string `json:"priority"`
+			Assignee string `json:"assignee"`
+		} `json:"action_items,omitempty"`
+	}
+
 	// Example 4: Multi-field Data Extraction
 	fmt.Println("=== Example 4: Multi-field Data Extraction ===")
-	extractionSchema := interfaces.JSONSchema{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"entities": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"people":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"places":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"organizations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"dates":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"numbers":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-				},
-			},
-			"sentiment": map[string]interface{}{
-				"type": "string",
-				"enum": []string{"positive", "negative", "neutral"},
-			},
-			"key_topics": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{"type": "string"},
-			},
-			"summary": map[string]interface{}{
-				"type": "string",
-				"maxLength": 200,
-			},
-			"action_items": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"task": map[string]interface{}{"type": "string"},
-						"priority": map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}},
-						"assignee": map[string]interface{}{"type": "string"},
-					},
-				},
-			},
-		},
-		"required": []string{"entities", "sentiment", "key_topics", "summary"},
-	}
+	extractionFormat := structuredoutput.NewResponseFormat(DataExtraction{})
 
 	extractionPrompt := `Extract structured information from this business meeting transcript:
 
@@ -483,18 +283,35 @@ func main() {
 	year's projections of $12M annual revenue.`
 
 	response, err = client.Generate(ctx, extractionPrompt,
-		gemini.WithResponseFormat(interfaces.ResponseFormat{
-			Type:   interfaces.ResponseFormatJSON,
-			Name:   "DataExtraction",
-			Schema: extractionSchema,
-		}),
+		gemini.WithResponseFormat(*extractionFormat),
 		gemini.WithSystemMessage("You are an expert data extraction specialist. Extract all relevant structured information."),
 	)
 	if err != nil {
 		log.Fatalf("Failed to extract data: %v", err)
 	}
 
-	fmt.Printf("Extracted data: %s\n", response)
+	// Parse and display the structured response
+	var dataExtraction DataExtraction
+	if err := json.Unmarshal([]byte(response), &dataExtraction); err != nil {
+		log.Printf("Failed to parse data extraction: %v", err)
+		fmt.Printf("Raw response: %s\n", response)
+	} else {
+		fmt.Printf("Sentiment: %s\n", dataExtraction.Sentiment)
+		fmt.Printf("Key Topics: %v\n", dataExtraction.KeyTopics)
+		fmt.Printf("Summary: %s\n", dataExtraction.Summary)
+		fmt.Printf("Entities:\n")
+		fmt.Printf("  - People: %v\n", dataExtraction.Entities.People)
+		fmt.Printf("  - Places: %v\n", dataExtraction.Entities.Places)
+		fmt.Printf("  - Organizations: %v\n", dataExtraction.Entities.Organizations)
+		fmt.Printf("  - Dates: %v\n", dataExtraction.Entities.Dates)
+		fmt.Printf("  - Numbers: %v\n", dataExtraction.Entities.Numbers)
+		if len(dataExtraction.ActionItems) > 0 {
+			fmt.Printf("Action Items:\n")
+			for _, item := range dataExtraction.ActionItems {
+				fmt.Printf("  - %s (%s priority, assigned to: %s)\n", item.Task, item.Priority, item.Assignee)
+			}
+		}
+	}
 	fmt.Println()
 
 	fmt.Println("✅ Structured output examples completed!")
@@ -503,7 +320,7 @@ func main() {
 	fmt.Println("- Business/company analysis") 
 	fmt.Println("- Recipe and culinary data extraction")
 	fmt.Println("- Multi-field entity and data extraction")
-	fmt.Println("- Complex nested JSON schemas")
+	fmt.Println("- Automatic JSON schema generation from Go structs")
 	fmt.Println("- Type-safe Go struct unmarshaling")
-	fmt.Println("- Validation with required fields and enums")
+	fmt.Println("- Clean, maintainable structured output code")
 }

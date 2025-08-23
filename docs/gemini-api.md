@@ -15,13 +15,13 @@ The Gemini API integration enables developers to use Google's powerful Gemini mo
 
 ## Supported Models
 
-| Model | Context Length | Vision | Audio | Tools | Best For |
-|-------|----------------|---------|-------|-------|----------|
-| `gemini-2.5-pro-latest` | 2M tokens | ✅ | ✅ | ✅ | Complex reasoning, multimodal |
-| `gemini-2.5-flash-latest` | 1M tokens | ✅ | ✅ | ✅ | Balanced speed & capability |
-| `gemini-2.5-flash-lite-latest` | 32K tokens | ❌ | ❌ | ✅ | Fast text processing |
-| `gemini-1.5-pro` | 2M tokens | ✅ | ❌ | ✅ | Legacy complex tasks |
-| `gemini-1.5-flash` | 1M tokens | ✅ | ❌ | ✅ | Legacy balanced performance |
+| Model | Context Length | Vision | Audio | Tools | Thinking | Best For |
+|-------|----------------|---------|-------|-------|----------|-----------| 
+| `gemini-2.5-pro` | 2M tokens | ✅ | ✅ | ✅ | ✅ | Complex reasoning, multimodal |
+| `gemini-2.5-flash` | 1M tokens | ✅ | ✅ | ✅ | ✅ | Balanced speed & capability |
+| `gemini-2.5-flash-lite` | 32K tokens | ❌ | ❌ | ✅ | ❌ | Fast text processing |
+| `gemini-1.5-pro` | 2M tokens | ✅ | ❌ | ✅ | ❌ | Legacy complex tasks |
+| `gemini-1.5-flash` | 1M tokens | ✅ | ❌ | ✅ | ❌ | Legacy balanced performance |
 
 ## Installation and Setup
 
@@ -41,12 +41,15 @@ export GEMINI_API_KEY="your-api-key-here"
 
 ### Basic Client Creation
 
+#### Option 1: Direct Client Creation
+
 ```go
 package main
 
 import (
     "context"
     "log"
+    "os"
     
     "github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 )
@@ -61,6 +64,38 @@ func main() {
     }
     
     response, err := client.Generate(context.Background(), "Hello, world!")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println(response)
+}
+```
+
+#### Option 2: Shared Utility (Recommended)
+
+For multi-provider support with auto-detection:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
+)
+
+func main() {
+    // Auto-detects provider based on available API keys
+    llm, err := shared.CreateLLM()
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
+    
+    response, err := llm.Generate(context.Background(), "Hello, world!")
     if err != nil {
         log.Fatal(err)
     }
@@ -105,29 +140,30 @@ response, err := client.GenerateWithTools(ctx,
 
 ### 3. Structured Output
 
-Generate JSON responses with schema validation:
+Generate JSON responses with automatic schema generation:
 
 ```go
-schema := interfaces.JSONSchema{
-    "type": "object",
-    "properties": map[string]interface{}{
-        "summary": {"type": "string"},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "categories": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-    },
-    "required": []string{"summary", "confidence"},
+import "github.com/Ingenimax/agent-sdk-go/pkg/structuredoutput"
+
+// Define your response structure
+type TextAnalysis struct {
+    Summary    string   `json:"summary"`
+    Confidence float64  `json:"confidence"`
+    Categories []string `json:"categories"`
 }
 
+// Generate with structured output
+responseFormat := structuredoutput.NewResponseFormat(TextAnalysis{})
 response, err := client.Generate(ctx, "Analyze this text...",
-    gemini.WithResponseFormat(interfaces.ResponseFormat{
-        Type: interfaces.ResponseFormatJSON,
-        Name: "TextAnalysis",
-        Schema: schema,
-    }),
+    gemini.WithResponseFormat(responseFormat),
 )
+
+// Parse the structured response
+var result TextAnalysis
+if err := json.Unmarshal([]byte(response), &result); err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Summary: %s, Confidence: %.2f\n", result.Summary, result.Confidence)
 ```
 
 ### 4. Streaming Responses
@@ -456,9 +492,9 @@ Monitor key metrics:
 ```go
 // Models
 const (
-    ModelGemini25Pro      = "gemini-2.5-pro-latest"
-    ModelGemini25Flash    = "gemini-2.5-flash-latest"  
-    ModelGemini25FlashLite = "gemini-2.5-flash-lite-latest"
+    ModelGemini25Pro      = "gemini-2.5-pro"
+    ModelGemini25Flash    = "gemini-2.5-flash"
+    ModelGemini25FlashLite = "gemini-2.5-flash-lite"
     ModelGemini15Pro      = "gemini-1.5-pro"
     ModelGemini15Flash    = "gemini-1.5-flash"
     DefaultModel          = ModelGemini25Flash
@@ -532,10 +568,34 @@ SupportsToolCalling(model string) bool
 
 See the `examples/llm/gemini/` directory for comprehensive examples:
 
-- **Basic Usage** (`main.go`) - Core features demonstration
-- **Agent Integration** (`agent_integration/main.go`) - Full Agent SDK integration
-- **Structured Output** (`structured_output/main.go`) - JSON schema examples
-- **Streaming** (`streaming/main.go`) - Real-time response handling
+- **Basic Usage** (`main.go`) - Core features demonstration with structured output
+
+See the `examples/microservices/` directory for microservices examples with Gemini support:
+
+- **Basic Microservice** (`basic_microservice/main.go`) - Simple agent microservice
+- **Mixed Agents** (`mixed_agents/main.go`) - Local and remote agent coordination
+- **Simple Mixed** (`simple_mixed/main.go`) - Simplified mixed agent architecture
+- **Streaming Agent** (`streaming_agent/main.go`) - Real-time streaming responses
+
+See the `examples/advanced_agent_streaming/` directory for advanced streaming:
+
+- **Advanced Agent Streaming** (`main.go`) - Multi-agent coordination with streaming
+
+### Multi-LLM Provider Support
+
+All examples now support Gemini alongside OpenAI and Anthropic with auto-detection:
+
+```bash
+# Auto-detection based on available API keys
+export GEMINI_API_KEY="your_key"
+go run examples/microservices/basic_microservice/main.go
+
+# Explicit provider selection
+export GEMINI_API_KEY="your_key"
+export LLM_PROVIDER="gemini"
+export GEMINI_MODEL="gemini-2.5-flash"
+go run examples/advanced_agent_streaming/main.go
+```
 
 ## Support and Resources
 
@@ -556,6 +616,14 @@ See the `examples/llm/gemini/` directory for comprehensive examples:
 4. Create a new issue with detailed reproduction steps
 
 ## Changelog
+
+### v1.1.0 (Multi-LLM Provider Support)
+- Added comprehensive Gemini support across all examples
+- Implemented shared LLM utility for auto-detection
+- Updated structured output to use official `structuredoutput` package
+- Added thinking token support for Gemini 2.5 models
+- Created unified configuration patterns
+- Updated documentation with multi-provider examples
 
 ### v1.0.0 (Initial Release)
 - Basic text generation
