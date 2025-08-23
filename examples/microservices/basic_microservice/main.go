@@ -8,20 +8,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/microservice"
 )
 
 func main() {
-	// Get OpenAI API key from environment
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
+	// Display LLM provider information
+	fmt.Printf("Starting Math Agent microservice with %s\n", shared.GetProviderInfo())
+	
+	// Create an LLM client based on environment configuration
+	llm, err := shared.CreateLLM()
+	if err != nil {
+		log.Fatalf("Failed to create LLM client: %v", err)
 	}
-
-	// Create an LLM client
-	llm := openai.NewClient(apiKey)
 
 	// Create a mathematical agent
 	mathAgent, err := agent.NewAgent(

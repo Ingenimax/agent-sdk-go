@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/microservice"
 	"github.com/Ingenimax/agent-sdk-go/pkg/structuredoutput"
 )
@@ -72,20 +70,19 @@ const (
 // 6. Parse and beautifully display structured JSON responses
 //
 // Required environment variables:
-// - ANTHROPIC_API_KEY or OPENAI_API_KEY (depending on provider)
-// - LLM_PROVIDER: "anthropic" or "openai" (optional, defaults to "anthropic")
+// - ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY (depending on provider)
+// - LLM_PROVIDER: "anthropic", "openai", or "gemini" (optional, auto-detects based on API keys)
 
 func main() {
 	fmt.Println("Streaming Agent with Structured Output Example")
 	fmt.Println("==============================================")
 	fmt.Println()
 
-	// Get provider and API key
-	provider := getEnvWithDefault("LLM_PROVIDER", "anthropic")
-	fmt.Printf("Using provider: %s\n", provider)
+	// Display LLM provider information
+	fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
 
-	// Create LLM client
-	llm, err := createLLMClient(provider)
+	// Create LLM client using shared utility
+	llm, err := shared.CreateLLM()
 	if err != nil {
 		log.Fatalf("Failed to create LLM client: %v", err)
 	}
@@ -326,40 +323,3 @@ func displayStructuredResponse(responseText string) {
 	}
 }
 
-// createLLMClient creates the appropriate LLM client based on provider
-func createLLMClient(provider string) (interfaces.LLM, error) {
-	switch provider {
-	case "anthropic":
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required for Anthropic provider")
-		}
-		return anthropic.NewClient(
-			apiKey,
-			anthropic.WithModel(anthropic.ClaudeSonnet4),
-		), nil
-
-	case "openai":
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required for OpenAI provider")
-		}
-		// Note: o4-mini is a reasoning model but individual reasoning tokens
-		// are not yet streamed in the Go SDK v2.1.1. Only final responses are streamed.
-		return openai.NewClient(
-			apiKey,
-			openai.WithModel("o4-mini"),
-		), nil
-
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s (supported: anthropic, openai)", provider)
-	}
-}
-
-// getEnvWithDefault gets environment variable with default value
-func getEnvWithDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}

@@ -4,26 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/microservice"
 )
 
 func main() {
-	// Get OpenAI API key from environment
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
-	}
-
-	// Create an LLM client
-	llm := openai.NewClient(apiKey)
-
 	fmt.Println("Setting up mixed local and remote agent system...")
+	fmt.Printf("Using LLM provider: %s\n", shared.GetProviderInfo())
+	
+	// Create an LLM client based on environment configuration
+	llm, err := shared.CreateLLM()
+	if err != nil {
+		log.Fatalf("Failed to create LLM client: %v", err)
+	}
 
 	// Step 1: Create and start a Research Agent microservice
 	researchAgent, err := agent.NewAgent(

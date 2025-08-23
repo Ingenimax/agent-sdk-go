@@ -10,7 +10,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 ## Features
 
 ### Core Capabilities
-- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and Google Vertex AI (Gemini models).
+- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, Google Vertex AI, and Gemini API.
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
 - 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
 - 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
@@ -45,6 +45,8 @@ go get github.com/Ingenimax/agent-sdk-go
 The SDK uses environment variables for configuration. Key variables include:
 
 - `OPENAI_API_KEY`: Your OpenAI API key
+- `ANTHROPIC_API_KEY`: Your Anthropic API key
+- `GEMINI_API_KEY`: Your Google Gemini API key
 - `OPENAI_MODEL`: The model to use (e.g., gpt-4o-mini)
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 - `REDIS_ADDRESS`: Redis server address (if using Redis for memory)
@@ -511,6 +513,12 @@ The SDK follows a modular architecture with these key components:
 
 - **OpenAI**: GPT-4, GPT-3.5, and other OpenAI models
 - **Anthropic**: Claude 3.5 Sonnet, Claude 3 Haiku, and other Claude models  
+- **Google Gemini API**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite models
+  - Advanced reasoning modes (none, minimal, comprehensive)
+  - Multimodal capabilities with vision and audio
+  - Function calling and structured output
+  - Long context processing (up to 2M tokens)
+  - Real-time streaming responses
 - **Google Vertex AI**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash, and Gemini Pro Vision
   - Advanced reasoning modes (none, minimal, comprehensive)
   - Multimodal capabilities with vision models
@@ -537,13 +545,15 @@ Check out the `cmd/examples` directory for complete examples:
 - **Auto-Configuration**: Generating agent configurations from system prompts
 - **Agent Config Wizard**: Interactive CLI for creating and using agents
 - **MCP Integration**: Using Model Context Protocol servers with agents
-- **Multi-LLM Support**: Examples using OpenAI, Anthropic, and Vertex AI
+- **Multi-LLM Support**: Examples using OpenAI, Anthropic, Gemini API, and Vertex AI
+- **Gemini API Integration**: Comprehensive examples with Gemini models, streaming, tools, and structured output
 - **Vertex AI Integration**: Comprehensive examples with Gemini models, reasoning modes, and tools
 
 ### LLM Provider Examples
 
 - `examples/llm/openai/`: OpenAI integration examples
 - `examples/llm/anthropic/`: Anthropic Claude integration examples  
+- `examples/llm/gemini/`: Google Gemini API integration examples with streaming, tools, and structured output
 - `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
 - `examples/llm/ollama/`: Ollama local LLM integration examples
 - `examples/llm/vllm/`: vLLM high-performance local LLM integration examples
@@ -567,4 +577,5 @@ For more detailed information, refer to the following documents:
 - [Agent](docs/agent.md)
 - [Execution Plan](docs/execution_plan.md)
 - [Guardrails](docs/guardrails.md)
+- [Gemini API](docs/gemini-api.md)
 - [MCP](docs/mcp.md)

@@ -410,9 +410,6 @@ func WithToolCallsCollection(ctx context.Context) context.Context {
 func AddToolCallToContext(ctx context.Context, toolCall ToolCall) {
 	if toolCalls, ok := ctx.Value(toolCallsKey{}).(*[]ToolCall); ok {
 		*toolCalls = append(*toolCalls, toolCall)
-		fmt.Printf("DEBUG: Added tool call to context: %s, total count: %d\n", toolCall.Name, len(*toolCalls))
-	} else {
-		fmt.Printf("DEBUG: Failed to add tool call to context - no tool calls collection found\n")
 	}
 }
 

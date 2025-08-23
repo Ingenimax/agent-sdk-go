@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
@@ -201,17 +199,16 @@ func (m *StreamingMetrics) PrintMetrics() {
 // - 2 Tools: Market Data Lookup & Trend Analysis
 //
 // Required environment variables:
-// - ANTHROPIC_API_KEY or OPENAI_API_KEY
-// - LLM_PROVIDER: "anthropic" or "openai" (optional, defaults to "anthropic")
+// - ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY (depending on provider)
+// - LLM_PROVIDER: "anthropic", "openai", or "gemini" (optional, auto-detects based on API keys)
 
 func main() {
 	fmt.Printf("Advanced Agent Streaming: 1 Agent + 2 Subagents + 2 Tools\n")
 	fmt.Printf("═══════════════════════════════════════════════════════════\n")
 	fmt.Println()
 
-	// Get provider choice
-	provider := getEnvWithDefault("LLM_PROVIDER", "anthropic")
-	fmt.Printf("Using LLM provider: %s\n", provider)
+	// Display LLM provider information
+	fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
 	fmt.Println()
 
 	ctx := context.Background()
@@ -223,7 +220,7 @@ func main() {
 	// Single comprehensive example
 	fmt.Printf("Project Analysis with Agent Orchestration\n")
 	fmt.Printf("─────────────────────────────────────────────────\n")
-	if err := projectAnalysisDemo(ctx, provider); err != nil {
+	if err := projectAnalysisDemo(ctx); err != nil {
 		log.Printf("Example failed: %v", err)
 	}
 	fmt.Println()
@@ -232,8 +229,8 @@ func main() {
 }
 
 // projectAnalysisDemo demonstrates 1 main agent coordinating 2 subagents with 2 tools
-func projectAnalysisDemo(ctx context.Context, provider string) error {
-	llm, err := createLLM(provider)
+func projectAnalysisDemo(ctx context.Context) error {
+	llm, err := shared.CreateLLM()
 	if err != nil {
 		return fmt.Errorf("failed to create LLM: %w", err)
 	}
@@ -496,36 +493,3 @@ Use rigorous analytical methods and show your calculations clearly.`),
 
 // Utility functions
 
-func createLLM(provider string) (interfaces.LLM, error) {
-	switch provider {
-	case "anthropic":
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
-		}
-		return anthropic.NewClient(
-			apiKey,
-			anthropic.WithModel(anthropic.Claude37Sonnet),
-		), nil
-
-	case "openai":
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is required")
-		}
-		return openai.NewClient(
-			apiKey,
-			openai.WithModel("gpt-4o"),
-		), nil
-
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", provider)
-	}
-}
-
-func getEnvWithDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}

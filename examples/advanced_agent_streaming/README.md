@@ -1,6 +1,13 @@
 # Advanced Agent Streaming: 1 Agent + 2 Subagents + 2 Tools
 
-This example demonstrates advanced streaming capabilities with a focused architecture: **1 main agent coordinating 2 specialized subagents using 2 tools**. This showcases the Agent SDK's streaming implementation with multi-agent coordination, Anthropic Extended Thinking, and reliable final answer delivery.
+This example demonstrates advanced streaming capabilities with a focused architecture: **1 main agent coordinating 2 specialized subagents using 2 tools**. This showcases the Agent SDK's streaming implementation with multi-agent coordination, native thinking support, and reliable final answer delivery.
+
+## 🎯 **Multi-LLM Provider Support**
+
+This example now supports **OpenAI**, **Anthropic**, and **Google Gemini** providers:
+- Auto-detection based on available API keys
+- Configurable models via environment variables  
+- Native thinking support for compatible models (Anthropic Claude, Gemini 2.5)
 
 ## Architecture Overview
 
@@ -60,9 +67,15 @@ The example runs a comprehensive **E-commerce Market Analysis for Q1 2025 Busine
 # LLM Provider (choose one)
 export ANTHROPIC_API_KEY="your_anthropic_key"
 export OPENAI_API_KEY="your_openai_key"
+export GEMINI_API_KEY="your_gemini_key"
 
-# Provider selection (optional, defaults to anthropic)
-export LLM_PROVIDER="anthropic"  # or "openai"
+# Provider selection (optional, auto-detects based on available API keys)
+export LLM_PROVIDER="anthropic"  # or "openai" or "gemini"
+
+# Model selection (optional, uses provider defaults)
+export ANTHROPIC_MODEL="claude-3-7-sonnet"  # default
+export OPENAI_MODEL="gpt-4o"                # default
+export GEMINI_MODEL="gemini-1.5-flash"      # default, or "gemini-2.5-flash" for thinking
 ```
 
 ### Optional (for enhanced functionality)
