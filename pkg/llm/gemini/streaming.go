@@ -370,6 +370,9 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 	for _, tool := range tools {
 		toolMap[tool.Name()] = tool
 	}
+	
+	// Track if we already got a final response (when no tool calls were made)
+	gotFinalResponse := false
 
 	// Prepare initial content
 	parts := []*genai.Part{
@@ -496,16 +499,56 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		// Generate content with tools
 		result, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
 		if err != nil {
-			return "", fmt.Errorf("failed to generate content with tools (iteration %d): %w", iteration+1, err)
+			// Log the error but don't return immediately - try to continue with a final response
+			c.logger.Error(ctx, "Error generating content with tools, attempting recovery", map[string]interface{}{
+				"iteration": iteration + 1,
+				"error":     err.Error(),
+				"model":     c.model,
+			})
+			
+			// If this is not the last iteration and we have tool errors, continue to next iteration
+			// Otherwise, break and try final response without tools
+			if iteration < maxIterations-1 {
+				// Check if we had tool errors - if so, the LLM might need another chance
+				hasToolErrors := false
+				for _, content := range contents {
+					if content.Role == "user" {
+						for _, part := range content.Parts {
+							if part.FunctionResponse != nil {
+								if errVal, ok := part.FunctionResponse.Response["error"]; ok && errVal != nil {
+									hasToolErrors = true
+									break
+								}
+							}
+						}
+					}
+				}
+				
+				if hasToolErrors {
+					// Give the LLM another chance to work with the error responses
+					continue
+				}
+			}
+			
+			// Break to attempt final response without tools
+			break
 		}
 
 		if len(result.Candidates) == 0 {
-			return "", fmt.Errorf("no candidates returned (iteration %d)", iteration+1)
+			c.logger.Warn(ctx, "No candidates returned, attempting recovery", map[string]interface{}{
+				"iteration": iteration + 1,
+			})
+			// Break to attempt final response without tools
+			break
 		}
 
 		candidate := result.Candidates[0]
 		if candidate.Content == nil {
-			return "", fmt.Errorf("no content in candidate (iteration %d)", iteration+1)
+			c.logger.Warn(ctx, "No content in candidate, attempting recovery", map[string]interface{}{
+				"iteration": iteration + 1,
+			})
+			// Break to attempt final response without tools
+			break
 		}
 
 		// Check if there are function calls to process
@@ -518,14 +561,24 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 
 		if !hasFunctionCalls {
-			// No more function calls, return the final response
-			var finalResponse strings.Builder
+			// No more function calls, stream the final response and break the loop
 			for _, part := range candidate.Content.Parts {
 				if part.Text != "" {
-					finalResponse.WriteString(part.Text)
+					// Send the text as streaming events
+					select {
+					case eventCh <- interfaces.StreamEvent{
+						Type:      interfaces.StreamEventContentDelta,
+						Content:   part.Text,
+						Timestamp: time.Now(),
+					}:
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
 				}
 			}
-			return finalResponse.String(), nil
+			// Mark that we got final response and break
+			gotFinalResponse = true
+			break
 		}
 
 		// Process function calls and emit streaming events
@@ -680,8 +733,17 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 	}
 
-	// If we've reached max iterations, make final call without tools
-	c.logger.Info(ctx, "Maximum iterations reached for streaming, making final call without tools", map[string]interface{}{
+	// Check if we already have a final response (broke early due to no function calls)
+	if gotFinalResponse {
+		// We already streamed the final response, just return
+		c.logger.Info(ctx, "Already streamed final response, skipping final call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return "", nil
+	}
+	
+	// If we've reached max iterations without a final response, make final call without tools
+	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
 
