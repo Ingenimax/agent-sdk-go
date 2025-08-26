@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -161,7 +162,12 @@ func TestConvertAnthropicEventToStreamEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			thinkingBlocks := make(map[int]bool)
-			result, err := client.convertAnthropicEventToStreamEvent(tt.anthropicEvent, thinkingBlocks)
+			toolBlocks := make(map[int]struct {
+				ID        string
+				Name      string
+				InputJSON strings.Builder
+			})
+			result, err := client.convertAnthropicEventToStreamEvent(tt.anthropicEvent, thinkingBlocks, toolBlocks)
 
 			if tt.expectError {
 				if err == nil {
