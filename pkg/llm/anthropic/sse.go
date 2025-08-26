@@ -167,7 +167,7 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 			}
 			
 			// If there's initial input (rare but possible), add it
-			if blockStart.ContentBlock.Input != nil && len(blockStart.ContentBlock.Input) > 0 {
+			if len(blockStart.ContentBlock.Input) > 0 {
 				argsBytes, _ := json.Marshal(blockStart.ContentBlock.Input)
 				info.InputJSON.WriteString(string(argsBytes))
 			}
