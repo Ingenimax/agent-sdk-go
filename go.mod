@@ -11,7 +11,7 @@ require (
 	github.com/google/go-github/v45 v45.2.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.37.0
+	github.com/mark3labs/mcp-go v0.38.0
 	github.com/openai/openai-go v1.12.0
 	github.com/openai/openai-go/v2 v2.1.1
 	github.com/rs/zerolog v1.34.0
