@@ -111,7 +111,8 @@ func (c *OpenAIClient) GenerateStream(
 
 		// Add other LLM config parameters
 		if params.LLMConfig != nil {
-			if params.LLMConfig.TopP > 0 {
+			// Reasoning models don't support top_p parameter
+			if params.LLMConfig.TopP > 0 && !isReasoningModel(c.Model) {
 				streamParams.TopP = openai.Float(params.LLMConfig.TopP)
 			}
 			if params.LLMConfig.FrequencyPenalty != 0 {
@@ -358,7 +359,8 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 			// Add other LLM parameters
 			if params.LLMConfig != nil {
-				if params.LLMConfig.TopP > 0 {
+				// Reasoning models don't support top_p parameter
+				if params.LLMConfig.TopP > 0 && !isReasoningModel(c.Model) {
 					streamParams.TopP = openai.Float(params.LLMConfig.TopP)
 				}
 				if params.LLMConfig.FrequencyPenalty != 0 {
@@ -648,7 +650,8 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 		// Add other parameters
 		if params.LLMConfig != nil {
-			if params.LLMConfig.TopP > 0 {
+			// Reasoning models don't support top_p parameter
+			if params.LLMConfig.TopP > 0 && !isReasoningModel(c.Model) {
 				finalStreamParams.TopP = openai.Float(params.LLMConfig.TopP)
 			}
 			if params.LLMConfig.FrequencyPenalty != 0 {

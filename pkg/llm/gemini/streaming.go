@@ -607,11 +607,20 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			})
 
 			// Convert function args to JSON string for tool execution (reuse already marshaled args)
+			toolStartTime := time.Now()
 			toolResult, err := selectedTool.Execute(ctx, string(argsBytes))
+			toolEndTime := time.Now()
 
 			// Send tool result event
 			toolResultContent := toolResult
 			if err != nil {
+				// Log tool failure with details
+				c.logger.Error(ctx, "Tool execution failed during streaming", map[string]interface{}{
+					"toolName": selectedTool.Name(),
+					"toolArgs": string(argsBytes),
+					"error":    err.Error(),
+					"duration": toolEndTime.Sub(toolStartTime).String(),
+				})
 				toolResultContent = fmt.Sprintf("Error: %v", err)
 			}
 

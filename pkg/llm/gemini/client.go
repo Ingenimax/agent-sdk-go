@@ -395,6 +395,36 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				paramSchema.Type = genai.TypeObject
 			}
 
+			// Handle array items
+			if param.Items != nil {
+				itemSchema := &genai.Schema{}
+				
+				// Set items type
+				switch param.Items.Type {
+				case "string":
+					itemSchema.Type = genai.TypeString
+				case "number", "integer":
+					itemSchema.Type = genai.TypeNumber
+				case "boolean":
+					itemSchema.Type = genai.TypeBoolean
+				case "array":
+					itemSchema.Type = genai.TypeArray
+				case "object":
+					itemSchema.Type = genai.TypeObject
+				}
+				
+				// Handle items enum if present
+				if param.Items.Enum != nil {
+					enumStrings := make([]string, len(param.Items.Enum))
+					for i, e := range param.Items.Enum {
+						enumStrings[i] = fmt.Sprintf("%v", e)
+					}
+					itemSchema.Enum = enumStrings
+				}
+				
+				paramSchema.Items = itemSchema
+			}
+
 			if param.Enum != nil {
 				enumStrings := make([]string, len(param.Enum))
 				for i, e := range param.Enum {
@@ -616,7 +646,57 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				c.logger.Error(ctx, "Tool not found", map[string]interface{}{
 					"toolName": functionCall.Name,
 				})
-				return "", fmt.Errorf("tool not found: %s", functionCall.Name)
+				
+				// Add tool not found error as function response instead of returning
+				errorContent := &genai.Content{
+					Role: "user",
+					Parts: []*genai.Part{
+						{
+							FunctionResponse: &genai.FunctionResponse{
+								Name: functionCall.Name,
+								Response: map[string]any{
+									"error": fmt.Sprintf("tool not found: %s", functionCall.Name),
+								},
+							},
+						},
+					},
+				}
+				contents = append(contents, errorContent)
+				
+				// Store failed tool call in memory if provided
+				if params.Memory != nil {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							Name:      functionCall.Name,
+							Arguments: "{}",
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "tool",
+						Content: fmt.Sprintf("Error: tool not found: %s", functionCall.Name),
+						Metadata: map[string]interface{}{
+							"tool_name": functionCall.Name,
+						},
+					})
+				}
+				
+				// Add to tracing context
+				toolCallTrace := tracing.ToolCall{
+					Name:       functionCall.Name,
+					Arguments:  "{}",
+					Timestamp:  time.Now().Format(time.RFC3339),
+					StartTime:  time.Now(),
+					Duration:   0,
+					DurationMs: 0,
+					Error:      fmt.Sprintf("tool not found: %s", functionCall.Name),
+					Result:     fmt.Sprintf("Error: tool not found: %s", functionCall.Name),
+				}
+				
+				tracing.AddToolCallToContext(ctx, toolCallTrace)
+				
+				continue // Continue processing other function calls
 			}
 
 			// Convert function call arguments to JSON string
@@ -707,9 +787,11 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 			var resultContent *genai.Content
 			if err != nil {
-				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
+				c.logger.Error(ctx, "Tool execution failed", map[string]interface{}{
 					"toolName": selectedTool.Name(),
+					"toolArgs": string(argsBytes),
 					"error":    err.Error(),
+					"duration": toolEndTime.Sub(toolStartTime).String(),
 				})
 				toolCallTrace.Error = err.Error()
 				toolCallTrace.Result = fmt.Sprintf("Error: %v", err)

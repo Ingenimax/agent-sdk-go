@@ -88,6 +88,96 @@ for event := range events {
 }
 ```
 
+### Remote Agent Streaming with Authentication
+
+#### Raw Event Channel Approach
+```go
+import "github.com/Ingenimax/agent-sdk-go/pkg/grpc/client"
+
+// Create remote agent client
+remoteClient := client.NewRemoteAgentClient(client.RemoteAgentConfig{
+    URL:     "localhost:8080",
+    Timeout: 5 * time.Minute,
+})
+
+// Connect to remote agent
+err := remoteClient.Connect()
+if err != nil {
+    log.Fatal("Failed to connect:", err)
+}
+defer remoteClient.Disconnect()
+
+// Stream with authentication (raw event channel)
+ctx := context.Background()
+authToken := "your-jwt-token-here"
+events, err := remoteClient.RunStreamWithAuth(ctx, "Explain machine learning", authToken)
+if err != nil {
+    log.Fatal("Stream failed:", err)
+}
+
+// Process streaming events manually
+for event := range events {
+    switch event.Type {
+    case interfaces.AgentEventContent:
+        fmt.Print(event.Content)
+    case interfaces.AgentEventThinking:
+        fmt.Printf("\n[Thinking] %s\n", event.ThinkingStep)
+    case interfaces.AgentEventToolCall:
+        fmt.Printf("\n[Calling tool: %s]\n", event.ToolCall.Name)
+    case interfaces.AgentEventComplete:
+        fmt.Println("\n[Complete]")
+    case interfaces.AgentEventError:
+        fmt.Printf("\n[Error] %v\n", event.Error)
+    }
+}
+```
+
+#### Fluent Handler API Approach (Recommended)
+```go
+import "github.com/Ingenimax/agent-sdk-go/pkg/grpc/client"
+
+// Create remote agent client
+remoteClient := client.NewRemoteAgentClient(client.RemoteAgentConfig{
+    URL:     "localhost:8080",
+    Timeout: 5 * time.Minute,
+})
+
+// Connect to remote agent
+err := remoteClient.Connect()
+if err != nil {
+    log.Fatal("Failed to connect:", err)
+}
+defer remoteClient.Disconnect()
+
+// Set up event handlers with fluent API
+remoteClient.
+    OnThinking(func(thinking string) {
+        fmt.Printf("\n[🤔 Thinking] %s\n", thinking)
+    }).
+    OnContent(func(content string) {
+        fmt.Print(content)
+    }).
+    OnToolCall(func(toolCall *interfaces.ToolCallEvent) {
+        fmt.Printf("\n[🔧 Tool] %s\n", toolCall.Name)
+    }).
+    OnToolResult(func(toolCall *interfaces.ToolCallEvent) {
+        fmt.Printf("[✅ Result] %s\n", toolCall.Result)
+    }).
+    OnError(func(err error) {
+        fmt.Printf("\n[❌ Error] %v\n", err)
+    }).
+    OnComplete(func() {
+        fmt.Println("\n[✨ Done!]")
+    })
+
+// Execute with handlers and authentication
+ctx := context.Background()
+err = remoteClient.StreamWithAuth(ctx, "Explain machine learning", "your-jwt-token")
+if err != nil {
+    log.Fatal("Stream failed:", err)
+}
+```
+
 ### Microservice Streaming
 ```go
 // Create and start microservice
@@ -110,6 +200,23 @@ service.
 err := service.Stream(ctx, "Your question here")
 ```
 
+### API Consistency
+
+Both `AgentMicroservice` and `RemoteAgentClient` now provide the same fluent handler API:
+
+| Method | AgentMicroservice | RemoteAgentClient | Description |
+|--------|------------------|-------------------|-------------|
+| `OnThinking()` | ✅ | ✅ | Handle reasoning/thinking events |
+| `OnContent()` | ✅ | ✅ | Handle content/text generation |
+| `OnToolCall()` | ✅ | ✅ | Handle tool execution start |
+| `OnToolResult()` | ✅ | ✅ | Handle tool execution results |
+| `OnError()` | ✅ | ✅ | Handle error events |
+| `OnComplete()` | ✅ | ✅ | Handle completion events |
+| `Stream()` | ✅ | ✅ | Execute with handlers |
+| `StreamWithAuth()` | ❌ | ✅ | Execute with handlers + auth |
+
+This means you can switch between local microservice and remote client with minimal code changes!
+
 ## Core Concepts
 
 ### Event Types
@@ -124,6 +231,7 @@ err := service.Stream(ctx, "Your question here")
 - **Anthropic Claude**: Full SSE support with Extended Thinking
 - **OpenAI GPT**: Delta streaming with reasoning models (o1, o4)
 - **Reasoning Models**: Automatic parameter handling for temperature and tools
+- **Remote Agents**: gRPC streaming with authentication support via `RunStreamWithAuth`
 
 ## Related Documentation
 

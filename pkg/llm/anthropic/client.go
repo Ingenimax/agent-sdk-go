@@ -863,7 +863,39 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						return names
 					}(),
 				})
-				return "", fmt.Errorf("tool not found: %s (iteration %d)", toolName, iteration+1)
+				
+				// Add tool not found error as tool result instead of returning
+				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolName)
+				
+				// Store failed tool call in memory if provided
+				if params.Memory != nil {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolName,
+							Arguments: "{}",
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    errorMessage,
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolName,
+						},
+					})
+				}
+				
+				// Add error as tool result
+				toolResults = append(toolResults, ToolResult{
+					Type:     "tool_result",
+					Content:  errorMessage,
+					ToolName: toolName,
+				})
+				
+				continue // Continue processing other tool calls
 			}
 
 			// Get parameters - could be in either Input or Parameters field

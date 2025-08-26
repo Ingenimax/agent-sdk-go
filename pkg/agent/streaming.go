@@ -390,14 +390,18 @@ func (a *Agent) handleToolCallStreaming(
 	}
 
 	if selectedTool == nil {
+		// Send tool result event with error instead of error event
+		errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
 		eventChan <- interfaces.AgentStreamEvent{
-			Type: interfaces.AgentEventError,
-			Error: fmt.Errorf("tool not found: %s", toolCall.Name),
+			Type: interfaces.AgentEventToolResult,
 			ToolCall: &interfaces.ToolCallEvent{
-				ID:     toolCall.ID,
-				Name:   toolCall.Name,
-				Status: "error",
+				ID:        toolCall.ID,
+				Name:      toolCall.Name,
+				Arguments: toolCall.Arguments,
+				Result:    errorMessage,
+				Status:    "error",
 			},
+			Error:     fmt.Errorf("tool not found: %s", toolCall.Name),
 			Timestamp: time.Now(),
 		}
 		return
@@ -429,10 +433,17 @@ func (a *Agent) handleToolCallStreaming(
 	eventChan <- resultEvent
 }
 
-// runRemoteStream handles streaming for remote agents (placeholder)
+// runRemoteStream handles streaming for remote agents
 func (a *Agent) runRemoteStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
-	// For now, remote streaming is not implemented
-	// We could implement this by extending the gRPC client to support streaming
-	return nil, fmt.Errorf("streaming not yet supported for remote agents")
+	if a.remoteClient == nil {
+		return nil, fmt.Errorf("remote client not initialized")
+	}
+
+	// If orgID is set on the agent, add it to the context
+	if a.orgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	return a.remoteClient.RunStream(ctx, input)
 }
 

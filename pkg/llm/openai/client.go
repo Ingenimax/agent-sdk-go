@@ -203,7 +203,10 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 
 	if params.LLMConfig != nil {
 		req.Temperature = openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature))
-		req.TopP = openai.Float(params.LLMConfig.TopP)
+		// Reasoning models don't support top_p parameter
+		if !isReasoningModel(c.Model) {
+			req.TopP = openai.Float(params.LLMConfig.TopP)
+		}
 		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
 		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
 		if len(params.LLMConfig.StopSequences) > 0 {
@@ -377,9 +380,13 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		Model:            openai.ChatModel(c.Model),
 		Messages:         chatMessages,
 		Temperature:      openai.Float(c.getTemperatureForModel(params.Temperature)),
-		TopP:             openai.Float(params.TopP),
 		FrequencyPenalty: openai.Float(params.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.PresencePenalty),
+	}
+
+	// Reasoning models don't support top_p parameter
+	if !isReasoningModel(c.Model) {
+		req.TopP = openai.Float(params.TopP)
 	}
 
 	if len(params.StopSequences) > 0 {
@@ -570,9 +577,13 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Messages:         messages,
 		Tools:            openaiTools,
 		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
-		TopP:             openai.Float(params.LLMConfig.TopP),
 		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+	}
+
+	// Reasoning models don't support top_p parameter
+	if !isReasoningModel(c.Model) {
+		req.TopP = openai.Float(params.LLMConfig.TopP)
 	}
 
 	// Only set ParallelToolCalls for non-reasoning models
@@ -837,7 +848,50 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					"toolcall": toolCall,
 					"resp":     resp,
 				})
-				return "", fmt.Errorf("tool not found: %s", toolCall.Function.Name)
+				
+				// Add tool not found error as tool result instead of returning
+				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Function.Name)
+				
+				// Store failed tool call in memory if provided
+				if params.Memory != nil {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Function.Name,
+							Arguments: toolCall.Function.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    errorMessage,
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Function.Name,
+						},
+					})
+				}
+				
+				// Add to tracing context
+				toolCallTrace := tracing.ToolCall{
+					Name:       toolCall.Function.Name,
+					Arguments:  toolCall.Function.Arguments,
+					ID:         toolCall.ID,
+					Timestamp:  time.Now().Format(time.RFC3339),
+					StartTime:  time.Now(),
+					Duration:   0,
+					DurationMs: 0,
+					Error:      fmt.Sprintf("tool not found: %s", toolCall.Function.Name),
+					Result:     errorMessage,
+				}
+				
+				tracing.AddToolCallToContext(ctx, toolCallTrace)
+				
+				// Add error message as tool response
+				messages = append(messages, openai.ToolMessage(errorMessage, toolCall.ID))
+				
+				continue // Continue processing other tool calls
 			}
 
 			// Execute the tool
@@ -953,9 +1007,13 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Messages:         messages,
 		Tools:            nil, // No tools for final call
 		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
-		TopP:             openai.Float(params.LLMConfig.TopP),
 		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+	}
+
+	// Reasoning models don't support top_p parameter
+	if !isReasoningModel(c.Model) {
+		finalReq.TopP = openai.Float(params.LLMConfig.TopP)
 	}
 
 	if len(params.LLMConfig.StopSequences) > 0 {

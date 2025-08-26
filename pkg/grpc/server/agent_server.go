@@ -196,8 +196,9 @@ func (s *AgentServer) RunStream(req *pb.RunRequest, stream pb.AgentService_RunSt
 			response.Thinking = event.ThinkingStep
 		}
 
-		// Handle errors
-		if event.Error != nil {
+		// Handle errors - only set error event type for non-tool errors
+		// Tool errors should remain as tool result events with error status
+		if event.Error != nil && event.Type != interfaces.AgentEventToolResult {
 			response.Error = event.Error.Error()
 			response.EventType = pb.EventType_EVENT_TYPE_ERROR
 		}

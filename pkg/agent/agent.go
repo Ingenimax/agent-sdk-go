@@ -370,6 +370,17 @@ func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string)
 	return a.runLocal(ctx, input)
 }
 
+// RunStreamWithAuth executes the agent with streaming response and explicit auth token
+func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken string) (<-chan interfaces.AgentStreamEvent, error) {
+	// If this is a remote agent, delegate to remote streaming execution with auth token
+	if a.isRemote {
+		return a.runRemoteStreamWithAuth(ctx, input, authToken)
+	}
+
+	// For local agents, the auth token isn't used but we maintain compatibility
+	return a.RunStream(ctx, input)
+}
+
 // runRemote executes a remote agent via gRPC
 func (a *Agent) runRemote(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
@@ -396,6 +407,20 @@ func (a *Agent) runRemoteWithAuth(ctx context.Context, input string, authToken s
 	}
 
 	return a.remoteClient.RunWithAuth(ctx, input, authToken)
+}
+
+// runRemoteStreamWithAuth executes a remote agent via gRPC with streaming response and explicit auth token
+func (a *Agent) runRemoteStreamWithAuth(ctx context.Context, input string, authToken string) (<-chan interfaces.AgentStreamEvent, error) {
+	if a.remoteClient == nil {
+		return nil, fmt.Errorf("remote client not initialized")
+	}
+
+	// If orgID is set on the agent, add it to the context
+	if a.orgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	return a.remoteClient.RunStreamWithAuth(ctx, input, authToken)
 }
 
 // runLocal executes a local agent

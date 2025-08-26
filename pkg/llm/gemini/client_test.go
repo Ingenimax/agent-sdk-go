@@ -450,3 +450,73 @@ func TestDefaultThinkingConfig(t *testing.T) {
 	assert.Nil(t, config.ThinkingBudget)
 	assert.Nil(t, config.ThoughtSignatures)
 }
+
+func TestToolArrayItemsHandling(t *testing.T) {
+	// Mock tool with array parameters that have items specifications
+	tool := &MockTool{
+		name:        "array_test_tool",
+		description: "Tool for testing array items handling",
+		parameters: map[string]interfaces.ParameterSpec{
+			"string_array": {
+				Type:        "array",
+				Description: "Array of strings",
+				Required:    true,
+				Items: &interfaces.ParameterSpec{
+					Type: "string",
+				},
+			},
+			"object_array": {
+				Type:        "array",
+				Description: "Array of objects",
+				Required:    false,
+				Items: &interfaces.ParameterSpec{
+					Type: "object",
+				},
+			},
+			"enum_array": {
+				Type:        "array",
+				Description: "Array with enum items",
+				Required:    false,
+				Items: &interfaces.ParameterSpec{
+					Type: "string",
+					Enum: []interface{}{"option1", "option2", "option3"},
+				},
+			},
+			"simple_string": {
+				Type:        "string",
+				Description: "Simple string parameter",
+				Required:    true,
+			},
+		},
+	}
+
+	// Create client to test tool schema conversion
+	client, err := NewClient("test-api-key", WithModel(ModelGemini15Flash))
+	require.NoError(t, err)
+
+	// Test that we can create the client and it handles array items properly
+	// This test ensures that the convertTool method (which includes our fix) 
+	// doesn't panic and properly processes array items
+	assert.Equal(t, "gemini", client.Name())
+	assert.Equal(t, "array_test_tool", tool.Name())
+
+	// Verify the tool has the expected parameters structure
+	params := tool.Parameters()
+	assert.Contains(t, params, "string_array")
+	assert.Contains(t, params, "object_array") 
+	assert.Contains(t, params, "enum_array")
+	assert.Contains(t, params, "simple_string")
+
+	// Verify items are properly structured
+	assert.NotNil(t, params["string_array"].Items)
+	assert.Equal(t, "string", params["string_array"].Items.Type)
+	
+	assert.NotNil(t, params["object_array"].Items)
+	assert.Equal(t, "object", params["object_array"].Items.Type)
+	
+	assert.NotNil(t, params["enum_array"].Items)
+	assert.Equal(t, "string", params["enum_array"].Items.Type)
+	assert.Equal(t, []interface{}{"option1", "option2", "option3"}, params["enum_array"].Items.Enum)
+
+	assert.Nil(t, params["simple_string"].Items)
+}

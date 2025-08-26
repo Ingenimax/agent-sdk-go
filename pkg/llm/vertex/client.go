@@ -289,7 +289,41 @@ func (c *Client) GenerateWithTools(ctx context.Context, prompt string, tools []i
 			}
 
 			if selectedTool == nil {
-				return "", fmt.Errorf("tool not found: %s (iteration %d)", funcCall.Name, iteration+1)
+				c.logger.Error("Tool not found", "toolName", funcCall.Name, "iteration", iteration+1)
+				
+				// Add tool not found error as function response instead of returning
+				errorMessage := fmt.Sprintf("Error: tool not found: %s", funcCall.Name)
+				toolCallID := fmt.Sprintf("tool_%d_%s", iteration, funcCall.Name)
+				
+				// Store failed tool call in memory if provided
+				if params.Memory != nil {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "assistant",
+						Content:    "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCallID,
+							Name:      funcCall.Name,
+							Arguments: "{}",
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    errorMessage,
+						ToolCallID: toolCallID,
+						Metadata: map[string]interface{}{
+							"tool_name": funcCall.Name,
+						},
+					})
+				}
+				
+				// Create function response with error
+				funcResponse := genai.FunctionResponse{
+					Name:     funcCall.Name,
+					Response: map[string]any{"result": errorMessage},
+				}
+				
+				functionResponses = append(functionResponses, funcResponse)
+				continue // Continue processing other function calls
 			}
 
 			// Convert arguments to JSON string

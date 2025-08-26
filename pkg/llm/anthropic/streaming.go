@@ -505,7 +505,36 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			}
 
 			if selectedTool == nil {
-				return fmt.Errorf("tool not found: %s", toolCall.Name)
+				c.logger.Error(ctx, "Tool not found in streaming", map[string]interface{}{
+					"toolName": toolCall.Name,
+				})
+				
+				// Add tool not found error as tool result instead of returning
+				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
+				
+				// Add tool result message
+				messages = append(messages, Message{
+					Role:    "user", // Tool results come as user messages to Anthropic
+					Content: fmt.Sprintf("Tool %s result: %s", toolCall.Name, errorMessage),
+				})
+
+				// Send tool result event with error
+				select {
+				case eventChan <- interfaces.StreamEvent{
+					Type: interfaces.StreamEventToolResult,
+					ToolCall: &interfaces.ToolCall{
+						ID:        toolCall.ID,
+						Name:      toolCall.Name,
+						Arguments: toolCall.Arguments,
+					},
+					Content:   errorMessage,
+					Timestamp: time.Now(),
+				}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				
+				continue // Continue processing other tool calls
 			}
 
 			// Execute tool
