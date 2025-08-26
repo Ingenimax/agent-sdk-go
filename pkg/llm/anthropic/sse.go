@@ -44,9 +44,10 @@ type ContentBlockDeltaData struct {
 	Type  string `json:"type"`
 	Index int    `json:"index"`
 	Delta struct {
-		Type     string `json:"type"`
-		Text     string `json:"text,omitempty"`
-		Thinking string `json:"thinking,omitempty"` // Thinking content field
+		Type        string `json:"type"`
+		Text        string `json:"text,omitempty"`
+		Thinking    string `json:"thinking,omitempty"`    // Thinking content field
+		PartialJSON string `json:"partial_json,omitempty"` // For input_json_delta events
 	} `json:"delta"`
 }
 
@@ -109,10 +110,15 @@ func parseSSELine(line string) (*AnthropicSSEEvent, error) {
 }
 
 // convertAnthropicEventToStreamEvent converts an Anthropic SSE event to our internal StreamEvent
-func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSEEvent, thinkingBlocks map[int]bool) (*interfaces.StreamEvent, error) {
+func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSEEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
+	ID        string
+	Name      string
+	InputJSON strings.Builder
+}) (*interfaces.StreamEvent, error) {
 	if event == nil {
 		return nil, nil
 	}
+	
 	
 	streamEvent := &interfaces.StreamEvent{
 		Timestamp: time.Now(),
@@ -138,6 +144,7 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 			return nil, fmt.Errorf("failed to parse content_block_start: %w", err)
 		}
 		
+		
 		// Handle different block types
 		switch blockStart.ContentBlock.Type {
 		case "thinking":
@@ -146,18 +153,29 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 			streamEvent.Content = blockStart.ContentBlock.Text
 			
 		case "tool_use":
-			streamEvent.Type = interfaces.StreamEventToolUse
+			// Don't send tool call event immediately - track tool info and wait for complete input
 			thinkingBlocks[blockStart.Index] = false // Not a thinking block
 			
-			// Convert input map to JSON string for arguments
-			argsBytes, _ := json.Marshal(blockStart.ContentBlock.Input)
-			
-			// Create tool call
-			streamEvent.ToolCall = &interfaces.ToolCall{
-				ID:        blockStart.ContentBlock.ID,
-				Name:      blockStart.ContentBlock.Name,
-				Arguments: string(argsBytes),
+			// Store tool info to accumulate input arguments later
+			info := struct {
+				ID        string
+				Name      string
+				InputJSON strings.Builder
+			}{
+				ID:   blockStart.ContentBlock.ID,
+				Name: blockStart.ContentBlock.Name,
 			}
+			
+			// If there's initial input (rare but possible), add it
+			if blockStart.ContentBlock.Input != nil && len(blockStart.ContentBlock.Input) > 0 {
+				argsBytes, _ := json.Marshal(blockStart.ContentBlock.Input)
+				info.InputJSON.WriteString(string(argsBytes))
+			}
+			
+			toolBlocks[blockStart.Index] = info
+			
+			// Return nil to skip sending event now - will send when complete
+			return nil, nil
 			
 		default: // "text" or other types
 			streamEvent.Type = interfaces.StreamEventContentDelta
@@ -172,6 +190,18 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 		var blockDelta ContentBlockDeltaData
 		if err := json.Unmarshal(event.Data, &blockDelta); err != nil {
 			return nil, fmt.Errorf("failed to parse content_block_delta: %w", err)
+		}
+		
+		// Check if this is an input_json_delta (tool argument streaming)
+		if blockDelta.Delta.Type == "input_json_delta" {
+			// Accumulate the partial JSON into the tool block
+			if info, exists := toolBlocks[blockDelta.Index]; exists {
+				info.InputJSON.WriteString(blockDelta.Delta.PartialJSON)
+				toolBlocks[blockDelta.Index] = info
+			}
+			
+			// Return nil to skip sending event now - will send complete tool call later
+			return nil, nil
 		}
 		
 		// Check if this block is a thinking block using our tracking
@@ -192,8 +222,24 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 			return nil, fmt.Errorf("failed to parse content_block_stop: %w", err)
 		}
 		
-		streamEvent.Type = interfaces.StreamEventContentComplete
-		streamEvent.Metadata["block_index"] = blockStop.Index
+		// Check if this was a tool block that we need to complete
+		if info, exists := toolBlocks[blockStop.Index]; exists {
+			// Create tool call event with complete arguments
+			streamEvent.Type = interfaces.StreamEventToolUse
+			streamEvent.ToolCall = &interfaces.ToolCall{
+				ID:        info.ID,
+				Name:      info.Name,
+				Arguments: info.InputJSON.String(),
+			}
+			streamEvent.Metadata["block_index"] = blockStop.Index
+			
+			// Remove from tracking map
+			delete(toolBlocks, blockStop.Index)
+		} else {
+			// Regular content block stop
+			streamEvent.Type = interfaces.StreamEventContentComplete
+			streamEvent.Metadata["block_index"] = blockStop.Index
+		}
 		
 	case "message_delta":
 		var msgDelta MessageDeltaData
@@ -225,16 +271,25 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 		streamEvent.Metadata["error_data"] = errorData
 		
 	case "input_json_delta":
-		// Handle streaming tool input (arguments)
-		var inputDelta map[string]interface{}
+		// Handle streaming tool input (arguments) - this case may not be used since 
+		// input_json_delta events come as content_block_delta with delta.type="input_json_delta"
+		var inputDelta struct {
+			Type         string `json:"type"`
+			Index        int    `json:"index"`
+			PartialJSON  string `json:"partial_json"`
+		}
 		if err := json.Unmarshal(event.Data, &inputDelta); err != nil {
 			return nil, fmt.Errorf("failed to parse input_json_delta: %w", err)
 		}
 		
-		// For now, treat as tool progress - in a full implementation,
-		// we'd accumulate the streaming input arguments
-		streamEvent.Type = interfaces.StreamEventToolUse
-		streamEvent.Metadata["input_delta"] = inputDelta
+		// Accumulate the partial JSON into the tool block
+		if info, exists := toolBlocks[inputDelta.Index]; exists {
+			info.InputJSON.WriteString(inputDelta.PartialJSON)
+			toolBlocks[inputDelta.Index] = info
+		}
+		
+		// Return nil to skip sending event now - will send complete tool call later
+		return nil, nil
 		
 	case "done":
 		// End of stream
@@ -257,6 +312,12 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	var currentEvent *AnthropicSSEEvent
 	// Track which block indices are thinking blocks
 	thinkingBlocks := make(map[int]bool)
+	// Track tool blocks and accumulate their input arguments
+	toolBlocks := make(map[int]struct {
+		ID        string
+		Name      string
+		InputJSON strings.Builder
+	})
 	
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -265,7 +326,7 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 		if line == "" {
 			if currentEvent != nil && len(currentEvent.Data) > 0 {
 				// Process complete event
-				if err := c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks); err != nil {
+				if err := c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks, toolBlocks); err != nil {
 					eventChan <- interfaces.StreamEvent{
 						Type:      interfaces.StreamEventError,
 						Error:     fmt.Errorf("failed to process SSE event: %w", err),
@@ -322,7 +383,7 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	
 	// Process any remaining event
 	if currentEvent != nil && len(currentEvent.Data) > 0 {
-		_ = c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks)
+		_ = c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks, toolBlocks)
 	}
 	
 	// Check for scanner error
@@ -335,7 +396,11 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	}
 }
 
-func (c *AnthropicClient) processCompleteSSEEvent(event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool) error {
+func (c *AnthropicClient) processCompleteSSEEvent(event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
+	ID        string
+	Name      string
+	InputJSON strings.Builder
+}) error {
 	// Handle done event
 	if event.Type == "done" || event.Type == "" {
 		eventChan <- interfaces.StreamEvent{
@@ -346,7 +411,7 @@ func (c *AnthropicClient) processCompleteSSEEvent(event *AnthropicSSEEvent, even
 	}
 	
 	// Convert to StreamEvent
-	streamEvent, err := c.convertAnthropicEventToStreamEvent(event, thinkingBlocks)
+	streamEvent, err := c.convertAnthropicEventToStreamEvent(event, thinkingBlocks, toolBlocks)
 	if err != nil {
 		return fmt.Errorf("failed to convert event: %w", err)
 	}
