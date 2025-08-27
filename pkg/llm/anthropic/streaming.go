@@ -130,6 +130,7 @@ func (c *AnthropicClient) GenerateStream(
 			close(eventChan)
 		}()
 
+
 		// Execute the streaming request
 		if err := c.executeStreamingRequest(ctx, req, eventChan); err != nil {
 			select {
@@ -228,6 +229,7 @@ func (c *AnthropicClient) executeStreamingRequest(
 
 		// Verify content type
 		contentType := httpResp.Header.Get("Content-Type")
+		
 		if contentType != "text/event-stream" && contentType != "text/event-stream; charset=utf-8" {
 			return fmt.Errorf("unexpected content type: %s", contentType)
 		}
@@ -236,7 +238,8 @@ func (c *AnthropicClient) executeStreamingRequest(
 		scanner := bufio.NewScanner(httpResp.Body)
 
 		// Parse SSE stream
-		c.parseSSEStream(scanner, eventChan)
+		c.parseSSEStream(ctx, scanner, eventChan)
+		
 
 		c.logger.Debug(ctx, "Successfully completed Anthropic streaming request", map[string]interface{}{
 			"model": c.Model,
@@ -359,6 +362,7 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 			close(eventChan)
 		}()
 
+
 		// Execute streaming with tools with iterative loop
 		if err := c.executeStreamingWithTools(ctx, prompt, anthropicTools, tools, params, eventChan); err != nil {
 			select {
@@ -456,21 +460,11 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			return err
 		}
 
-		// TODO: Remove debug logs after investigating streaming issues
-		c.logger.Debug(ctx, "Tool iteration completed", map[string]interface{}{
-			"iteration":      iteration + 1,
-			"toolCallsCount": len(toolCalls),
-			"maxIterations":  maxIterations,
-		})
 
-		// If no tool calls, we're done - return content like OpenAI does
+		// If no tool calls, we're done with the iteration loop
 		if len(toolCalls) == 0 {
-			// TODO: Remove debug logs after investigating streaming issues
-			c.logger.Debug(ctx, "No tool calls detected, ending iteration loop", map[string]interface{}{
-				"iteration":     iteration + 1,
-				"maxIterations": maxIterations,
-			})
-			// No tool calls, this means we have the final response
+			// No tool calls means we have received the final response content
+			// The streaming has already been handled by executeStreamingRequestWithToolCapture
 			return nil
 		}
 
@@ -577,12 +571,6 @@ func (c *AnthropicClient) executeStreamingWithTools(
 
 	// After all tool iterations, make a final call without tools to get the synthesized answer
 	// This ensures the LLM provides a final response after processing all tool results
-	// TODO: Remove debug logs after investigating streaming issues
-	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
-		"maxIterations":   maxIterations,
-		"messages":        len(messages),
-		"finalCallReason": "reached_max_iterations",
-	})
 
 	// Add a message to inform the LLM this is the final call
 	finalMessages := append(messages, Message{
@@ -625,19 +613,9 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		}
 	}
 
-	// TODO: Remove debug logs after investigating streaming issues
-	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
-		"messages_count":      len(finalMessages),
-		"final_message_added": "Please provide your final response based on the information available. Do not request any additional tools.",
-		"has_tools":           len(finalReq.Tools) > 0,
-	})
 
 	// Execute final request to get synthesized answer
 	err := c.executeStreamingRequest(ctx, finalReq, eventChan)
-	// TODO: Remove debug logs after investigating streaming issues
-	c.logger.Debug(ctx, "Final request completed", map[string]interface{}{
-		"error": err,
-	})
 	return err
 }
 
@@ -647,6 +625,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
 ) ([]interfaces.ToolCall, bool, error) {
+	
 	var toolCalls []interfaces.ToolCall
 	var hasContent bool
 
@@ -681,17 +660,9 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 
 	// Process events and capture tool calls
 	var eventCount int
+	
 	for event := range tempEventChan {
 		eventCount++
-		// TODO: Remove debug logs after investigating streaming issues
-		if eventCount <= 3 || event.Type == interfaces.StreamEventToolUse || event.Type == interfaces.StreamEventMessageStop {
-			c.logger.Debug(ctx, "Processing stream event", map[string]interface{}{
-				"eventNumber": eventCount,
-				"eventType":   event.Type,
-				"hasToolCall": event.ToolCall != nil,
-				"hasContent":  event.Content != "",
-			})
-		}
 
 		// Forward event to main channel
 		select {
@@ -702,11 +673,6 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 
 		// Capture tool calls
 		if event.Type == interfaces.StreamEventToolUse && event.ToolCall != nil {
-			// TODO: Remove debug logs after investigating streaming issues
-			c.logger.Debug(ctx, "Captured tool call", map[string]interface{}{
-				"toolName": event.ToolCall.Name,
-				"toolID":   event.ToolCall.ID,
-			})
 			toolCalls = append(toolCalls, *event.ToolCall)
 		}
 
@@ -721,12 +687,6 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 		}
 	}
 
-	// TODO: Remove debug logs after investigating streaming issues
-	c.logger.Debug(ctx, "Tool capture completed", map[string]interface{}{
-		"totalEvents":     eventCount,
-		"toolCallsFound":  len(toolCalls),
-		"hasContent":      hasContent,
-	})
 
 	return toolCalls, hasContent, nil
 }

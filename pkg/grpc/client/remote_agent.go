@@ -46,6 +46,7 @@ type RemoteAgentClient struct {
 	errorHandlers    []func(error)
 	completeHandlers []func()
 	handlersMu       sync.RWMutex
+	
 }
 
 // RemoteAgentConfig configures the remote agent client
@@ -564,8 +565,8 @@ func (r *RemoteAgentClient) Stream(ctx context.Context, input string) error {
 	}
 
 	for event := range events {
-		// Execute handlers asynchronously to prevent blocking
-		go r.executeHandlers(event)
+		// Execute handlers synchronously to preserve event ordering
+		r.executeHandlers(event)
 	}
 
 	return nil
@@ -579,8 +580,8 @@ func (r *RemoteAgentClient) StreamWithAuth(ctx context.Context, input string, au
 	}
 
 	for event := range events {
-		// Execute handlers asynchronously to prevent blocking
-		go r.executeHandlers(event)
+		// Execute handlers synchronously to preserve event ordering
+		r.executeHandlers(event)
 	}
 
 	return nil

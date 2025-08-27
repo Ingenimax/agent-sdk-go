@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -305,9 +306,8 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 	return streamEvent, nil
 }
 
-// parseSSEStream parses an SSE stream and returns a channel of StreamEvents
-func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<- interfaces.StreamEvent) {
-	defer close(eventChan)
+// parseSSEStream parses an SSE stream and sends events to the provided channel
+func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Scanner, eventChan chan<- interfaces.StreamEvent) {
 	
 	var currentEvent *AnthropicSSEEvent
 	// Track which block indices are thinking blocks
@@ -319,14 +319,22 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 		InputJSON strings.Builder
 	})
 	
+	lineCount := 0
+	
 	for scanner.Scan() {
+		lineCount++
 		line := strings.TrimSpace(scanner.Text())
 		
 		// Empty line indicates end of current event
 		if line == "" {
 			if currentEvent != nil && len(currentEvent.Data) > 0 {
 				// Process complete event
-				if err := c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks, toolBlocks); err != nil {
+				if err := c.processCompleteSSEEvent(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks); err != nil {
+					c.logger.Error(ctx, "Failed to process SSE event", map[string]interface{}{
+						"error":       err.Error(),
+						"event_type":  currentEvent.Type,
+						"event_data":  string(currentEvent.Data),
+					})
 					eventChan <- interfaces.StreamEvent{
 						Type:      interfaces.StreamEventError,
 						Error:     fmt.Errorf("failed to process SSE event: %w", err),
@@ -383,8 +391,9 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	
 	// Process any remaining event
 	if currentEvent != nil && len(currentEvent.Data) > 0 {
-		_ = c.processCompleteSSEEvent(currentEvent, eventChan, thinkingBlocks, toolBlocks)
+		_ = c.processCompleteSSEEvent(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks)
 	}
+	
 	
 	// Check for scanner error
 	if err := scanner.Err(); err != nil {
@@ -396,11 +405,12 @@ func (c *AnthropicClient) parseSSEStream(scanner *bufio.Scanner, eventChan chan<
 	}
 }
 
-func (c *AnthropicClient) processCompleteSSEEvent(event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
+func (c *AnthropicClient) processCompleteSSEEvent(ctx context.Context, event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
 	ID        string
 	Name      string
 	InputJSON strings.Builder
 }) error {
+	
 	// Handle done event
 	if event.Type == "done" || event.Type == "" {
 		eventChan <- interfaces.StreamEvent{

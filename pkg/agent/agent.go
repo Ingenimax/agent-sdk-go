@@ -11,6 +11,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/client"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
@@ -26,6 +27,7 @@ type Agent struct {
 	orgID                string
 	tracer               interfaces.Tracer
 	guardrails           interfaces.Guardrails
+	logger               logging.Logger         // Logger for the agent
 	systemPrompt         string
 	name                 string                   // Name of the agent, e.g., "PlatformOps", "Math", "Research"
 	description          string                   // Description of what the agent does
@@ -82,6 +84,13 @@ func WithOrgID(orgID string) Option {
 func WithTracer(tracer interfaces.Tracer) Option {
 	return func(a *Agent) {
 		a.tracer = tracer
+	}
+}
+
+// WithLogger sets the logger for the agent
+func WithLogger(logger logging.Logger) Option {
+	return func(a *Agent) {
+		a.logger = logger
 	}
 }
 
@@ -204,6 +213,11 @@ func NewAgent(options ...Option) (*Agent, error) {
 
 	for _, option := range options {
 		option(agent)
+	}
+
+	// Initialize default logger if none provided
+	if agent.logger == nil {
+		agent.logger = logging.New()
 	}
 
 	// Different validation for local vs remote agents
@@ -974,7 +988,9 @@ func (a *Agent) configureSubAgentTools() {
 			if a.tracer != nil {
 				agentTool.WithTracer(a.tracer)
 			}
-			// Note: We could also add logger if we had access to it on the agent
+			if a.logger != nil {
+				agentTool.WithLogger(a.logger)
+			}
 		}
 	}
 }
