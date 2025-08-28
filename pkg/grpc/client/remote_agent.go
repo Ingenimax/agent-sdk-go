@@ -386,6 +386,17 @@ func (r *RemoteAgentClient) RunStream(ctx context.Context, input string) (<-chan
 	go func() {
 		defer cancel()
 		defer close(eventChan)
+		
+		// Recover from any panics in the streaming goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				eventChan <- interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     fmt.Errorf("stream panic recovered: %v", r),
+					Timestamp: time.Now(),
+				}
+			}
+		}()
 
 		for {
 			resp, err := stream.Recv()
@@ -402,6 +413,16 @@ func (r *RemoteAgentClient) RunStream(ctx context.Context, input string) (<-chan
 				eventChan <- interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
 					Error:     fmt.Errorf("stream error: %w", err),
+					Timestamp: time.Now(),
+				}
+				return
+			}
+
+			// Check for nil response to prevent panic
+			if resp == nil {
+				eventChan <- interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     fmt.Errorf("received nil response from stream"),
 					Timestamp: time.Now(),
 				}
 				return
@@ -470,6 +491,17 @@ func (r *RemoteAgentClient) RunStreamWithAuth(ctx context.Context, input string,
 	go func() {
 		defer cancel()
 		defer close(eventChan)
+		
+		// Recover from any panics in the streaming goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				eventChan <- interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     fmt.Errorf("stream panic recovered: %v", r),
+					Timestamp: time.Now(),
+				}
+			}
+		}()
 
 		for {
 			resp, err := stream.Recv()
@@ -486,6 +518,16 @@ func (r *RemoteAgentClient) RunStreamWithAuth(ctx context.Context, input string,
 				eventChan <- interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
 					Error:     fmt.Errorf("stream error: %w", err),
+					Timestamp: time.Now(),
+				}
+				return
+			}
+
+			// Check for nil response to prevent panic
+			if resp == nil {
+				eventChan <- interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     fmt.Errorf("received nil response from stream"),
 					Timestamp: time.Now(),
 				}
 				return

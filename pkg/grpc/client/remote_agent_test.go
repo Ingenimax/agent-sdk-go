@@ -686,3 +686,232 @@ func TestRemoteAgentClient_HandlerChaining(t *testing.T) {
 		t.Error("Complete handler was not registered")
 	}
 }
+
+// mockPanicStreamServer simulates the panic scenario
+type mockPanicStreamServer struct {
+	panicOnRecv bool
+	nilResponse bool
+	callCount   int
+}
+
+func (m *mockPanicStreamServer) Recv() (*pb.RunStreamResponse, error) {
+	m.callCount++
+	
+	if m.panicOnRecv {
+		// Simulate the panic that occurs in the real scenario
+		panic("runtime error: invalid memory address or nil pointer dereference")
+	}
+	
+	if m.nilResponse {
+		// Return nil response to test nil handling
+		return nil, nil
+	}
+	
+	// Return EOF after first call to end the stream
+	if m.callCount > 1 {
+		return nil, io.EOF
+	}
+	
+	return &pb.RunStreamResponse{
+		EventType: pb.EventType_EVENT_TYPE_CONTENT,
+		Chunk:     "test content",
+		Timestamp: time.Now().Unix(),
+	}, nil
+}
+
+func (m *mockPanicStreamServer) Header() (metadata.MD, error) {
+	return metadata.MD{}, nil
+}
+
+func (m *mockPanicStreamServer) Trailer() metadata.MD {
+	return metadata.MD{}
+}
+
+func (m *mockPanicStreamServer) CloseSend() error {
+	return nil
+}
+
+func (m *mockPanicStreamServer) Context() context.Context {
+	return context.Background()
+}
+
+func (m *mockPanicStreamServer) SendMsg(m2 any) error {
+	return nil
+}
+
+func (m *mockPanicStreamServer) RecvMsg(m2 any) error {
+	return nil
+}
+
+// mockPanicAgentServiceClient implements a mock gRPC client that can simulate panics
+type mockPanicAgentServiceClient struct {
+	pb.AgentServiceClient
+	panicOnRecv bool
+	nilResponse bool
+}
+
+func (m *mockPanicAgentServiceClient) RunStream(ctx context.Context, req *pb.RunRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[pb.RunStreamResponse], error) {
+	return &mockPanicStreamServer{
+		panicOnRecv: m.panicOnRecv,
+		nilResponse: m.nilResponse,
+	}, nil
+}
+
+// TestRemoteAgentClient_StreamPanicRecovery tests that the client recovers from panics during streaming
+func TestRemoteAgentClient_StreamPanicRecovery(t *testing.T) {
+	// Create mock client that will panic during Recv()
+	mockClient := &mockPanicAgentServiceClient{
+		panicOnRecv: true,
+	}
+
+	// Create remote agent client
+	client := &RemoteAgentClient{
+		client:     mockClient,
+		conn:       &grpc.ClientConn{}, // Mock connection
+		timeout:    5 * time.Second,
+		retryCount: 3,
+	}
+
+	// Test RunStreamWithAuth with panic scenario
+	ctx := context.Background()
+	eventChan, err := client.RunStreamWithAuth(ctx, "test input", "token")
+	if err != nil {
+		t.Fatalf("RunStreamWithAuth failed: %v", err)
+	}
+
+	// Collect events - should receive panic recovery error
+	var events []interfaces.AgentStreamEvent
+	for event := range eventChan {
+		events = append(events, event)
+	}
+
+	// Should receive exactly 1 error event from panic recovery
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 error event from panic recovery, got %d events", len(events))
+	}
+
+	// Verify it's an error event
+	if events[0].Type != interfaces.AgentEventError {
+		t.Errorf("Expected error event type, got %s", events[0].Type)
+	}
+
+	// Verify the error message indicates panic recovery
+	if events[0].Error == nil {
+		t.Fatal("Expected error to be set")
+	}
+	
+	errorMsg := events[0].Error.Error()
+	if !contains(errorMsg, "stream panic recovered") {
+		t.Errorf("Expected panic recovery error message, got: %s", errorMsg)
+	}
+}
+
+// TestRemoteAgentClient_StreamNilResponseHandling tests handling of nil responses
+func TestRemoteAgentClient_StreamNilResponseHandling(t *testing.T) {
+	// Create mock client that returns nil responses
+	mockClient := &mockPanicAgentServiceClient{
+		nilResponse: true,
+	}
+
+	// Create remote agent client
+	client := &RemoteAgentClient{
+		client:     mockClient,
+		conn:       &grpc.ClientConn{}, // Mock connection
+		timeout:    5 * time.Second,
+		retryCount: 3,
+	}
+
+	// Test RunStreamWithAuth with nil response scenario
+	ctx := context.Background()
+	eventChan, err := client.RunStreamWithAuth(ctx, "test input", "token")
+	if err != nil {
+		t.Fatalf("RunStreamWithAuth failed: %v", err)
+	}
+
+	// Collect events - should receive nil response error
+	var events []interfaces.AgentStreamEvent
+	for event := range eventChan {
+		events = append(events, event)
+	}
+
+	// Should receive exactly 1 error event from nil response
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 error event from nil response, got %d events", len(events))
+	}
+
+	// Verify it's an error event
+	if events[0].Type != interfaces.AgentEventError {
+		t.Errorf("Expected error event type, got %s", events[0].Type)
+	}
+
+	// Verify the error message indicates nil response
+	if events[0].Error == nil {
+		t.Fatal("Expected error to be set")
+	}
+	
+	errorMsg := events[0].Error.Error()
+	if !contains(errorMsg, "received nil response") {
+		t.Errorf("Expected nil response error message, got: %s", errorMsg)
+	}
+}
+
+// TestRemoteAgentClient_RunStreamPanicRecovery tests the RunStream method (without auth)
+func TestRemoteAgentClient_RunStreamPanicRecovery(t *testing.T) {
+	// Create mock client that will panic during Recv()
+	mockClient := &mockPanicAgentServiceClient{
+		panicOnRecv: true,
+	}
+
+	// Create remote agent client
+	client := &RemoteAgentClient{
+		client:     mockClient,
+		conn:       &grpc.ClientConn{}, // Mock connection
+		timeout:    5 * time.Second,
+		retryCount: 3,
+	}
+
+	// Test RunStream with panic scenario
+	ctx := context.Background()
+	eventChan, err := client.RunStream(ctx, "test input")
+	if err != nil {
+		t.Fatalf("RunStream failed: %v", err)
+	}
+
+	// Collect events - should receive panic recovery error
+	var events []interfaces.AgentStreamEvent
+	for event := range eventChan {
+		events = append(events, event)
+	}
+
+	// Should receive exactly 1 error event from panic recovery
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 error event from panic recovery, got %d events", len(events))
+	}
+
+	// Verify it's an error event
+	if events[0].Type != interfaces.AgentEventError {
+		t.Errorf("Expected error event type, got %s", events[0].Type)
+	}
+
+	// Verify the error message indicates panic recovery
+	if events[0].Error == nil {
+		t.Fatal("Expected error to be set")
+	}
+	
+	errorMsg := events[0].Error.Error()
+	if !contains(errorMsg, "stream panic recovered") {
+		t.Errorf("Expected panic recovery error message, got: %s", errorMsg)
+	}
+}
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(substr) <= len(s) && func() bool {
+		for i := 0; i <= len(s)-len(substr); i++ {
+			if s[i:i+len(substr)] == substr {
+				return true
+			}
+		}
+		return false
+	}()))
+}
