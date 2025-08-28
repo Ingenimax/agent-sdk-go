@@ -47,13 +47,57 @@ func (c *AnthropicClient) GenerateStream(
 		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
 	}
 
-	// Create messages array with user message
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
+	// Build messages starting with memory context
+	messages := []Message{}
+
+	// Retrieve and add memory messages if available
+	if params.Memory != nil {
+		memoryMessages, err := params.Memory.GetMessages(ctx)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			// Convert memory messages to Anthropic format
+			for _, msg := range memoryMessages {
+				switch msg.Role {
+				case "user":
+					messages = append(messages, Message{
+						Role:    "user",
+						Content: msg.Content,
+					})
+				case "assistant":
+					if msg.Content != "" {
+						messages = append(messages, Message{
+							Role:    "assistant",
+							Content: msg.Content,
+						})
+					}
+				case "tool":
+					// Tool messages in Anthropic are handled as user messages with tool results
+					if msg.ToolCallID != "" {
+						toolName := "unknown"
+						if msg.Metadata != nil {
+							if name, ok := msg.Metadata["tool_name"].(string); ok {
+								toolName = name
+							}
+						}
+						messages = append(messages, Message{
+							Role:    "user",
+							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
+						})
+					}
+				// Skip system messages as they're handled separately in Anthropic
+				}
+			}
+		}
 	}
+
+	// Add current user message
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: prompt,
+	})
 
 	// Create request with streaming enabled
 	// Note: MaxTokens must be greater than reasoning budget_tokens
@@ -131,8 +175,8 @@ func (c *AnthropicClient) GenerateStream(
 		}()
 
 
-		// Execute the streaming request
-		if err := c.executeStreamingRequest(ctx, req, eventChan); err != nil {
+		// Execute the streaming request with memory support
+		if err := c.executeStreamingRequestWithMemory(ctx, req, eventChan, prompt, params); err != nil {
 			select {
 			case eventChan <- interfaces.StreamEvent{
 				Type:      interfaces.StreamEventError,
@@ -153,6 +197,16 @@ func (c *AnthropicClient) executeStreamingRequest(
 	ctx context.Context,
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
+) error {
+	return c.executeStreamingRequestWithMemory(ctx, req, eventChan, "", nil)
+}
+
+func (c *AnthropicClient) executeStreamingRequestWithMemory(
+	ctx context.Context,
+	req CompletionRequest,
+	eventChan chan<- interfaces.StreamEvent,
+	prompt string,
+	params *interfaces.GenerateOptions,
 ) error {
 	operation := func() error {
 		c.logger.Debug(ctx, "Executing Anthropic streaming API request", map[string]interface{}{
@@ -238,8 +292,7 @@ func (c *AnthropicClient) executeStreamingRequest(
 		scanner := bufio.NewScanner(httpResp.Body)
 
 		// Parse SSE stream
-		c.parseSSEStream(ctx, scanner, eventChan)
-		
+		_ = c.parseSSEStreamAndCapture(ctx, scanner, eventChan, req, prompt, params)
 
 		c.logger.Debug(ctx, "Successfully completed Anthropic streaming request", map[string]interface{}{
 			"model": c.Model,
@@ -389,12 +442,71 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	params *interfaces.GenerateOptions,
 	eventChan chan<- interfaces.StreamEvent,
 ) error {
-	// Create messages array with user message
-	messages := []Message{
-		{
+	// Build messages starting with memory context
+	messages := []Message{}
+
+	// Retrieve and add memory messages if available
+	if params.Memory != nil {
+		memoryMessages, err := params.Memory.GetMessages(ctx)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			// Convert memory messages to Anthropic format
+			for _, msg := range memoryMessages {
+				switch msg.Role {
+				case "user":
+					messages = append(messages, Message{
+						Role:    "user",
+						Content: msg.Content,
+					})
+				case "assistant":
+					if msg.Content != "" {
+						messages = append(messages, Message{
+							Role:    "assistant",
+							Content: msg.Content,
+						})
+					}
+				case "tool":
+					// Tool messages in Anthropic are handled as user messages with tool results
+					if msg.ToolCallID != "" {
+						toolName := "unknown"
+						if msg.Metadata != nil {
+							if name, ok := msg.Metadata["tool_name"].(string); ok {
+								toolName = name
+							}
+						}
+						messages = append(messages, Message{
+							Role:    "user",
+							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
+						})
+					}
+				// Skip system messages as they're handled separately in Anthropic
+				}
+			}
+		}
+	}
+
+	// Add current user message
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	// Store initial messages in memory (only new user message and system message)
+	if params.Memory != nil {
+		_ = params.Memory.AddMessage(ctx, interfaces.Message{
 			Role:    "user",
 			Content: prompt,
-		},
+		})
+		
+		if params.SystemMessage != "" {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "system",
+				Content: params.SystemMessage,
+			})
+		}
 	}
 
 	// Get maxIterations from params
@@ -543,6 +655,49 @@ func (c *AnthropicClient) executeStreamingWithTools(
 				toolResult = fmt.Sprintf("Error: %v", err)
 			}
 
+			// Store tool call and result in memory if provided
+			if params.Memory != nil {
+				if err != nil {
+					// Store failed tool call result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Name,
+							Arguments: toolCall.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error: %v", err),
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Name,
+						},
+					})
+				} else {
+					// Store successful tool call and result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Name,
+							Arguments: toolCall.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Name,
+						},
+					})
+				}
+			}
+
 			// Add tool result message
 			messages = append(messages, Message{
 				Role:    "user", // Tool results come as user messages to Anthropic
@@ -614,8 +769,8 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	}
 
 
-	// Execute final request to get synthesized answer
-	err := c.executeStreamingRequest(ctx, finalReq, eventChan)
+	// Execute final request to get synthesized answer with memory support
+	err := c.executeStreamingRequestWithMemory(ctx, finalReq, eventChan, "", params)
 	return err
 }
 

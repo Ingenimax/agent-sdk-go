@@ -36,17 +36,66 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	}
 	_ = orgID
 
-	// Prepare content similar to non-streaming Generate method
-	parts := []*genai.Part{
-		{Text: prompt},
+	// Build contents starting with memory context
+	contents := []*genai.Content{}
+
+	// Retrieve and add memory messages if available
+	if params.Memory != nil {
+		memoryMessages, err := params.Memory.GetMessages(ctx)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			// Convert memory messages to Gemini format
+			for _, msg := range memoryMessages {
+				switch msg.Role {
+				case "user":
+					contents = append(contents, &genai.Content{
+						Role:  "user",
+						Parts: []*genai.Part{{Text: msg.Content}},
+					})
+				case "assistant":
+					if msg.Content != "" {
+						contents = append(contents, &genai.Content{
+							Role:  "model",
+							Parts: []*genai.Part{{Text: msg.Content}},
+						})
+					}
+				case "tool":
+					// Tool messages in Gemini are handled as function responses
+					if msg.ToolCallID != "" {
+						toolName := "unknown"
+						if msg.Metadata != nil {
+							if name, ok := msg.Metadata["tool_name"].(string); ok {
+								toolName = name
+							}
+						}
+						contents = append(contents, &genai.Content{
+							Role: "user",
+							Parts: []*genai.Part{
+								{
+									FunctionResponse: &genai.FunctionResponse{
+										Name: toolName,
+										Response: map[string]any{
+											"result": msg.Content,
+										},
+									},
+								},
+							},
+						})
+					}
+				// Skip system messages as they're handled separately in Gemini
+				}
+			}
+		}
 	}
 
-	contents := []*genai.Content{
-		{
-			Role:  "user",
-			Parts: parts,
-		},
-	}
+	// Add current user message
+	contents = append(contents, &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: prompt}},
+	})
 
 	// Add system instruction if provided or if reasoning is specified
 	var systemInstruction *genai.Content
@@ -175,6 +224,9 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 			"thinkingEnabled": SupportsThinking(c.model) && c.thinkingConfig != nil && c.thinkingConfig.IncludeThoughts,
 		})
 
+		// Track accumulated content for memory storage
+		var accumulatedContent strings.Builder
+
 		// Start streaming
 		streamIter := c.client.Models.GenerateContentStream(ctx, c.model, contents, config)
 		
@@ -220,7 +272,8 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 							return
 						}
 					} else {
-						// Send content delta event
+						// Send content delta event and accumulate for memory
+						accumulatedContent.WriteString(part.Text)
 						select {
 						case eventCh <- interfaces.StreamEvent{
 							Type:      interfaces.StreamEventContentDelta,
@@ -232,6 +285,31 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 						}
 					}
 				}
+			}
+		}
+
+		// Store messages in memory if provided
+		if params.Memory != nil {
+			// Store user message
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			})
+			
+			// Store system message if provided
+			if params.SystemMessage != "" {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "system",
+					Content: params.SystemMessage,
+				})
+			}
+			
+			// Store accumulated assistant response
+			if accumulatedContent.Len() > 0 {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "assistant",
+					Content: accumulatedContent.String(),
+				})
 			}
 		}
 
@@ -371,19 +449,82 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		toolMap[tool.Name()] = tool
 	}
 	
-	// Track if we already got a final response (when no tool calls were made)
-	gotFinalResponse := false
+	// Track tool calls for clean loop continuation
 
-	// Prepare initial content
-	parts := []*genai.Part{
-		{Text: prompt},
+	// Build contents starting with memory context
+	contents := []*genai.Content{}
+
+	// Retrieve and add memory messages if available
+	if params.Memory != nil {
+		memoryMessages, err := params.Memory.GetMessages(ctx)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			// Convert memory messages to Gemini format
+			for _, msg := range memoryMessages {
+				switch msg.Role {
+				case "user":
+					contents = append(contents, &genai.Content{
+						Role:  "user",
+						Parts: []*genai.Part{{Text: msg.Content}},
+					})
+				case "assistant":
+					if msg.Content != "" {
+						contents = append(contents, &genai.Content{
+							Role:  "model",
+							Parts: []*genai.Part{{Text: msg.Content}},
+						})
+					}
+				case "tool":
+					// Tool messages in Gemini are handled as function responses
+					if msg.ToolCallID != "" {
+						toolName := "unknown"
+						if msg.Metadata != nil {
+							if name, ok := msg.Metadata["tool_name"].(string); ok {
+								toolName = name
+							}
+						}
+						contents = append(contents, &genai.Content{
+							Role: "user",
+							Parts: []*genai.Part{
+								{
+									FunctionResponse: &genai.FunctionResponse{
+										Name: toolName,
+										Response: map[string]any{
+											"result": msg.Content,
+										},
+									},
+								},
+							},
+						})
+					}
+				// Skip system messages as they're handled separately in Gemini
+				}
+			}
+		}
 	}
 
-	contents := []*genai.Content{
-		{
-			Role:  "user",
-			Parts: parts,
-		},
+	// Add current user message
+	contents = append(contents, &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: prompt}},
+	})
+
+	// Store initial messages in memory (only new user message and system message)
+	if params.Memory != nil {
+		_ = params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:    "user",
+			Content: prompt,
+		})
+		
+		if params.SystemMessage != "" {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "system",
+				Content: params.SystemMessage,
+			})
+		}
 	}
 
 	// Add system instruction if provided
@@ -496,258 +637,197 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			"tools":         len(tools),
 		})
 
-		// Generate content with tools
-		result, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
+		// Execute streaming request and collect tool calls
+		toolCalls, _, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh)
 		if err != nil {
-			// Log the error but don't return immediately - try to continue with a final response
-			c.logger.Error(ctx, "Error generating content with tools, attempting recovery", map[string]interface{}{
-				"iteration": iteration + 1,
-				"error":     err.Error(),
-				"model":     c.model,
-			})
-			
-			// If this is not the last iteration and we have tool errors, continue to next iteration
-			// Otherwise, break and try final response without tools
-			if iteration < maxIterations-1 {
-				// Check if we had tool errors - if so, the LLM might need another chance
-				hasToolErrors := false
-				for _, content := range contents {
-					if content.Role == "user" {
-						for _, part := range content.Parts {
-							if part.FunctionResponse != nil {
-								if errVal, ok := part.FunctionResponse.Response["error"]; ok && errVal != nil {
-									hasToolErrors = true
-									break
-								}
-							}
-						}
-					}
-				}
-				
-				if hasToolErrors {
-					// Give the LLM another chance to work with the error responses
-					continue
-				}
-			}
-			
-			// Break to attempt final response without tools
-			break
+			return "", err
 		}
 
-		if len(result.Candidates) == 0 {
-			c.logger.Warn(ctx, "No candidates returned, attempting recovery", map[string]interface{}{
-				"iteration": iteration + 1,
-			})
-			// Break to attempt final response without tools
-			break
+		// If no tool calls, we're done with the iteration loop
+		if len(toolCalls) == 0 {
+			// No tool calls means we have received the final response content
+			// The streaming has already been handled by executeStreamingRequestWithToolCapture
+			return "", nil
 		}
 
-		candidate := result.Candidates[0]
-		if candidate.Content == nil {
-			c.logger.Warn(ctx, "No content in candidate, attempting recovery", map[string]interface{}{
-				"iteration": iteration + 1,
-			})
-			// Break to attempt final response without tools
-			break
-		}
-
-		// Check if there are function calls to process
-		hasFunctionCalls := false
-		for _, part := range candidate.Content.Parts {
-			if part.FunctionCall != nil {
-				hasFunctionCalls = true
-				break
-			}
-		}
-
-		if !hasFunctionCalls {
-			// No more function calls, stream the final response and break the loop
-			for _, part := range candidate.Content.Parts {
-				if part.Text != "" {
-					// Send the text as streaming events
-					select {
-					case eventCh <- interfaces.StreamEvent{
-						Type:      interfaces.StreamEventContentDelta,
-						Content:   part.Text,
-						Timestamp: time.Now(),
-					}:
-					case <-ctx.Done():
-						return "", ctx.Err()
-					}
-				}
-			}
-			// Mark that we got final response and break
-			gotFinalResponse = true
-			break
-		}
-
-		// Process function calls and emit streaming events
-		c.logger.Info(ctx, "Processing function calls for streaming", map[string]interface{}{
+		// Execute tools and add results to conversation
+		c.logger.Info(ctx, "Processing tool calls in streaming", map[string]interface{}{
+			"count":     len(toolCalls),
 			"iteration": iteration + 1,
 		})
 
-		// Add the assistant's message with function calls to the conversation
-		assistantContent := &genai.Content{
+		// Add assistant message with tool calls
+		assistantMessage := &genai.Content{
 			Role:  "model",
-			Parts: candidate.Content.Parts,
+			Parts: []*genai.Part{},
 		}
-		contents = append(contents, assistantContent)
 
-		// Process each function call
-		for _, part := range candidate.Content.Parts {
-			if part.FunctionCall == nil {
-				continue
+		// Convert tool calls to Gemini format and add to message
+		for _, toolCall := range toolCalls {
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+				args = make(map[string]interface{})
 			}
-
-			functionCall := part.FunctionCall
-
-			// Send tool use event
-			argsBytes, _ := json.Marshal(functionCall.Args)
-			select {
-			case eventCh <- interfaces.StreamEvent{
-				Type:      interfaces.StreamEventToolUse,
-				Timestamp: time.Now(),
-				ToolCall: &interfaces.ToolCall{
-					ID:        fmt.Sprintf("tool_%d_%s", iteration, functionCall.Name),
-					Name:      functionCall.Name,
-					Arguments: string(argsBytes),
+			assistantMessage.Parts = append(assistantMessage.Parts, &genai.Part{
+				FunctionCall: &genai.FunctionCall{
+					Name: toolCall.Name,
+					Args: args,
 				},
-			}:
-			case <-ctx.Done():
-				return "", ctx.Err()
+			})
+		}
+
+		contents = append(contents, assistantMessage)
+
+		// Execute each tool and add results
+		for _, toolCall := range toolCalls {
+			// Find the requested tool
+			var selectedTool interfaces.Tool
+			for _, tool := range tools {
+				if tool.Name() == toolCall.Name {
+					selectedTool = tool
+					break
+				}
 			}
 
-			// Find and execute the tool
-			selectedTool, exists := toolMap[functionCall.Name]
-			if !exists {
-				errorMsg := fmt.Sprintf("Tool '%s' not found", functionCall.Name)
+			if selectedTool == nil {
+				c.logger.Error(ctx, "Tool not found in streaming", map[string]interface{}{
+					"toolName": toolCall.Name,
+				})
 				
-				// Send tool result error event
-				select {
-				case eventCh <- interfaces.StreamEvent{
-					Type:      interfaces.StreamEventToolResult,
-					Content:   errorMsg,
-					Timestamp: time.Now(),
-					ToolCall: &interfaces.ToolCall{
-						ID:        fmt.Sprintf("tool_%d_%s", iteration, functionCall.Name),
-						Name:      functionCall.Name,
-						Arguments: string(argsBytes),
-					},
-				}:
-				case <-ctx.Done():
-					return "", ctx.Err()
-				}
-
-				// Add error message as function response
+				// Add tool not found error as tool result instead of returning
+				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
+				
+				// Add tool result message
 				contents = append(contents, &genai.Content{
 					Role: "user",
 					Parts: []*genai.Part{
 						{
 							FunctionResponse: &genai.FunctionResponse{
-								Name: functionCall.Name,
+								Name: toolCall.Name,
 								Response: map[string]any{
-									"error": errorMsg,
+									"error": errorMessage,
 								},
 							},
 						},
 					},
 				})
-				continue
+
+				// Send tool result event with error
+				select {
+				case eventCh <- interfaces.StreamEvent{
+					Type: interfaces.StreamEventToolResult,
+					ToolCall: &interfaces.ToolCall{
+						ID:        toolCall.ID,
+						Name:      toolCall.Name,
+						Arguments: toolCall.Arguments,
+					},
+					Content:   errorMessage,
+					Timestamp: time.Now(),
+				}:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+				
+				continue // Continue processing other tool calls
 			}
 
-			c.logger.Info(ctx, "Executing tool for streaming", map[string]interface{}{
-				"toolName": selectedTool.Name(),
+			// Execute tool
+			c.logger.Info(ctx, "Executing tool in streaming", map[string]interface{}{
+				"toolName":  toolCall.Name,
+				"arguments": toolCall.Arguments,
+				"iteration": iteration + 1,
 			})
 
-			// Convert function args to JSON string for tool execution (reuse already marshaled args)
-			toolStartTime := time.Now()
-			toolResult, err := selectedTool.Execute(ctx, string(argsBytes))
-			toolEndTime := time.Now()
-
-			// Send tool result event
-			toolResultContent := toolResult
+			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
-				// Log tool failure with details
-				c.logger.Error(ctx, "Tool execution failed during streaming", map[string]interface{}{
-					"toolName": selectedTool.Name(),
-					"toolArgs": string(argsBytes),
-					"error":    err.Error(),
-					"duration": toolEndTime.Sub(toolStartTime).String(),
-				})
-				toolResultContent = fmt.Sprintf("Error: %v", err)
+				toolResult = fmt.Sprintf("Error: %v", err)
 			}
 
+			// Store tool call and result in memory if provided
+			if params.Memory != nil {
+				if err != nil {
+					// Store failed tool call result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Name,
+							Arguments: toolCall.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error: %v", err),
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Name,
+						},
+					})
+				} else {
+					// Store successful tool call and result
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:    "assistant",
+						Content: "",
+						ToolCalls: []interfaces.ToolCall{{
+							ID:        toolCall.ID,
+							Name:      toolCall.Name,
+							Arguments: toolCall.Arguments,
+						}},
+					})
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Name,
+						},
+					})
+				}
+			}
+
+			// Add tool result message
+			contents = append(contents, &genai.Content{
+				Role: "user",
+				Parts: []*genai.Part{
+					{
+						FunctionResponse: &genai.FunctionResponse{
+							Name: toolCall.Name,
+							Response: map[string]any{
+								"result": toolResult,
+							},
+						},
+					},
+				},
+			})
+
+			// Send tool result event
 			select {
 			case eventCh <- interfaces.StreamEvent{
-				Type:      interfaces.StreamEventToolResult,
-				Content:   toolResultContent,
-				Timestamp: time.Now(),
+				Type: interfaces.StreamEventToolResult,
 				ToolCall: &interfaces.ToolCall{
-					ID:        fmt.Sprintf("tool_%d_%s", iteration, functionCall.Name),
-					Name:      functionCall.Name,
-					Arguments: string(argsBytes),
+					ID:        toolCall.ID,
+					Name:      toolCall.Name,
+					Arguments: toolCall.Arguments,
 				},
+				Content:   toolResult, // Tool result goes in Content field
+				Timestamp: time.Now(),
 			}:
 			case <-ctx.Done():
 				return "", ctx.Err()
 			}
-
-			// Add tool result to conversation
-			var resultContent *genai.Content
-			if err != nil {
-				c.logger.Error(ctx, "Error executing tool for streaming", map[string]interface{}{
-					"toolName": selectedTool.Name(),
-					"error":    err.Error(),
-				})
-
-				resultContent = &genai.Content{
-					Role: "user",
-					Parts: []*genai.Part{
-						{
-							FunctionResponse: &genai.FunctionResponse{
-								Name: functionCall.Name,
-								Response: map[string]any{
-									"error": err.Error(),
-								},
-							},
-						},
-					},
-				}
-			} else {
-				resultContent = &genai.Content{
-					Role: "user",
-					Parts: []*genai.Part{
-						{
-							FunctionResponse: &genai.FunctionResponse{
-								Name: functionCall.Name,
-								Response: map[string]any{
-									"result": toolResult,
-								},
-							},
-						},
-					},
-				}
-			}
-
-			contents = append(contents, resultContent)
 		}
+
+		// Continue to next iteration with updated conversation
 	}
 
-	// Check if we already have a final response (broke early due to no function calls)
-	if gotFinalResponse {
-		// We already streamed the final response, just return
-		c.logger.Info(ctx, "Already streamed final response, skipping final call", map[string]interface{}{
-			"maxIterations": maxIterations,
-		})
-		return "", nil
-	}
-	
-	// If we've reached max iterations without a final response, make final call without tools
+	// After all tool iterations, make a final call without tools to get the synthesized answer
+	// This ensures the LLM provides a final response after processing all tool results
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
 
-	// Add conclusion instruction
+	// Add a message to inform the LLM this is the final call
 	contents = append(contents, &genai.Content{
 		Role: "user",
 		Parts: []*genai.Part{
@@ -775,6 +855,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: systemInstruction,
+		// No tools in final request - we want a final answer
 	}
 	
 	// Apply generation config parameters
@@ -790,28 +871,13 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 	}
 	
-	finalResult, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
+	// Execute final request to get synthesized answer using streaming
+	_, _, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh)
 	if err != nil {
 		return "", fmt.Errorf("failed to create final content: %w", err)
 	}
 
-	if len(finalResult.Candidates) == 0 {
-		return "", fmt.Errorf("no candidates returned in final call")
-	}
-
-	candidate := finalResult.Candidates[0]
-	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return "", fmt.Errorf("no content in final response")
-	}
-
-	var finalResponse strings.Builder
-	for _, part := range candidate.Content.Parts {
-		if part.Text != "" {
-			finalResponse.WriteString(part.Text)
-		}
-	}
-
-	return finalResponse.String(), nil
+	return "", nil
 }
 
 // streamResponse streams a response string in chunks
@@ -843,4 +909,74 @@ func (c *GeminiClient) streamResponse(ctx context.Context, response string, even
 			return
 		}
 	}
+}
+
+// executeStreamingRequestWithToolCapture executes a streaming request and captures tool calls
+func (c *GeminiClient) executeStreamingRequestWithToolCapture(
+	ctx context.Context,
+	contents []*genai.Content,
+	config *genai.GenerateContentConfig,
+	eventCh chan<- interfaces.StreamEvent,
+) ([]interfaces.ToolCall, bool, error) {
+	
+	var toolCalls []interfaces.ToolCall
+	var hasContent bool
+
+	c.logger.Debug(ctx, "Executing Gemini streaming request with tool capture", map[string]interface{}{
+		"model": c.model,
+	})
+
+	// Generate content with tools
+	result, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to generate content: %w", err)
+	}
+
+	if len(result.Candidates) == 0 {
+		return nil, false, fmt.Errorf("no candidates returned")
+	}
+
+	candidate := result.Candidates[0]
+	if candidate.Content == nil {
+		return nil, false, fmt.Errorf("no content in candidate")
+	}
+
+	// Process each part in the content
+	for _, part := range candidate.Content.Parts {
+		if part.FunctionCall != nil {
+			// This is a tool call - capture it
+			argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+			toolCall := interfaces.ToolCall{
+				ID:        fmt.Sprintf("gemini_tool_%s", part.FunctionCall.Name),
+				Name:      part.FunctionCall.Name,
+				Arguments: string(argsBytes),
+			}
+			toolCalls = append(toolCalls, toolCall)
+
+			// Send tool use event to stream
+			select {
+			case eventCh <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventToolUse,
+				Timestamp: time.Now(),
+				ToolCall:  &toolCall,
+			}:
+			case <-ctx.Done():
+				return nil, false, ctx.Err()
+			}
+		} else if part.Text != "" {
+			// This is content - stream it immediately
+			hasContent = true
+			select {
+			case eventCh <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventContentDelta,
+				Content:   part.Text,
+				Timestamp: time.Now(),
+			}:
+			case <-ctx.Done():
+				return nil, false, ctx.Err()
+			}
+		}
+	}
+
+	return toolCalls, hasContent, nil
 }

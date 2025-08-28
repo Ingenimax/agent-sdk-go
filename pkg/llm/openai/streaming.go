@@ -50,17 +50,49 @@ func (c *OpenAIClient) GenerateStream(
 	go func() {
 		defer close(eventChan)
 
-		// Build messages
-		messages := []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
+		// Build messages starting with memory context
+		messages := []openai.ChatCompletionMessageParamUnion{}
+
+		// Add system message first (if reasoning model allows it)
+		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
+			messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		}
 
-		// Reasoning models don't support system messages
-		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
-			messages = append([]openai.ChatCompletionMessageParamUnion{
-				openai.SystemMessage(params.SystemMessage),
-			}, messages...)
+		// Retrieve and add memory messages if available
+		if params.Memory != nil {
+			memoryMessages, err := params.Memory.GetMessages(ctx)
+			if err != nil {
+				c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+					"error": err.Error(),
+				})
+			} else {
+				// Convert memory messages to OpenAI format
+				for _, msg := range memoryMessages {
+					switch msg.Role {
+					case "user":
+						messages = append(messages, openai.UserMessage(msg.Content))
+					case "assistant":
+						// For now, treat assistant messages with tool calls as regular assistant messages
+						// The tool results will be added separately as tool messages
+						if msg.Content != "" {
+							messages = append(messages, openai.AssistantMessage(msg.Content))
+						}
+					case "tool":
+						if msg.ToolCallID != "" {
+							messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
+						}
+					case "system":
+						// Only add system messages if not reasoning model and not already added
+						if !isReasoningModel(c.Model) {
+							messages = append(messages, openai.SystemMessage(msg.Content))
+						}
+					}
+				}
+			}
 		}
+
+		// Add current user message
+		messages = append(messages, openai.UserMessage(prompt))
 
 		// Create stream request
 		streamParams := openai.ChatCompletionNewParams{
@@ -148,6 +180,9 @@ func (c *OpenAIClient) GenerateStream(
 			},
 		}
 
+		// Track accumulated content for memory storage
+		var accumulatedContent strings.Builder
+
 		// Process stream chunks
 		for stream.Next() {
 			chunk := stream.Current()
@@ -156,6 +191,7 @@ func (c *OpenAIClient) GenerateStream(
 			for _, choice := range chunk.Choices {
 				// Handle content delta
 				if choice.Delta.Content != "" {
+					accumulatedContent.WriteString(choice.Delta.Content)
 					eventChan <- interfaces.StreamEvent{
 						Type:      interfaces.StreamEventContentDelta,
 						Content:   choice.Delta.Content,
@@ -231,6 +267,31 @@ func (c *OpenAIClient) GenerateStream(
 			return
 		}
 
+		// Store messages in memory if provided
+		if params.Memory != nil {
+			// Store user message
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			})
+			
+			// Store system message if provided
+			if params.SystemMessage != "" {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "system",
+					Content: params.SystemMessage,
+				})
+			}
+			
+			// Store accumulated assistant response
+			if accumulatedContent.Len() > 0 {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "assistant",
+					Content: accumulatedContent.String(),
+				})
+			}
+		}
+
 		// Send final message stop event
 		eventChan <- interfaces.StreamEvent{
 			Type:      interfaces.StreamEventMessageStop,
@@ -302,16 +363,63 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			})
 		}
 
-		// Build initial messages
-		messages := []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
+		// Build messages starting with memory context
+		messages := []openai.ChatCompletionMessageParamUnion{}
+
+		// Add system message first (if reasoning model allows it)
+		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
+			messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		}
 
-		// Reasoning models don't support system messages
-		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
-			messages = append([]openai.ChatCompletionMessageParamUnion{
-				openai.SystemMessage(params.SystemMessage),
-			}, messages...)
+		// Retrieve and add memory messages if available
+		if params.Memory != nil {
+			memoryMessages, err := params.Memory.GetMessages(ctx)
+			if err != nil {
+				c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+					"error": err.Error(),
+				})
+			} else {
+				// Convert memory messages to OpenAI format
+				for _, msg := range memoryMessages {
+					switch msg.Role {
+					case "user":
+						messages = append(messages, openai.UserMessage(msg.Content))
+					case "assistant":
+						// For now, treat assistant messages with tool calls as regular assistant messages
+						// The tool results will be added separately as tool messages
+						if msg.Content != "" {
+							messages = append(messages, openai.AssistantMessage(msg.Content))
+						}
+					case "tool":
+						if msg.ToolCallID != "" {
+							messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
+						}
+					case "system":
+						// Only add system messages if not reasoning model and not already added
+						if !isReasoningModel(c.Model) {
+							messages = append(messages, openai.SystemMessage(msg.Content))
+						}
+					}
+				}
+			}
+		}
+
+		// Add current user message
+		messages = append(messages, openai.UserMessage(prompt))
+
+		// Store initial messages in memory
+		if params.Memory != nil {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "user",
+				Content: prompt,
+			})
+			
+			if params.SystemMessage != "" {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "system",
+					Content: params.SystemMessage,
+				})
+			}
 		}
 
 		// Send initial message start event
@@ -588,6 +696,49 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					result = fmt.Sprintf("Error executing tool: %v", err)
 				}
 
+				// Store tool call and result in memory if provided
+				if params.Memory != nil {
+					if err != nil {
+						// Store failed tool call result
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []interfaces.ToolCall{{
+								ID:        toolCall.ID,
+								Name:      toolCall.Function.Name,
+								Arguments: toolCall.Function.Arguments,
+							}},
+						})
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:       "tool",
+							Content:    fmt.Sprintf("Error: %v", err),
+							ToolCallID: toolCall.ID,
+							Metadata: map[string]interface{}{
+								"tool_name": toolCall.Function.Name,
+							},
+						})
+					} else {
+						// Store successful tool call and result
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []interfaces.ToolCall{{
+								ID:        toolCall.ID,
+								Name:      toolCall.Function.Name,
+								Arguments: toolCall.Function.Arguments,
+							}},
+						})
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:       "tool",
+							Content:    result,
+							ToolCallID: toolCall.ID,
+							Metadata: map[string]interface{}{
+								"tool_name": toolCall.Function.Name,
+							},
+						})
+					}
+				}
+
 				// Send tool result event
 				eventChan <- interfaces.StreamEvent{
 					Type:      interfaces.StreamEventToolResult,
@@ -680,6 +831,9 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			return
 		}
 
+		// Track final content for memory storage
+		var finalContent strings.Builder
+
 		// Process final stream
 		for finalStream.Next() {
 			chunk := finalStream.Current()
@@ -687,6 +841,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			for _, choice := range chunk.Choices {
 				// Handle final content
 				if choice.Delta.Content != "" {
+					finalContent.WriteString(choice.Delta.Content)
 					eventChan <- interfaces.StreamEvent{
 						Type:      interfaces.StreamEventContentDelta,
 						Content:   choice.Delta.Content,
@@ -725,6 +880,14 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				Timestamp: time.Now(),
 			}
 			return
+		}
+
+		// Store final assistant response
+		if params.Memory != nil && finalContent.Len() > 0 {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "assistant",
+				Content: finalContent.String(),
+			})
 		}
 
 		// Send final message stop event

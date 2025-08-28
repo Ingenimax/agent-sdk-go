@@ -306,8 +306,10 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 	return streamEvent, nil
 }
 
-// parseSSEStream parses an SSE stream and sends events to the provided channel
-func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Scanner, eventChan chan<- interfaces.StreamEvent) {
+
+// parseSSEStreamAndCapture parses SSE stream and captures content for memory storage
+func (c *AnthropicClient) parseSSEStreamAndCapture(ctx context.Context, scanner *bufio.Scanner, eventChan chan<- interfaces.StreamEvent, req CompletionRequest, prompt string, params *interfaces.GenerateOptions) string {
+	var accumulatedContent strings.Builder
 	
 	var currentEvent *AnthropicSSEEvent
 	// Track which block indices are thinking blocks
@@ -328,8 +330,8 @@ func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Sca
 		// Empty line indicates end of current event
 		if line == "" {
 			if currentEvent != nil && len(currentEvent.Data) > 0 {
-				// Process complete event
-				if err := c.processCompleteSSEEvent(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks); err != nil {
+				// Process complete event and capture content
+				if err := c.processCompleteSSEEventAndCapture(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks, &accumulatedContent); err != nil {
 					c.logger.Error(ctx, "Failed to process SSE event", map[string]interface{}{
 						"error":       err.Error(),
 						"event_type":  currentEvent.Type,
@@ -340,7 +342,7 @@ func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Sca
 						Error:     fmt.Errorf("failed to process SSE event: %w", err),
 						Timestamp: time.Now(),
 					}
-					return
+					break
 				}
 				currentEvent = nil
 			}
@@ -371,7 +373,7 @@ func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Sca
 					Type:      interfaces.StreamEventMessageStop,
 					Timestamp: time.Now(),
 				}
-				return
+				break
 			}
 			
 			// Skip empty data
@@ -391,9 +393,8 @@ func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Sca
 	
 	// Process any remaining event
 	if currentEvent != nil && len(currentEvent.Data) > 0 {
-		_ = c.processCompleteSSEEvent(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks)
+		_ = c.processCompleteSSEEventAndCapture(ctx, currentEvent, eventChan, thinkingBlocks, toolBlocks, &accumulatedContent)
 	}
-	
 	
 	// Check for scanner error
 	if err := scanner.Err(); err != nil {
@@ -403,13 +404,40 @@ func (c *AnthropicClient) parseSSEStream(ctx context.Context, scanner *bufio.Sca
 			Timestamp: time.Now(),
 		}
 	}
+	
+	// Store messages in memory if provided
+	if params != nil && params.Memory != nil {
+		// Store user message
+		_ = params.Memory.AddMessage(ctx, interfaces.Message{
+			Role:    "user",
+			Content: prompt,
+		})
+		
+		// Store system message if provided
+		if req.System != "" {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "system",
+				Content: req.System,
+			})
+		}
+		
+		// Store accumulated assistant response
+		if accumulatedContent.Len() > 0 {
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:    "assistant",
+				Content: accumulatedContent.String(),
+			})
+		}
+	}
+	
+	return accumulatedContent.String()
 }
 
-func (c *AnthropicClient) processCompleteSSEEvent(ctx context.Context, event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
+func (c *AnthropicClient) processCompleteSSEEventAndCapture(ctx context.Context, event *AnthropicSSEEvent, eventChan chan<- interfaces.StreamEvent, thinkingBlocks map[int]bool, toolBlocks map[int]struct {
 	ID        string
 	Name      string
 	InputJSON strings.Builder
-}) error {
+}, accumulatedContent *strings.Builder) error {
 	
 	// Handle done event
 	if event.Type == "done" || event.Type == "" {
@@ -428,6 +456,11 @@ func (c *AnthropicClient) processCompleteSSEEvent(ctx context.Context, event *An
 	
 	// Skip nil events (like ping)
 	if streamEvent != nil {
+		// Capture content for memory storage (only regular content, not thinking)
+		if streamEvent.Type == interfaces.StreamEventContentDelta && streamEvent.Content != "" {
+			accumulatedContent.WriteString(streamEvent.Content)
+		}
+		
 		eventChan <- *streamEvent
 	}
 	
