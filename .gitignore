@@ -60,3 +60,6 @@ debug.test
 # Binary files
 bin/
 dist/
+
+# Python virtualenv
+venv/

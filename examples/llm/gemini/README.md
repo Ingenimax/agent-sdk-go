@@ -4,13 +4,22 @@ This directory contains examples demonstrating how to use the Gemini API integra
 
 ## Prerequisites
 
-Before running these examples, you need:
+Before running these examples, you need one of the following:
 
+### Option 1: Gemini API (Recommended for most users)
 1. **Google Cloud API Key**: Get your API key from the [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. **Environment Variable**: Set your API key as an environment variable:
    ```bash
    export GEMINI_API_KEY="your-api-key-here"
    ```
+
+### Option 2: Vertex AI (For Google Cloud Platform users)
+1. **GCP Project ID**: Your Google Cloud Platform project ID
+2. **Environment Variable**: Set your project ID as an environment variable:
+   ```bash
+   export GEMINI_VERTEX_PROJECT_ID="your-gcp-project-id"
+   ```
+3. **Authentication**: Ensure you have authenticated with GCP CLI (`gcloud auth application-default login`)
 
 ## Available Examples
 
@@ -51,7 +60,7 @@ Shows vision and audio capabilities:
 The Gemini integration supports multiple models:
 
 - `gemini-2.5-pro-latest` - Most capable model with vision, audio, and tool calling
-- `gemini-2.5-flash-latest` - Fast model with vision, audio, and tool calling  
+- `gemini-2.5-flash-latest` - Fast model with vision, audio, and tool calling
 - `gemini-2.5-flash-lite-latest` - Fastest model, text-only
 - `gemini-1.5-pro` - Previous generation with vision and tool calling
 - `gemini-1.5-flash` - Previous generation fast model with vision
@@ -101,7 +110,7 @@ for event := range stream {
 ### Reasoning Modes
 ```go
 // Comprehensive reasoning - detailed step-by-step explanations
-response, err := client.Generate(ctx, "Solve this math problem: 2x + 5 = 13", 
+response, err := client.Generate(ctx, "Solve this math problem: 2x + 5 = 13",
     gemini.WithReasoning("comprehensive"))
 
 // Minimal reasoning - brief explanations
@@ -160,7 +169,7 @@ Gemini includes built-in safety filtering. You can configure safety settings:
 // Default safety settings are applied automatically
 // Blocks medium and high risk content for:
 // - Harassment
-// - Hate speech  
+// - Hate speech
 // - Sexually explicit content
 // - Dangerous content
 ```
