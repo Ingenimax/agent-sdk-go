@@ -20,6 +20,11 @@ func (c *AnthropicClient) GenerateStream(
 	prompt string,
 	options ...interfaces.GenerateOption,
 ) (<-chan interfaces.StreamEvent, error) {
+	c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] GenerateStream called (NO TOOLS)", map[string]interface{}{
+		"model":        c.Model,
+		"promptLength": len(prompt),
+	})
+	
 	// Check if model is specified
 	if c.Model == "" {
 		return nil, fmt.Errorf("model not specified: use WithModel option when creating the client")
@@ -87,7 +92,7 @@ func (c *AnthropicClient) GenerateStream(
 							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
 						})
 					}
-				// Skip system messages as they're handled separately in Anthropic
+					// Skip system messages as they're handled separately in Anthropic
 				}
 			}
 		}
@@ -106,7 +111,7 @@ func (c *AnthropicClient) GenerateStream(
 		// Ensure max_tokens > budget_tokens for reasoning
 		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
 	}
-	
+
 	req := CompletionRequest{
 		Model:       c.Model,
 		Messages:    messages,
@@ -146,7 +151,7 @@ func (c *AnthropicClient) GenerateStream(
 			})
 		} else {
 			c.logger.Warn(ctx, "Thinking tokens not supported by this model", map[string]interface{}{
-				"model":           c.Model,
+				"model":            c.Model,
 				"supported_models": []string{"claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-1-20250805"},
 			})
 		}
@@ -174,9 +179,16 @@ func (c *AnthropicClient) GenerateStream(
 			close(eventChan)
 		}()
 
-
 		// Execute the streaming request with memory support
+		c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Executing streaming request without tools", map[string]interface{}{
+			"model":       c.Model,
+			"hasMemory":   params != nil && params.Memory != nil,
+			"temperature": req.Temperature,
+		})
 		if err := c.executeStreamingRequestWithMemory(ctx, req, eventChan, prompt, params); err != nil {
+			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] Streaming request failed", map[string]interface{}{
+				"error": err.Error(),
+			})
 			select {
 			case eventChan <- interfaces.StreamEvent{
 				Type:      interfaces.StreamEventError,
@@ -186,6 +198,10 @@ func (c *AnthropicClient) GenerateStream(
 			case <-ctx.Done():
 				return
 			}
+		} else {
+			c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Streaming request completed successfully (no tools)", map[string]interface{}{
+				"model": c.Model,
+			})
 		}
 	}()
 
@@ -267,14 +283,14 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 				errorBody, _ = io.ReadAll(httpResp.Body)
 				_ = httpResp.Body.Close()
 			}
-			
+
 			c.logger.Error(ctx, "Error from Anthropic streaming API", map[string]interface{}{
-				"status_code":    httpResp.StatusCode,
-				"model":          c.Model,
-				"error_body":     string(errorBody),
-				"content_type":   httpResp.Header.Get("Content-Type"),
+				"status_code":  httpResp.StatusCode,
+				"model":        c.Model,
+				"error_body":   string(errorBody),
+				"content_type": httpResp.Header.Get("Content-Type"),
 			})
-			
+
 			if len(errorBody) > 0 {
 				return fmt.Errorf("error from Anthropic API: HTTP %d - %s", httpResp.StatusCode, string(errorBody))
 			}
@@ -283,7 +299,7 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 
 		// Verify content type
 		contentType := httpResp.Header.Get("Content-Type")
-		
+
 		if contentType != "text/event-stream" && contentType != "text/event-stream; charset=utf-8" {
 			return fmt.Errorf("unexpected content type: %s", contentType)
 		}
@@ -319,6 +335,12 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 	tools []interfaces.Tool,
 	options ...interfaces.GenerateOption,
 ) (<-chan interfaces.StreamEvent, error) {
+	c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] GenerateWithToolsStream called (WITH TOOLS)", map[string]interface{}{
+		"model":        c.Model,
+		"promptLength": len(prompt),
+		"toolsCount":   len(tools),
+	})
+	
 	// Check if model is specified
 	if c.Model == "" {
 		return nil, fmt.Errorf("model not specified: use WithModel option when creating the client")
@@ -415,7 +437,6 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 			close(eventChan)
 		}()
 
-
 		// Execute streaming with tools with iterative loop
 		if err := c.executeStreamingWithTools(ctx, prompt, anthropicTools, tools, params, eventChan); err != nil {
 			select {
@@ -482,7 +503,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
 						})
 					}
-				// Skip system messages as they're handled separately in Anthropic
+					// Skip system messages as they're handled separately in Anthropic
 				}
 			}
 		}
@@ -500,7 +521,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			Role:    "user",
 			Content: prompt,
 		})
-		
+
 		if params.SystemMessage != "" {
 			_ = params.Memory.AddMessage(ctx, interfaces.Message{
 				Role:    "system",
@@ -522,8 +543,12 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
 	}
 
+	gotCompleteResponse := false
+	finalIterationCount := 0 // Track total iterations for logging after loop
+
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		finalIterationCount = iteration + 1 // Update the count
 		// Create request for this iteration
 		req := CompletionRequest{
 			Model:       c.Model,
@@ -567,37 +592,89 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		}
 
 		// Execute streaming request and collect tool calls
-		toolCalls, _, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan)
+		c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Calling LLM for iteration", map[string]interface{}{
+			"iteration":     iteration + 1,
+			"maxIterations": maxIterations,
+			"hasTools":      len(anthropicTools) > 0,
+		})
+		toolCalls, hasContent, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan)
 		if err != nil {
+			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] LLM call failed", map[string]interface{}{
+				"iteration": iteration + 1,
+				"error":     err.Error(),
+			})
 			return err
 		}
+		c.logger.Info(ctx, "[LLM RESPONSE DEBUG] LLM response received", map[string]interface{}{
+			"iteration":      iteration + 1,
+			"toolCallsCount": len(toolCalls),
+			"hasContent":     hasContent,
+			"gotToolCalls":   len(toolCalls) > 0,
+		})
 
-
-		// If no tool calls, we're done with the iteration loop
+		// If no tool calls, check if we have content
 		if len(toolCalls) == 0 {
-			// No tool calls means we have received the final response content
-			// The streaming has already been handled by executeStreamingRequestWithToolCapture
-			return nil
+			// If we have content, we're done with iterations - the model provided a final response
+			if hasContent {
+				c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Got final content response without tool calls", map[string]interface{}{
+					"iteration":      iteration + 1,
+					"hasContent":     hasContent,
+					"responseType":   "final_answer",
+					"toolCallsCount": 0,
+				})
+				// Send completion event like OpenAI does
+				select {
+				case eventChan <- interfaces.StreamEvent{
+					Type:      interfaces.StreamEventContentComplete,
+					Timestamp: time.Now(),
+					Metadata: map[string]interface{}{
+						"iteration": iteration + 1,
+					},
+				}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				// Mark that we got a complete response
+				gotCompleteResponse = true
+				// Break out of iteration loop (don't return - let final synthesis check happen)
+				break
+			}
+			// If no tool calls and no content, log warning and continue to next iteration
+			// This might happen if the model returns an empty response
+			c.logger.Warn(ctx, "[LLM RESPONSE DEBUG] No tool calls and no content in iteration", map[string]interface{}{
+				"iteration":     iteration + 1,
+				"maxIterations": maxIterations,
+				"responseType":  "empty_response",
+			})
+			// Continue to next iteration or break if this was the last one
+			if iteration >= maxIterations-1 {
+				// We've reached max iterations, break out to make final call
+				break
+			}
+			continue
 		}
 
 		// Execute tools and add results to conversation
-		c.logger.Info(ctx, "Processing tool calls in streaming", map[string]interface{}{
-			"count":     len(toolCalls),
-			"iteration": iteration + 1,
+		c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Processing tool calls from LLM response", map[string]interface{}{
+			"count":        len(toolCalls),
+			"iteration":    iteration + 1,
+			"responseType": "tool_calls",
 		})
 
-		// Add assistant message with tool calls
-		assistantMessage := Message{
-			Role:    "assistant",
-			Content: "", // Empty content when using tools
+		// Send a line break before tool execution for clarity
+		select {
+		case eventChan <- interfaces.StreamEvent{
+			Type:      interfaces.StreamEventContentDelta,
+			Content:   "\n", // Single line break before tools
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"before_tools": true,
+				"iteration":    iteration + 1,
+			},
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-
-		// Convert tool calls to Anthropic format and add to message
-		for _, toolCall := range toolCalls {
-			assistantMessage.Content += fmt.Sprintf("[Tool: %s called]", toolCall.Name)
-		}
-
-		messages = append(messages, assistantMessage)
 
 		// Execute each tool and add results
 		for _, toolCall := range toolCalls {
@@ -614,10 +691,10 @@ func (c *AnthropicClient) executeStreamingWithTools(
 				c.logger.Error(ctx, "Tool not found in streaming", map[string]interface{}{
 					"toolName": toolCall.Name,
 				})
-				
+
 				// Add tool not found error as tool result instead of returning
 				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
-				
+
 				// Add tool result message
 				messages = append(messages, Message{
 					Role:    "user", // Tool results come as user messages to Anthropic
@@ -639,12 +716,12 @@ func (c *AnthropicClient) executeStreamingWithTools(
 				case <-ctx.Done():
 					return ctx.Err()
 				}
-				
+
 				continue // Continue processing other tool calls
 			}
 
 			// Execute tool
-			c.logger.Info(ctx, "Executing tool in streaming", map[string]interface{}{
+			c.logger.Info(ctx, "[TOOL EXECUTION DEBUG] Executing tool in streaming", map[string]interface{}{
 				"toolName":  toolCall.Name,
 				"arguments": toolCall.Arguments,
 				"iteration": iteration + 1,
@@ -721,11 +798,43 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			}
 		}
 
+		// Send a line break between iterations for better readability
+		if iteration < maxIterations-1 { // Don't add break after last iteration
+			select {
+			case eventChan <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventContentDelta,
+				Content:   "\n\n", // Add double line break for visual separation
+				Timestamp: time.Now(),
+				Metadata: map[string]interface{}{
+					"iteration_boundary": true,
+					"iteration":          iteration + 1,
+				},
+			}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
 		// Continue to next iteration with updated conversation
+	}
+
+	if gotCompleteResponse {
+		c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Skipping final synthesis call - already got complete response", map[string]interface{}{
+			"maxIterations":        maxIterations,
+			"totalLLMCalls":        finalIterationCount,
+			"skippedSynthesisCall": true,
+		})
+		return nil
 	}
 
 	// After all tool iterations, make a final call without tools to get the synthesized answer
 	// This ensures the LLM provides a final response after processing all tool results
+
+	c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Making final synthesis call after tool iterations", map[string]interface{}{
+		"maxIterations":         maxIterations,
+		"totalPreviousLLMCalls": finalIterationCount,
+		"reason":                "no_complete_response_received",
+	})
 
 	// Add a message to inform the LLM this is the final call
 	finalMessages := append(messages, Message{
@@ -768,9 +877,21 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		}
 	}
 
-
 	// Execute final request to get synthesized answer with memory support
+	c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Executing final synthesis LLM call", map[string]interface{}{
+		"finalCallNumber": finalIterationCount + 1,
+		"messageCount":    len(finalMessages),
+	})
 	err := c.executeStreamingRequestWithMemory(ctx, finalReq, eventChan, "", params)
+	if err != nil {
+		c.logger.Error(ctx, "[LLM RESPONSE DEBUG] Final synthesis call failed", map[string]interface{}{
+			"error": err.Error(),
+		})
+	} else {
+		c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Final synthesis call completed successfully", map[string]interface{}{
+			"totalLLMCalls": finalIterationCount + 1,
+		})
+	}
 	return err
 }
 
@@ -780,13 +901,13 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
 ) ([]interfaces.ToolCall, bool, error) {
-	
+
 	var toolCalls []interfaces.ToolCall
 	var hasContent bool
 
 	// Create temporary channel to capture events
 	tempEventChan := make(chan interfaces.StreamEvent, 100)
-	
+
 	// Execute streaming request in goroutine
 	go func() {
 		defer func() {
@@ -799,7 +920,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 			}()
 			close(tempEventChan)
 		}()
-		
+
 		if err := c.executeStreamingRequest(ctx, req, tempEventChan); err != nil {
 			select {
 			case tempEventChan <- interfaces.StreamEvent{
@@ -815,7 +936,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 
 	// Process events and capture tool calls
 	var eventCount int
-	
+
 	for event := range tempEventChan {
 		eventCount++
 
@@ -842,7 +963,5 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 		}
 	}
 
-
 	return toolCalls, hasContent, nil
 }
-
