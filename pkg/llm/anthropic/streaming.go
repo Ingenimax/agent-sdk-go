@@ -304,11 +304,24 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 			return fmt.Errorf("unexpected content type: %s", contentType)
 		}
 
-		// Create scanner for reading SSE stream
+		// Create scanner for reading SSE stream with larger buffer
+		// Default scanner has 64KB max token size which can cut off large responses
 		scanner := bufio.NewScanner(httpResp.Body)
+		// Set buffer to handle large SSE data lines (up to 10MB)
+		buf := make([]byte, 0, 64*1024) // 64KB initial buffer
+		scanner.Buffer(buf, 10*1024*1024) // Allow up to 10MB per line
 
 		// Parse SSE stream
 		_ = c.parseSSEStreamAndCapture(ctx, scanner, eventChan, req, prompt, params)
+
+		// Check for scanner errors (including buffer overflow)
+		if err := scanner.Err(); err != nil {
+			c.logger.Error(ctx, "Scanner error while reading SSE stream", map[string]interface{}{
+				"error": err.Error(),
+				"model": c.Model,
+			})
+			return fmt.Errorf("scanner error while reading SSE stream: %w", err)
+		}
 
 		c.logger.Debug(ctx, "Successfully completed Anthropic streaming request", map[string]interface{}{
 			"model": c.Model,
@@ -597,7 +610,9 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			"maxIterations": maxIterations,
 			"hasTools":      len(anthropicTools) > 0,
 		})
-		toolCalls, hasContent, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan)
+		// First pass: Filter content deltas for internal iterations - only stream thinking and tool events
+		filterContentDeltas := true
+		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas)
 		if err != nil {
 			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] LLM call failed", map[string]interface{}{
 				"iteration": iteration + 1,
@@ -617,12 +632,28 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			// If we have content, we're done with iterations - the model provided a final response
 			if hasContent {
 				c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Got final content response without tool calls", map[string]interface{}{
-					"iteration":      iteration + 1,
-					"hasContent":     hasContent,
-					"responseType":   "final_answer",
-					"toolCallsCount": 0,
+					"iteration":        iteration + 1,
+					"hasContent":       hasContent,
+					"responseType":     "final_answer",
+					"toolCallsCount":   0,
+					"capturedEvents":   len(capturedContentEvents),
 				})
-				// Send completion event like OpenAI does
+				
+				// Replay the captured content events to stream the final response
+				c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Replaying captured content events", map[string]interface{}{
+					"iteration":    iteration + 1,
+					"eventsCount":  len(capturedContentEvents),
+				})
+				
+				for _, contentEvent := range capturedContentEvents {
+					select {
+					case eventChan <- contentEvent:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				
+				// Send completion event
 				select {
 				case eventChan <- interfaces.StreamEvent{
 					Type:      interfaces.StreamEventContentComplete,
@@ -895,15 +926,61 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	return err
 }
 
+// createFilteredEventForwarder processes events and optionally captures content for later replay
+func (c *AnthropicClient) createFilteredEventForwarder(
+	ctx context.Context,
+	tempEventChan <-chan interfaces.StreamEvent,
+	eventChan chan<- interfaces.StreamEvent,
+	filterContentDeltas bool,
+) ([]interfaces.ToolCall, bool, []interfaces.StreamEvent, error) {
+	var toolCalls []interfaces.ToolCall
+	var hasContent bool
+	var capturedContentEvents []interfaces.StreamEvent
+
+	for event := range tempEventChan {
+		// Capture content events if filtering is enabled
+		if filterContentDeltas && event.Type == interfaces.StreamEventContentDelta {
+			// Store content events for potential later replay
+			if event.Content != "" {
+				hasContent = true
+				capturedContentEvents = append(capturedContentEvents, event)
+			}
+			continue // Don't forward now
+		}
+
+		// Forward event to main channel
+		select {
+		case eventChan <- event:
+		case <-ctx.Done():
+			return nil, false, nil, ctx.Err()
+		}
+
+		// Capture tool calls
+		if event.Type == interfaces.StreamEventToolUse && event.ToolCall != nil {
+			toolCalls = append(toolCalls, *event.ToolCall)
+		}
+
+		// Check for content (when not filtered)
+		if event.Type == interfaces.StreamEventContentDelta && event.Content != "" {
+			hasContent = true
+		}
+
+		// Check for errors
+		if event.Error != nil {
+			return nil, false, nil, event.Error
+		}
+	}
+
+	return toolCalls, hasContent, capturedContentEvents, nil
+}
+
 // executeStreamingRequestWithToolCapture executes a streaming request and captures tool calls
 func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 	ctx context.Context,
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
-) ([]interfaces.ToolCall, bool, error) {
-
-	var toolCalls []interfaces.ToolCall
-	var hasContent bool
+	filterContentDeltas bool,
+) ([]interfaces.ToolCall, bool, []interfaces.StreamEvent, error) {
 
 	// Create temporary channel to capture events
 	tempEventChan := make(chan interfaces.StreamEvent, 100)
@@ -934,34 +1011,6 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 		}
 	}()
 
-	// Process events and capture tool calls
-	var eventCount int
-
-	for event := range tempEventChan {
-		eventCount++
-
-		// Forward event to main channel
-		select {
-		case eventChan <- event:
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		}
-
-		// Capture tool calls
-		if event.Type == interfaces.StreamEventToolUse && event.ToolCall != nil {
-			toolCalls = append(toolCalls, *event.ToolCall)
-		}
-
-		// Check for content
-		if event.Type == interfaces.StreamEventContentDelta && event.Content != "" {
-			hasContent = true
-		}
-
-		// Check for errors
-		if event.Error != nil {
-			return nil, false, event.Error
-		}
-	}
-
-	return toolCalls, hasContent, nil
+	// Process events with optional filtering
+	return c.createFilteredEventForwarder(ctx, tempEventChan, eventChan, filterContentDeltas)
 }
