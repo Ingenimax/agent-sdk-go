@@ -2,9 +2,7 @@ package anthropic
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -234,29 +232,11 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 			"stream":         req.Stream,
 		})
 
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
+		// Create streaming HTTP request (supports both Vertex AI and standard Anthropic API)
+		httpReq, err := c.createStreamingHTTPRequest(ctx, &req, "/v1/messages")
 		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
+			return fmt.Errorf("failed to create streaming request: %w", err)
 		}
-
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			"POST",
-			c.BaseURL+"/v1/messages",
-			bytes.NewBuffer(reqBody),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-
-		// Set headers
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
-		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
-		httpReq.Header.Set("Accept", "text/event-stream")
-		httpReq.Header.Set("Cache-Control", "no-cache")
 
 		// Send request
 		httpResp, err := c.HTTPClient.Do(httpReq)

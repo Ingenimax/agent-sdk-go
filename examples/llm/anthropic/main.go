@@ -16,7 +16,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/calculator"
 )
 
-// This example demonstrates how to use the Anthropic Claude models.
+// This example demonstrates how to use the Anthropic Claude models with direct API.
+// For Vertex AI usage, see the vertex/ subdirectory.
+//
 // Before running, set the following environment variables:
 //
 // Required:
@@ -32,6 +34,13 @@ import (
 // export ANTHROPIC_API_KEY=your_api_key_here
 // export ANTHROPIC_MODEL=claude-3-7-sonnet-20240307
 // export ANTHROPIC_TEMPERATURE=0.5
+// go run main.go
+//
+// For Vertex AI usage:
+// cd vertex/
+// export GOOGLE_CLOUD_PROJECT=your-project-id
+// export GOOGLE_CLOUD_REGION=us-central1
+// gcloud auth application-default login
 // go run main.go
 
 // getEnvWithDefault gets an environment variable or returns the default value

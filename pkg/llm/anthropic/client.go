@@ -25,6 +25,7 @@ type AnthropicClient struct {
 	HTTPClient    *http.Client
 	logger        logging.Logger
 	retryExecutor *retry.Executor
+	VertexConfig  *VertexConfig // Vertex AI configuration
 }
 
 // Option represents an option for configuring the Anthropic client
@@ -62,6 +63,54 @@ func WithBaseURL(baseURL string) Option {
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *AnthropicClient) {
 		c.HTTPClient = httpClient
+	}
+}
+
+// WithVertexAI configures the client for Google Vertex AI
+func WithVertexAI(region, projectID string) Option {
+	return func(c *AnthropicClient) {
+		ctx := context.Background()
+		vertexConfig, err := NewVertexConfig(ctx, region, projectID)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to configure Vertex AI", map[string]interface{}{
+				"error":     err.Error(),
+				"region":    region,
+				"projectID": projectID,
+			})
+			return
+		}
+		c.VertexConfig = vertexConfig
+		c.BaseURL = vertexConfig.GetBaseURL()
+		c.logger.Info(ctx, "Configured client for Vertex AI", map[string]interface{}{
+			"region":    region,
+			"projectID": projectID,
+			"baseURL":   c.BaseURL,
+		})
+	}
+}
+
+// WithVertexAICredentials configures Vertex AI with explicit credentials
+func WithVertexAICredentials(region, projectID, credentialsPath string) Option {
+	return func(c *AnthropicClient) {
+		ctx := context.Background()
+		vertexConfig, err := NewVertexConfigWithCredentials(ctx, region, projectID, credentialsPath)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to configure Vertex AI with credentials", map[string]interface{}{
+				"error":           err.Error(),
+				"region":          region,
+				"projectID":       projectID,
+				"credentialsPath": credentialsPath,
+			})
+			return
+		}
+		c.VertexConfig = vertexConfig
+		c.BaseURL = vertexConfig.GetBaseURL()
+		c.logger.Info(ctx, "Configured client for Vertex AI with credentials", map[string]interface{}{
+			"region":          region,
+			"projectID":       projectID,
+			"credentialsPath": credentialsPath,
+			"baseURL":         c.BaseURL,
+		})
 	}
 }
 
@@ -142,19 +191,20 @@ type ToolResult struct {
 
 // CompletionRequest represents a request for Anthropic API
 type CompletionRequest struct {
-	Model         string        `json:"model"`
-	Messages      []Message     `json:"messages"`
-	MaxTokens     int           `json:"max_tokens,omitempty"`
-	Temperature   float64       `json:"temperature,omitempty"`
-	TopP          float64       `json:"top_p,omitempty"`
-	TopK          int           `json:"top_k,omitempty"`
-	StopSequences []string      `json:"stop_sequences,omitempty"`
-	System        string        `json:"system,omitempty"`
-	Tools         []Tool        `json:"tools,omitempty"`
-	ToolChoice    interface{}   `json:"tool_choice,omitempty"`
-	Stream        bool          `json:"stream,omitempty"`
-	MetadataKey   string        `json:"metadata,omitempty"`
-	Thinking      *ReasoningSpec `json:"thinking,omitempty"` // Keep "thinking" for API compatibility
+	Model            string        `json:"model,omitempty"`
+	Messages         []Message     `json:"messages"`
+	MaxTokens        int           `json:"max_tokens,omitempty"`
+	Temperature      float64       `json:"temperature,omitempty"`
+	TopP             float64       `json:"top_p,omitempty"`
+	TopK             int           `json:"top_k,omitempty"`
+	StopSequences    []string      `json:"stop_sequences,omitempty"`
+	System           string        `json:"system,omitempty"`
+	Tools            []Tool        `json:"tools,omitempty"`
+	ToolChoice       interface{}   `json:"tool_choice,omitempty"`
+	Stream           bool          `json:"stream,omitempty"`
+	MetadataKey      string        `json:"metadata,omitempty"`
+	AnthropicVersion string        `json:"anthropic_version,omitempty"` // For Vertex AI
+	Thinking         *ReasoningSpec `json:"thinking,omitempty"` // Keep "thinking" for API compatibility
 }
 
 // ReasoningSpec represents the reasoning configuration for Anthropic API
@@ -275,7 +325,14 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 	var err error
 
 	operation := func() error {
-		c.logger.Debug(ctx, "Executing Anthropic API request", map[string]interface{}{
+		var apiType string
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			apiType = "Vertex AI"
+		} else {
+			apiType = "Anthropic API"
+		}
+		
+		c.logger.Debug(ctx, "Executing "+apiType+" request", map[string]interface{}{
 			"model":          c.Model,
 			"temperature":    req.Temperature,
 			"top_p":          req.TopP,
@@ -283,27 +340,47 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 			"system":         req.System != "",
 		})
 
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
-		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
-		}
+		var httpReq *http.Request
+		
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			// Vertex AI mode
+			c.logger.Debug(ctx, "Using Vertex AI endpoint", map[string]interface{}{
+				"region":    c.VertexConfig.Region,
+				"projectID": c.VertexConfig.ProjectID,
+			})
+			
+			httpReq, err = c.VertexConfig.CreateVertexHTTPRequest(ctx, &req, "POST", "/v1/messages")
+			if err != nil {
+				return fmt.Errorf("failed to create Vertex AI request: %w", err)
+			}
+		} else {
+			// Standard Anthropic API mode
+			c.logger.Debug(ctx, "Using standard Anthropic API", map[string]interface{}{
+				"baseURL": c.BaseURL,
+			})
 
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			"POST",
-			c.BaseURL+"/v1/messages",
-			bytes.NewBuffer(reqBody),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
+			// Convert request to JSON
+			reqBody, err := json.Marshal(req)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request: %w", err)
+			}
 
-		// Set headers
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
-		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+			// Create HTTP request
+			httpReq, err = http.NewRequestWithContext(
+				ctx,
+				"POST",
+				c.BaseURL+"/v1/messages",
+				bytes.NewBuffer(reqBody),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			// Set headers for standard API
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq.Header.Set("X-API-Key", c.APIKey)
+			httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+		}
 
 		// Send request
 		httpResp, err := c.HTTPClient.Do(httpReq)
@@ -451,7 +528,14 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 	var err error
 
 	operation := func() error {
-		c.logger.Debug(ctx, "Executing Anthropic Chat API request", map[string]interface{}{
+		var apiType string
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			apiType = "Vertex AI"
+		} else {
+			apiType = "Anthropic API"
+		}
+		
+		c.logger.Debug(ctx, "Executing "+apiType+" Chat request", map[string]interface{}{
 			"model":          c.Model,
 			"temperature":    req.Temperature,
 			"top_p":          req.TopP,
@@ -459,27 +543,38 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 			"messages":       len(req.Messages),
 		})
 
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
-		if err != nil {
-			return fmt.Errorf("failed to marshal request: %w", err)
-		}
+		var httpReq *http.Request
+		
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			// Vertex AI mode
+			httpReq, err = c.VertexConfig.CreateVertexHTTPRequest(ctx, &req, "POST", "/v1/messages")
+			if err != nil {
+				return fmt.Errorf("failed to create Vertex AI chat request: %w", err)
+			}
+		} else {
+			// Standard Anthropic API mode
+			// Convert request to JSON
+			reqBody, err := json.Marshal(req)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request: %w", err)
+			}
 
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			"POST",
-			c.BaseURL+"/v1/messages",
-			bytes.NewBuffer(reqBody),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
+			// Create HTTP request
+			httpReq, err = http.NewRequestWithContext(
+				ctx,
+				"POST",
+				c.BaseURL+"/v1/messages",
+				bytes.NewBuffer(reqBody),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
 
-		// Set headers
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
-		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+			// Set headers for standard API
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq.Header.Set("X-API-Key", c.APIKey)
+			httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+		}
 
 		// Send request
 		httpResp, err := c.HTTPClient.Do(httpReq)
@@ -687,27 +782,11 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			"maxIterations": maxIterations,
 		})
 
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal request (iteration %d): %w", iteration+1, err)
-		}
-
-		// Create HTTP request
-		httpReq, err := http.NewRequestWithContext(
-			ctx,
-			"POST",
-			c.BaseURL+"/v1/messages",
-			bytes.NewBuffer(reqBody),
-		)
+		// Create HTTP request (supports both Vertex AI and standard Anthropic API)
+		httpReq, err := c.createHTTPRequest(ctx, &req, "/v1/messages")
 		if err != nil {
 			return "", fmt.Errorf("failed to create request (iteration %d): %w", iteration+1, err)
 		}
-
-		// Set headers
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
-		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 
 		// Send request
 		httpResp, err := c.HTTPClient.Do(httpReq)
@@ -1062,27 +1141,11 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		"messages": len(finalReq.Messages),
 	})
 
-	// Convert request to JSON
-	finalReqBody, err := json.Marshal(finalReq)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal final request: %w", err)
-	}
-
-	// Create HTTP request
-	finalHTTPReq, err := http.NewRequestWithContext(
-		ctx,
-		"POST",
-		c.BaseURL+"/v1/messages",
-		bytes.NewBuffer(finalReqBody),
-	)
+	// Create final HTTP request (supports both Vertex AI and standard Anthropic API)
+	finalHTTPReq, err := c.createHTTPRequest(ctx, &finalReq, "/v1/messages")
 	if err != nil {
 		return "", fmt.Errorf("failed to create final request: %w", err)
 	}
-
-	// Set headers
-	finalHTTPReq.Header.Set("Content-Type", "application/json")
-	finalHTTPReq.Header.Set("X-API-Key", c.APIKey)
-	finalHTTPReq.Header.Set("Anthropic-Version", "2023-06-01")
 
 	// Send final request
 	finalHTTPResp, err := c.HTTPClient.Do(finalHTTPReq)
@@ -1138,6 +1201,77 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 	c.logger.Info(ctx, "Successfully received final response without tools", nil)
 	return strings.Join(finalTextContent, "\n"), nil
+}
+
+// createHTTPRequest creates an HTTP request for either Vertex AI or standard Anthropic API
+func (c *AnthropicClient) createHTTPRequest(ctx context.Context, req *CompletionRequest, path string) (*http.Request, error) {
+	if c.VertexConfig != nil && c.VertexConfig.Enabled {
+		// Vertex AI mode
+		return c.VertexConfig.CreateVertexHTTPRequest(ctx, req, "POST", path)
+	} else {
+		// Standard Anthropic API mode
+		// Convert request to JSON
+		reqBody, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		// Create HTTP request
+		httpReq, err := http.NewRequestWithContext(
+			ctx,
+			"POST",
+			c.BaseURL+path,
+			bytes.NewBuffer(reqBody),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set headers for standard API
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("X-API-Key", c.APIKey)
+		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+		
+		return httpReq, nil
+	}
+}
+
+// createStreamingHTTPRequest creates an HTTP request for streaming, supporting both Vertex AI and standard API
+func (c *AnthropicClient) createStreamingHTTPRequest(ctx context.Context, req *CompletionRequest, path string) (*http.Request, error) {
+	if c.VertexConfig != nil && c.VertexConfig.Enabled {
+		// Vertex AI mode
+		return c.VertexConfig.CreateVertexStreamingHTTPRequest(ctx, req, "POST", path)
+	} else {
+		// Standard Anthropic API mode
+		// Ensure streaming is enabled
+		req.Stream = true
+		
+		// Convert request to JSON
+		reqBody, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		// Create HTTP request
+		httpReq, err := http.NewRequestWithContext(
+			ctx,
+			"POST",
+			c.BaseURL+path,
+			bytes.NewBuffer(reqBody),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set headers for standard API with streaming
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("X-API-Key", c.APIKey)
+		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		httpReq.Header.Set("Cache-Control", "no-cache")
+		
+		return httpReq, nil
+	}
 }
 
 // Name implements interfaces.LLM.Name
