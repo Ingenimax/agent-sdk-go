@@ -60,11 +60,13 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 	}
 
 	// Read credentials file
-	credentialsFile, err := os.Open(credentialsPath)
+	credentialsFile, err := os.Open(credentialsPath) // #nosec G304 - credentialsPath is validated and comes from trusted source
 	if err != nil {
 		return nil, fmt.Errorf("failed to open credentials file %s: %w", credentialsPath, err)
 	}
-	defer credentialsFile.Close()
+	defer func() {
+		_ = credentialsFile.Close()
+	}()
 
 	credentialsJSON, err := io.ReadAll(credentialsFile)
 	if err != nil {
@@ -96,7 +98,7 @@ func (vc *VertexConfig) GetBaseURL() string {
 // GetAuthHeaders returns the authentication headers for Vertex AI requests
 func (vc *VertexConfig) GetAuthHeaders(ctx context.Context) (map[string]string, error) {
 	if !vc.Enabled {
-		return nil, fmt.Errorf("Vertex AI is not enabled")
+		return nil, fmt.Errorf("vertex AI is not enabled")
 	}
 
 	var token string
@@ -124,7 +126,7 @@ func (vc *VertexConfig) GetAuthHeaders(ctx context.Context) (map[string]string, 
 // Returns the full URL, headers, and modified request body
 func (vc *VertexConfig) TransformRequest(req *CompletionRequest, method, path string) (string, map[string]string, []byte, error) {
 	if !vc.Enabled {
-		return "", nil, nil, fmt.Errorf("Vertex AI is not enabled")
+		return "", nil, nil, fmt.Errorf("vertex AI is not enabled")
 	}
 
 	// Store the model for URL construction
@@ -182,7 +184,7 @@ func (vc *VertexConfig) TransformRequest(req *CompletionRequest, method, path st
 // CreateVertexHTTPRequest creates an HTTP request configured for Vertex AI
 func (vc *VertexConfig) CreateVertexHTTPRequest(ctx context.Context, req *CompletionRequest, method, path string) (*http.Request, error) {
 	if !vc.Enabled {
-		return nil, fmt.Errorf("Vertex AI is not enabled")
+		return nil, fmt.Errorf("vertex AI is not enabled")
 	}
 
 	// Transform the request
