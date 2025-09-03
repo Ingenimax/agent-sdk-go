@@ -51,7 +51,7 @@ Shows vision and audio capabilities:
 The Gemini integration supports multiple models:
 
 - `gemini-2.5-pro-latest` - Most capable model with vision, audio, and tool calling
-- `gemini-2.5-flash-latest` - Fast model with vision, audio, and tool calling  
+- `gemini-2.5-flash-latest` - Fast model with vision, audio, and tool calling
 - `gemini-2.5-flash-lite-latest` - Fastest model, text-only
 - `gemini-1.5-pro` - Previous generation with vision and tool calling
 - `gemini-1.5-flash` - Previous generation fast model with vision
@@ -101,7 +101,7 @@ for event := range stream {
 ### Reasoning Modes
 ```go
 // Comprehensive reasoning - detailed step-by-step explanations
-response, err := client.Generate(ctx, "Solve this math problem: 2x + 5 = 13", 
+response, err := client.Generate(ctx, "Solve this math problem: 2x + 5 = 13",
     gemini.WithReasoning("comprehensive"))
 
 // Minimal reasoning - brief explanations
@@ -160,7 +160,7 @@ Gemini includes built-in safety filtering. You can configure safety settings:
 // Default safety settings are applied automatically
 // Blocks medium and high risk content for:
 // - Harassment
-// - Hate speech  
+// - Hate speech
 // - Sexually explicit content
 // - Dangerous content
 ```

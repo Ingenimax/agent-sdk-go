@@ -16,7 +16,7 @@ import (
 func main() {
 	// Display LLM provider information
 	fmt.Printf("Starting Math Agent microservice with %s\n", shared.GetProviderInfo())
-	
+
 	// Create an LLM client based on environment configuration
 	llm, err := shared.CreateLLM()
 	if err != nil {
@@ -79,4 +79,3 @@ func main() {
 
 	fmt.Println("Microservice stopped successfully")
 }
-

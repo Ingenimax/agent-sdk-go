@@ -40,18 +40,18 @@ func main() {
 
 	for i, problem := range testProblems {
 		fmt.Printf("Problem %d: %s\n", i+1, problem)
-		
+
 		start := time.Now()
 		result, err := remoteAgent.Run(ctx, problem)
 		duration := time.Since(start)
-		
+
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {
 			fmt.Printf("Answer (took %v): %s\n", duration, result)
 		}
 		fmt.Println()
-		
+
 		// Add a small delay between requests
 		time.Sleep(500 * time.Millisecond)
 	}

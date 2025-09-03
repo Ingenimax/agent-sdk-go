@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -153,7 +154,19 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("invalid command %q: %v", config.Command, err)
 	}
 
-	// Create the command with context
+	// Additional security validation - ensure command path is absolute and exists
+	if !filepath.IsAbs(commandPath) {
+		return nil, fmt.Errorf("command path must be absolute for security: %q", commandPath)
+	}
+	
+	// Check if the file exists and is executable
+	if info, err := os.Stat(commandPath); err != nil {
+		return nil, fmt.Errorf("command not accessible: %v", err)
+	} else if info.IsDir() {
+		return nil, fmt.Errorf("command path is a directory, not executable: %q", commandPath)
+	}
+
+	// Create the command with context - #nosec G204 (validated above)
 	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)

@@ -191,19 +191,19 @@ Test sub-agent functionality:
 func TestSubAgentDelegation(t *testing.T) {
     // Create mock LLM
     mockLLM := &MockLLM{}
-    
+
     // Create and test sub-agents
     subAgent := NewAgent(
         WithName("SubAgent"),
         WithLLM(mockLLM),
     )
-    
+
     mainAgent := NewAgent(
         WithName("Main"),
         WithLLM(mockLLM),
         WithAgents(subAgent),
     )
-    
+
     // Verify sub-agent is registered
     assert.True(t, mainAgent.HasSubAgent("SubAgent"))
 }

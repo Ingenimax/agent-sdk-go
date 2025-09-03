@@ -23,13 +23,13 @@ type RedisMemory struct {
 	encryptionKey      []byte
 	maxMessageSize     int
 	retryOptions       *RetryOptions
-	
+
 	// Summarization fields
 	summarizationEnabled bool
-	llmClient           interfaces.LLM
-	messageThreshold    int
-	summaryCount        int
-	summaryKeyPrefix    string
+	llmClient            interfaces.LLM
+	messageThreshold     int
+	summaryCount         int
+	summaryKeyPrefix     string
 }
 
 // RetryOptions configures retry behavior for Redis operations
@@ -198,7 +198,7 @@ func (r *RedisMemory) AddMessage(ctx context.Context, message interfaces.Message
 		if err == nil {
 			// Set TTL on the key if not already set
 			r.client.Expire(ctx, key, r.ttl)
-			
+
 			// Check if summarization is needed
 			if r.summarizationEnabled {
 				if err := r.checkAndSummarize(ctx); err != nil {
@@ -207,7 +207,7 @@ func (r *RedisMemory) AddMessage(ctx context.Context, message interfaces.Message
 					_ = fmt.Sprintf("Failed to summarize messages: %v", err)
 				}
 			}
-			
+
 			return nil
 		}
 
@@ -342,7 +342,7 @@ func (r *RedisMemory) Clear(ctx context.Context) error {
 	if r.summarizationEnabled {
 		summaryKey := fmt.Sprintf("%s%s:%s", r.summaryKeyPrefix, orgID, conversationID)
 		metaKey := fmt.Sprintf("%smeta:%s:%s", r.summaryKeyPrefix, orgID, conversationID)
-		
+
 		// Delete summary and metadata keys
 		err = r.client.Del(ctx, summaryKey, metaKey).Err()
 		if err != nil {
@@ -405,7 +405,7 @@ func (r *RedisMemory) checkAndSummarize(ctx context.Context) error {
 	// Get messages to summarize (all but the most recent ones)
 	keepRecent := r.messageThreshold / 3 // Keep 1/3 of threshold as recent messages
 	summarizeCount := int(count) - keepRecent
-	
+
 	// Get messages to summarize
 	results, err := r.client.LRange(ctx, key, 0, int64(summarizeCount-1)).Result()
 	if err != nil {
@@ -453,11 +453,11 @@ func (r *RedisMemory) createSummary(ctx context.Context, messages []interfaces.M
 	// Format messages for summarization
 	var sb strings.Builder
 	sb.WriteString("Summarize the following conversation concisely, preserving key information and context:\n\n")
-	
+
 	for _, msg := range messages {
 		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
 	}
-	
+
 	sb.WriteString("\nProvide a concise summary that captures the essential information from this conversation.")
 
 	// Generate summary
@@ -475,9 +475,9 @@ func (r *RedisMemory) createSummary(ctx context.Context, messages []interfaces.M
 		Role:    "system",
 		Content: fmt.Sprintf("Previous conversation summary (%d messages): %s", len(messages), strings.TrimSpace(summary)),
 		Metadata: map[string]interface{}{
-			"is_summary":     true,
-			"message_count":  len(messages),
-			"summarized_at":  time.Now().Unix(),
+			"is_summary":    true,
+			"message_count": len(messages),
+			"summarized_at": time.Now().Unix(),
 		},
 	}
 

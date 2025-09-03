@@ -131,4 +131,4 @@ go run examples/llm/ollama/structured_output/main.go
 # Use a different model
 export OLLAMA_MODEL=llama2
 go run examples/llm/ollama/structured_output/main.go
-``` 
+```

@@ -696,22 +696,22 @@ type mockPanicStreamServer struct {
 
 func (m *mockPanicStreamServer) Recv() (*pb.RunStreamResponse, error) {
 	m.callCount++
-	
+
 	if m.panicOnRecv {
 		// Simulate the panic that occurs in the real scenario
 		panic("runtime error: invalid memory address or nil pointer dereference")
 	}
-	
+
 	if m.nilResponse {
 		// Return nil response to test nil handling
 		return nil, nil
 	}
-	
+
 	// Return EOF after first call to end the stream
 	if m.callCount > 1 {
 		return nil, io.EOF
 	}
-	
+
 	return &pb.RunStreamResponse{
 		EventType: pb.EventType_EVENT_TYPE_CONTENT,
 		Chunk:     "test content",
@@ -799,7 +799,7 @@ func TestRemoteAgentClient_StreamPanicRecovery(t *testing.T) {
 	if events[0].Error == nil {
 		t.Fatal("Expected error to be set")
 	}
-	
+
 	errorMsg := events[0].Error.Error()
 	if !contains(errorMsg, "stream panic recovered") {
 		t.Errorf("Expected panic recovery error message, got: %s", errorMsg)
@@ -848,7 +848,7 @@ func TestRemoteAgentClient_StreamNilResponseHandling(t *testing.T) {
 	if events[0].Error == nil {
 		t.Fatal("Expected error to be set")
 	}
-	
+
 	errorMsg := events[0].Error.Error()
 	if !contains(errorMsg, "received nil response") {
 		t.Errorf("Expected nil response error message, got: %s", errorMsg)
@@ -897,7 +897,7 @@ func TestRemoteAgentClient_RunStreamPanicRecovery(t *testing.T) {
 	if events[0].Error == nil {
 		t.Fatal("Expected error to be set")
 	}
-	
+
 	errorMsg := events[0].Error.Error()
 	if !contains(errorMsg, "stream panic recovered") {
 		t.Errorf("Expected panic recovery error message, got: %s", errorMsg)

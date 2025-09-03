@@ -53,7 +53,7 @@ if params.LLMConfig != nil && params.LLMConfig.EnableReasoning {
     if SupportsThinking(c.Model) {
         req.Thinking = &ReasoningSpec{Type: "enabled"}
         req.Temperature = 1.0 // Required by Anthropic
-        
+
         if params.LLMConfig.ReasoningBudget > 0 {
             req.Thinking.BudgetTokens = params.LLMConfig.ReasoningBudget
         } else {
@@ -176,9 +176,9 @@ streamingAgent, err := agent.NewAgent(
     agent.WithLLM(llm),
     agent.WithTools(webSearchTool, calculatorTool),
     agent.WithSystemPrompt(`You are an AI assistant that thinks through problems systematically.
-    
+
 EXECUTION PROTOCOL:
-1. Think through the approach systematically 
+1. Think through the approach systematically
 2. IMMEDIATELY execute your plan using available tools
 3. Show your reasoning process throughout
 4. Provide concrete, actionable conclusions`),
@@ -198,7 +198,7 @@ for event := range events {
         // Gray thinking text
         fmt.Printf("%s%s%s", ColorGray, event.ThinkingStep, ColorReset)
     case interfaces.AgentEventContent:
-        // White response text  
+        // White response text
         fmt.Printf("%s%s%s", ColorWhite, event.Content, ColorReset)
     case interfaces.AgentEventToolCall:
         fmt.Printf("\n🔧 TOOL: %s\n", event.ToolCall.Name)
@@ -235,7 +235,7 @@ func SupportsThinking(model string) bool {
         "claude-3-5-sonnet-20241022",
         "claude-3-5-haiku-20241022",
     }
-    
+
     for _, supportedModel := range thinkingModels {
         if model == supportedModel {
             return true

@@ -16,7 +16,7 @@ The Gemini API integration enables developers to use Google's powerful Gemini mo
 ## Supported Models
 
 | Model | Context Length | Vision | Audio | Tools | Thinking | Best For |
-|-------|----------------|---------|-------|-------|----------|-----------| 
+|-------|----------------|---------|-------|-------|----------|-----------|
 | `gemini-2.5-pro` | 2M tokens | ✅ | ✅ | ✅ | ✅ | Complex reasoning, multimodal |
 | `gemini-2.5-flash` | 1M tokens | ✅ | ✅ | ✅ | ✅ | Balanced speed & capability |
 | `gemini-2.5-flash-lite` | 32K tokens | ❌ | ❌ | ✅ | ❌ | Fast text processing |
@@ -50,7 +50,7 @@ import (
     "context"
     "log"
     "os"
-    
+
     "github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 )
 
@@ -62,12 +62,12 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     response, err := client.Generate(context.Background(), "Hello, world!")
     if err != nil {
         log.Fatal(err)
     }
-    
+
     fmt.Println(response)
 }
 ```
@@ -82,7 +82,7 @@ package main
 import (
     "context"
     "log"
-    
+
     "github.com/Ingenimax/agent-sdk-go/examples/microservices/shared"
 )
 
@@ -92,14 +92,14 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
-    
+
     response, err := llm.Generate(context.Background(), "Hello, world!")
     if err != nil {
         log.Fatal(err)
     }
-    
+
     fmt.Println(response)
 }
 ```
@@ -197,7 +197,7 @@ Control the level of explanation in responses:
 response, err := client.Generate(ctx, "Solve 2x + 5 = 13",
     gemini.WithReasoning("comprehensive"))
 
-// Minimal reasoning - brief explanations  
+// Minimal reasoning - brief explanations
 response, err := client.Generate(ctx, prompt,
     gemini.WithReasoning("minimal"))
 
@@ -288,7 +288,7 @@ Gemini includes built-in safety filtering:
 // Default settings block medium and high risk content for:
 // - Harassment
 // - Hate speech
-// - Sexually explicit content  
+// - Sexually explicit content
 // - Dangerous content
 ```
 
@@ -328,16 +328,16 @@ client, err := gemini.NewClient(apiKey,
 client, err := gemini.NewClient(apiKey,
     // Model selection
     gemini.WithModel(gemini.ModelGemini25Pro),
-    
+
     // Logging
     gemini.WithLogger(customLogger),
-    
+
     // Retry configuration
     gemini.WithRetry(
         retry.WithMaxRetries(5),
         retry.WithBackoff(retry.ExponentialBackoff),
     ),
-    
+
     // Custom endpoint (if needed)
     gemini.WithBaseURL("https://custom-endpoint.com"),
 )
@@ -349,19 +349,19 @@ client, err := gemini.NewClient(apiKey,
 response, err := client.Generate(ctx, prompt,
     // Temperature controls randomness (0.0 - 1.0)
     gemini.WithTemperature(0.7),
-    
-    // TopP controls nucleus sampling (0.0 - 1.0)  
+
+    // TopP controls nucleus sampling (0.0 - 1.0)
     gemini.WithTopP(0.9),
-    
+
     // Stop sequences
     gemini.WithStopSequences([]string{"STOP", "END"}),
-    
+
     // System message
     gemini.WithSystemMessage("You are an expert assistant."),
-    
+
     // Reasoning mode
     gemini.WithReasoning("comprehensive"),
-    
+
     // Structured output
     gemini.WithResponseFormat(responseFormat),
 )
@@ -504,7 +504,7 @@ const (
 type ReasoningMode string
 const (
     ReasoningModeNone          ReasoningMode = "none"
-    ReasoningModeMinimal       ReasoningMode = "minimal" 
+    ReasoningModeMinimal       ReasoningMode = "minimal"
     ReasoningModeComprehensive ReasoningMode = "comprehensive"
 )
 ```

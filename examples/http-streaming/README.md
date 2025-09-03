@@ -44,7 +44,7 @@ export LLM_PROVIDER=anthropic
 
 ### For OpenAI:
 ```bash
-export OPENAI_API_KEY=your_openai_key  
+export OPENAI_API_KEY=your_openai_key
 export LLM_PROVIDER=openai
 ```
 
@@ -176,25 +176,25 @@ fetch('/api/v1/agent/stream', {
 }).then(response => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    
+
     function readStream() {
         return reader.read().then(({ done, value }) => {
             if (done) return;
-            
+
             const chunk = decoder.decode(value);
             const lines = chunk.split('\n');
-            
+
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     const data = JSON.parse(line.substring(6));
                     handleStreamEvent(data);
                 }
             }
-            
+
             return readStream();
         });
     }
-    
+
     return readStream();
 });
 
@@ -249,11 +249,11 @@ curl -X POST http://localhost:8080/api/v1/agent/stream \
 Browser/Web Client
        ↓ HTTP/SSE
    HTTP Server
-       ↓ 
+       ↓
    Agent.RunStream()
        ↓
    LLM.GenerateStream()
-       ↓ 
+       ↓
    Real-time Events
 ```
 
@@ -267,7 +267,7 @@ Browser/Web Client
 ## Browser Compatibility
 
 - **Chrome/Edge**: Full support
-- **Firefox**: Full support  
+- **Firefox**: Full support
 - **Safari**: Full support
 - **Mobile browsers**: Generally supported
 

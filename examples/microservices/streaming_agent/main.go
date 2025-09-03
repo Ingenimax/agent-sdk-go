@@ -322,4 +322,3 @@ func displayStructuredResponse(responseText string) {
 		fmt.Printf("```%s\n%s\n```\n", concept.CodeExample.Language, concept.AlternativeApproach.Code)
 	}
 }
-

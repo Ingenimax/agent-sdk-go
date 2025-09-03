@@ -185,14 +185,14 @@ The microservices expose the following gRPC service:
 service AgentService {
     // Execute the agent
     rpc Run(RunRequest) returns (RunResponse);
-    
+
     // Get agent metadata
     rpc GetMetadata(MetadataRequest) returns (MetadataResponse);
-    
+
     // Health checks
     rpc Health(HealthRequest) returns (HealthResponse);
     rpc Ready(ReadinessRequest) returns (ReadinessResponse);
-    
+
     // Execution plans (if supported)
     rpc GenerateExecutionPlan(PlanRequest) returns (PlanResponse);
     rpc ApproveExecutionPlan(ApprovalRequest) returns (ApprovalResponse);

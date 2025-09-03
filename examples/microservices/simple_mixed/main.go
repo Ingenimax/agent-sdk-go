@@ -14,7 +14,7 @@ import (
 func main() {
 	fmt.Println("Simple Mixed Agents Example")
 	fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
-	
+
 	// Create an LLM client based on environment configuration
 	llm, err := shared.CreateLLM()
 	if err != nil {
@@ -90,7 +90,7 @@ func main() {
 	// Step 5: Test the system
 	fmt.Println("\n5. Testing mixed agent system...")
 	ctx := context.Background()
-	
+
 	tests := []string{
 		"What is 25 * 4?",
 		"Write a Python function to calculate factorial",

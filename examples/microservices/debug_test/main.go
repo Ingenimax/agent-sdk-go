@@ -53,12 +53,12 @@ func main() {
 		log.Fatalf("Failed to start microservice: %v", err)
 	}
 	fmt.Printf("Start() called, running status: %v\n", service.IsRunning())
-	
+
 	// Check running status over time
 	fmt.Println("\nChecking running status...")
 	for i := 0; i < 5; i++ {
 		time.Sleep(200 * time.Millisecond)
-		fmt.Printf("  After %dms: running = %v, port = %d\n", 
+		fmt.Printf("  After %dms: running = %v, port = %d\n",
 			(i+1)*200, service.IsRunning(), service.GetPort())
 	}
 
@@ -79,7 +79,7 @@ func main() {
 		fmt.Printf("Failed to create remote agent: %v\n", err)
 	} else {
 		fmt.Println("Remote agent created")
-		
+
 		ctx := context.Background()
 		result, err := remoteAgent.Run(ctx, "Say hello")
 		if err != nil {
@@ -87,7 +87,7 @@ func main() {
 		} else {
 			fmt.Printf("Remote call succeeded: %s\n", result)
 		}
-		
+
 		if err := remoteAgent.Disconnect(); err != nil {
 			fmt.Printf("Warning: failed to disconnect remote agent: %v\n", err)
 		}

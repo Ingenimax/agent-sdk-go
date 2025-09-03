@@ -11,15 +11,15 @@ type StreamEventType string
 const (
 	// Core streaming events
 	StreamEventMessageStart    StreamEventType = "message_start"
-	StreamEventContentDelta    StreamEventType = "content_delta" 
+	StreamEventContentDelta    StreamEventType = "content_delta"
 	StreamEventContentComplete StreamEventType = "content_complete"
 	StreamEventMessageStop     StreamEventType = "message_stop"
 	StreamEventError           StreamEventType = "error"
-	
+
 	// Tool-related events
 	StreamEventToolUse    StreamEventType = "tool_use"
 	StreamEventToolResult StreamEventType = "tool_result"
-	
+
 	// Thinking/reasoning events
 	StreamEventThinking StreamEventType = "thinking"
 )
@@ -37,10 +37,10 @@ type StreamEvent struct {
 // StreamingLLM extends LLM with streaming capabilities
 type StreamingLLM interface {
 	LLM
-	
+
 	// GenerateStream generates text with streaming response
 	GenerateStream(ctx context.Context, prompt string, options ...GenerateOption) (<-chan StreamEvent, error)
-	
+
 	// GenerateWithToolsStream generates text with tools and streaming response
 	GenerateWithToolsStream(ctx context.Context, prompt string, tools []Tool, options ...GenerateOption) (<-chan StreamEvent, error)
 }
@@ -87,10 +87,10 @@ type ToolCallEvent struct {
 type StreamConfig struct {
 	// BufferSize determines the channel buffer size
 	BufferSize int
-	
+
 	// IncludeThinking whether to include thinking events
 	IncludeThinking bool
-	
+
 	// IncludeToolProgress whether to include tool execution progress
 	IncludeToolProgress bool
 }

@@ -389,14 +389,7 @@ func containsAnyTool(allowedTools, toolNames []string) bool {
 	return false
 }
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
+
 
 func printDirectUsage() {
 	fmt.Println()
@@ -478,7 +471,7 @@ func initConfig() {
 	fmt.Println("🚀 Initializing Agent SDK CLI configuration...")
 
 	configDir := getConfigDir()
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0750); err != nil {
 		ctx := context.Background()
 		logger.Error(ctx, "Failed to create config directory", map[string]interface{}{
 			"config_dir": configDir,
@@ -1280,8 +1273,8 @@ func exportMCPServers() {
 		return
 	}
 
-	// Write to file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write to file with secure permissions
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		fmt.Printf("❌ Failed to write file: %v\n", err)
 		return
 	}
@@ -1289,22 +1282,7 @@ func exportMCPServers() {
 	fmt.Printf("✅ Exported %d MCP servers to %s\n", len(config.MCPServers), filePath)
 }
 
-// Helper function to generate a name for MCP servers
-func getServerName(server MCPServerConfig) string {
-	if server.Type == "http" {
-		// Extract hostname from URL for naming
-		if strings.Contains(server.URL, "://") {
-			parts := strings.Split(server.URL, "://")
-			if len(parts) > 1 {
-				hostPart := strings.Split(parts[1], "/")[0]
-				return fmt.Sprintf("http-%s", hostPart)
-			}
-		}
-		return "http-server"
-	} else {
-		return fmt.Sprintf("stdio-%s", server.Command)
-	}
-}
+
 
 func generateConfigs() {
 	var systemPrompt, outputDir string
@@ -1345,8 +1323,8 @@ func generateConfigs() {
 		log.Fatalf("❌ Failed to generate configurations: %v", err)
 	}
 
-	// Create output directory
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	// Create output directory with secure permissions
+	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		log.Fatalf("❌ Failed to create output directory: %v", err)
 	}
 
@@ -1360,7 +1338,11 @@ func generateConfigs() {
 	if err != nil {
 		log.Fatalf("❌ Failed to create agent config file: %v", err)
 	}
-	defer agentYaml.Close()
+	defer func() {
+		if closeErr := agentYaml.Close(); closeErr != nil {
+			log.Printf("⚠️ Failed to close agent config file: %v", closeErr)
+		}
+	}()
 
 	if err := agent.SaveAgentConfigsToFile(agentConfigMap, agentYaml); err != nil {
 		log.Fatalf("❌ Failed to save agent configurations: %v", err)
@@ -1372,7 +1354,11 @@ func generateConfigs() {
 	if err != nil {
 		log.Fatalf("❌ Failed to create task config file: %v", err)
 	}
-	defer taskYaml.Close()
+	defer func() {
+		if closeErr := taskYaml.Close(); closeErr != nil {
+			log.Printf("⚠️ Failed to close task config file: %v", closeErr)
+		}
+	}()
 
 	// Convert slice to map for saving
 	taskConfigMap := make(agent.TaskConfigs)
@@ -1486,7 +1472,11 @@ func loadEnvFile() {
 	if err != nil {
 		return // Can't open .env file, continue without it
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("⚠️ Failed to close .env file: %v", closeErr)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -1514,7 +1504,9 @@ func loadEnvFile() {
 
 		// Only set if not already set in environment
 		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
+			if err := os.Setenv(key, value); err != nil {
+				log.Printf("⚠️ Failed to set environment variable %s: %v", key, err)
+			}
 		}
 	}
 }

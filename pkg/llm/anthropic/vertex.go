@@ -18,7 +18,7 @@ type VertexConfig struct {
 	Enabled     bool
 	ProjectID   string
 	Region      string
-	AccessToken string           // Optional: explicit token
+	AccessToken string             // Optional: explicit token
 	TokenSource oauth2.TokenSource // For automatic token refresh
 	Credentials *google.Credentials
 }
@@ -137,13 +137,13 @@ func (vc *VertexConfig) TransformRequest(req *CompletionRequest, method, path st
 
 	// Create a copy of the request for modification
 	vertexReq := *req
-	
+
 	// Remove model from body (it goes in the URL for Vertex AI)
 	vertexReq.Model = ""
-	
+
 	// Add Vertex AI specific anthropic_version
 	vertexReq.AnthropicVersion = "vertex-2023-10-16"
-	
+
 	// Determine the endpoint based on the path and streaming
 	var endpoint string
 	if strings.Contains(path, "messages") {
@@ -227,7 +227,7 @@ func (vc *VertexConfig) CreateVertexHTTPRequest(ctx context.Context, req *Comple
 func (vc *VertexConfig) CreateVertexStreamingHTTPRequest(ctx context.Context, req *CompletionRequest, method, path string) (*http.Request, error) {
 	// Ensure streaming is enabled
 	req.Stream = true
-	
+
 	// Use the same function but with streaming headers
 	httpReq, err := vc.CreateVertexHTTPRequest(ctx, req, method, path)
 	if err != nil {

@@ -22,7 +22,7 @@ func (c *AnthropicClient) GenerateStream(
 		"model":        c.Model,
 		"promptLength": len(prompt),
 	})
-	
+
 	// Check if model is specified
 	if c.Model == "" {
 		return nil, fmt.Errorf("model not specified: use WithModel option when creating the client")
@@ -288,7 +288,7 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 		// Default scanner has 64KB max token size which can cut off large responses
 		scanner := bufio.NewScanner(httpResp.Body)
 		// Set buffer to handle large SSE data lines (up to 10MB)
-		buf := make([]byte, 0, 64*1024) // 64KB initial buffer
+		buf := make([]byte, 0, 64*1024)   // 64KB initial buffer
 		scanner.Buffer(buf, 10*1024*1024) // Allow up to 10MB per line
 
 		// Parse SSE stream
@@ -333,7 +333,7 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 		"promptLength": len(prompt),
 		"toolsCount":   len(tools),
 	})
-	
+
 	// Check if model is specified
 	if c.Model == "" {
 		return nil, fmt.Errorf("model not specified: use WithModel option when creating the client")
@@ -612,19 +612,19 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			// If we have content, we're done with iterations - the model provided a final response
 			if hasContent {
 				c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Got final content response without tool calls", map[string]interface{}{
-					"iteration":        iteration + 1,
-					"hasContent":       hasContent,
-					"responseType":     "final_answer",
-					"toolCallsCount":   0,
-					"capturedEvents":   len(capturedContentEvents),
+					"iteration":      iteration + 1,
+					"hasContent":     hasContent,
+					"responseType":   "final_answer",
+					"toolCallsCount": 0,
+					"capturedEvents": len(capturedContentEvents),
 				})
-				
+
 				// Replay the captured content events to stream the final response
 				c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Replaying captured content events", map[string]interface{}{
-					"iteration":    iteration + 1,
-					"eventsCount":  len(capturedContentEvents),
+					"iteration":   iteration + 1,
+					"eventsCount": len(capturedContentEvents),
 				})
-				
+
 				for _, contentEvent := range capturedContentEvents {
 					select {
 					case eventChan <- contentEvent:
@@ -632,7 +632,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 						return ctx.Err()
 					}
 				}
-				
+
 				// Send completion event
 				select {
 				case eventChan <- interfaces.StreamEvent{

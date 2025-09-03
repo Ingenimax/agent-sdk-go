@@ -60,17 +60,17 @@ func (m *MockLLMWithTools) GenerateWithTools(ctx context.Context, prompt string,
 			Name:      tool.Name(),
 			Arguments: `{"test": "value"}`,
 		}
-		
+
 		// Store assistant message with tool call
 		_ = params.Memory.AddMessage(ctx, interfaces.Message{
 			Role:      "assistant",
 			Content:   "",
 			ToolCalls: []interfaces.ToolCall{toolCall},
 		})
-		
+
 		// Simulate tool execution
 		result, err := tool.Execute(ctx, `{"test": "value"}`)
-		
+
 		// Store tool result
 		if err != nil {
 			_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -138,18 +138,18 @@ func (m *MockTool) Execute(ctx context.Context, input string) (string, error) {
 func TestAgentWithToolsStoresInMemory(t *testing.T) {
 	// Create mock memory
 	mockMemory := &MockMemory{}
-	
+
 	// Create mock LLM
 	mockLLM := &MockLLMWithTools{
 		responses: []string{"I'll use the test tool"},
 	}
-	
+
 	// Create mock tool
 	mockTool := &MockTool{
 		name:        "test_tool",
 		description: "A test tool",
 	}
-	
+
 	// Create agent
 	agent, err := NewAgent(
 		WithLLM(mockLLM),
@@ -159,23 +159,23 @@ func TestAgentWithToolsStoresInMemory(t *testing.T) {
 		WithName("test-agent"),
 	)
 	assert.NoError(t, err)
-	
+
 	// Run the agent
 	response, err := agent.Run(context.Background(), "Please use the test tool")
-	
+
 	// Verify no error
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response)
-	
+
 	// Verify that tool calls and results were stored in memory
 	messages, err := mockMemory.GetMessages(context.Background())
 	assert.NoError(t, err)
 	assert.True(t, len(messages) >= 3, "Expected at least 3 messages: user, assistant with tool call, tool result")
-	
+
 	// Check for assistant message with tool call
 	foundAssistantWithToolCall := false
 	foundToolResult := false
-	
+
 	for _, msg := range messages {
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 			foundAssistantWithToolCall = true
@@ -188,7 +188,7 @@ func TestAgentWithToolsStoresInMemory(t *testing.T) {
 			assert.Equal(t, "test-tool-call-1", msg.ToolCallID)
 		}
 	}
-	
+
 	assert.True(t, foundAssistantWithToolCall, "Expected to find assistant message with tool call")
 	assert.True(t, foundToolResult, "Expected to find tool result message")
 }
@@ -198,13 +198,13 @@ func TestAgentWithoutMemoryDoesNotCrash(t *testing.T) {
 	mockLLM := &MockLLMWithTools{
 		responses: []string{"I'll use the test tool"},
 	}
-	
+
 	// Create mock tool
 	mockTool := &MockTool{
 		name:        "test_tool",
 		description: "A test tool",
 	}
-	
+
 	// Create agent without memory
 	agent, err := NewAgent(
 		WithLLM(mockLLM),
@@ -214,10 +214,10 @@ func TestAgentWithoutMemoryDoesNotCrash(t *testing.T) {
 		WithName("test-agent"),
 	)
 	assert.NoError(t, err)
-	
+
 	// Run the agent
 	response, err := agent.Run(context.Background(), "Please use the test tool")
-	
+
 	// Verify no error (should work without memory)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response)

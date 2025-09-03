@@ -39,7 +39,7 @@ export LLM_PROVIDER=anthropic
 
 ### For OpenAI:
 ```bash
-export OPENAI_API_KEY=your_openai_key  
+export OPENAI_API_KEY=your_openai_key
 export LLM_PROVIDER=openai
 ```
 
@@ -64,7 +64,7 @@ Starting LLM streaming...
 Response: Quantum computing is a revolutionary approach to computation that harnesses the principles of quantum mechanics...
 [Stream completed]
 
-🤖 Example 2: Agent Streaming  
+🤖 Example 2: Agent Streaming
 -----------------------------
 Starting agent streaming...
 Agent Response: Machine learning works through several key steps...
@@ -125,7 +125,7 @@ User Application
    LLM.GenerateStream()
        ↓
    SSE Parser (Provider-specific)
-       ↓ 
+       ↓
    Channel Events
        ↓
    Event Processing

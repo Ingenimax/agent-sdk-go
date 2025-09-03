@@ -152,11 +152,11 @@ The SDK is prepared for future reasoning models with the same parameter restrict
 func isReasoningModel(model string) bool {
     reasoningModels := []string{
         "o1-", "o1-mini", "o1-preview",
-        "o3-", "o3-mini", 
+        "o3-", "o3-mini",
         "o4-", "o4-mini",
         "gpt-5", "gpt-5-mini", "gpt-5-nano",
     }
-    
+
     for _, prefix := range reasoningModels {
         if strings.HasPrefix(model, prefix) {
             return true
@@ -194,7 +194,7 @@ POST "https://api.openai.com/v1/chat/completions": 400 Bad Request {
 # Prevented automatically:
 POST "https://api.openai.com/v1/chat/completions": 400 Bad Request {
     "message": "Unsupported parameter: 'parallel_tool_calls' is not supported with this model.",
-    "type": "invalid_request_error", 
+    "type": "invalid_request_error",
     "param": "parallel_tool_calls",
     "code": "unsupported_parameter"
 }
@@ -205,19 +205,19 @@ POST "https://api.openai.com/v1/chat/completions": 400 Bad Request {
 ### Logging Configuration Overrides
 
 ```go
-2025-08-22T16:28:28-03:00 DBG Overriding temperature for reasoning model 
-    forced_temperature=1 
-    model=o4-mini 
-    reason="reasoning models only support temperature = 1" 
+2025-08-22T16:28:28-03:00 DBG Overriding temperature for reasoning model
+    forced_temperature=1
+    model=o4-mini
+    reason="reasoning models only support temperature = 1"
     requested_temperature=0.3
 ```
 
 ### Streaming Debug Information
 
 ```go
-2025-08-22T16:28:28-03:00 DBG Creating OpenAI streaming request 
+2025-08-22T16:28:28-03:00 DBG Creating OpenAI streaming request
     is_reasoning_model=true
-    model=o4-mini 
+    model=o4-mini
     temperature=1
     parallel_tools=false
 ```

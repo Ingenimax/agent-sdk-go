@@ -15,7 +15,7 @@ Depth is calculated as the number of edges (connections) between agents, not the
 ```
 MainAgent -> SubAgent1 -> SubAgent2 -> SubAgent3
          ^1            ^2            ^3
-         
+
 Depth = 3 (three connections/edges)
 ```
 
@@ -32,7 +32,7 @@ if len(agent.subAgents) > 0 {
     if err := agent.validateSubAgents(); err != nil {
         return nil, err
     }
-    
+
     // Validate agent tree depth (max 5 levels)
     if err := validateAgentTree(agent, 5); err != nil {
         return nil, err

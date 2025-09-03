@@ -18,7 +18,7 @@ This example demonstrates how to create a streaming agent wrapped in a microserv
 │   gRPC Client   │◄─────────────────►│  Microservice   │
 │                 │                   │                 │
 │ • Event Handler │                   │ • Agent Wrapper │
-│ • Formatter     │                   │ • gRPC Server   │ 
+│ • Formatter     │                   │ • gRPC Server   │
 │ • Color Output  │                   │ • Health Check  │
 └─────────────────┘                   └─────────────────┘
                                               │
@@ -117,10 +117,10 @@ def countdown(n):
     if n <= 0:
         print("Blast off!")
         return
-    
+
     # Print current number
     print(n)
-    
+
     # Recursive case: call countdown with n-1
     countdown(n - 1)
 
@@ -138,7 +138,7 @@ Blast off!
 
 ## How it works:
 - `countdown(3)` prints 3, then calls `countdown(2)`
-- `countdown(2)` prints 2, then calls `countdown(1)`  
+- `countdown(2)` prints 2, then calls `countdown(1)`
 - `countdown(1)` prints 1, then calls `countdown(0)`
 - `countdown(0)` hits the base case and prints "Blast off!"
 
@@ -255,7 +255,7 @@ The example demonstrates the **Event Handler Registration** approach using the s
 
 Features include:
 - Color-coded output (blue for logs, gray for thinking, white for content)
-- Automatic thinking mode detection and transitions  
+- Automatic thinking mode detection and transitions
 - Tool execution progress tracking with detailed logging
 - Error handling and stream completion logging
 

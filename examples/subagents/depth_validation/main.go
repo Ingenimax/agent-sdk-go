@@ -302,4 +302,3 @@ func createBranchingHierarchy(llm interfaces.LLM, logger logging.Logger) {
 		fmt.Printf("   - TechnicalAgent has %d sub-agents\n", len(technicalAgent.GetSubAgents()))
 	}
 }
-

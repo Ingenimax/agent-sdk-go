@@ -36,4 +36,4 @@ researcher:
             total_findings:
               type: "integer"
             research_date:
-              type: "string" 
+              type: "string"

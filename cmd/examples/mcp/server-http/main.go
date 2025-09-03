@@ -59,15 +59,23 @@ func main() {
 	// Optional: Add a simple health check endpoint
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
-	// Start the HTTP server
+	// Start the HTTP server with timeouts for security
+	httpServer := &http.Server{
+		Addr:         ":8083",
+		Handler:      nil,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	log.Println("Starting HTTP server on :8083...")
 	log.Println("MCP endpoint available at: http://localhost:8083/mcp")
 	log.Println("Health check available at: http://localhost:8083/health")
 
-	if err := http.ListenAndServe(":8083", nil); err != nil {
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }

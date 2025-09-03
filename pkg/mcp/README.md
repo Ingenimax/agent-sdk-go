@@ -109,4 +109,4 @@ See the [MCP examples](../../cmd/examples/mcp) for complete examples of using th
 To run the examples:
 
 1. Start the HTTP server: `go run cmd/examples/mcp/server-http/main.go`
-2. Run the client, which will also start the stdio server: `go run cmd/examples/mcp/client/main.go` 
+2. Run the client, which will also start the stdio server: `go run cmd/examples/mcp/client/main.go`

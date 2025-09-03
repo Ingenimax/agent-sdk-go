@@ -131,9 +131,9 @@ func (t *TrendAnalysisTool) Execute(ctx context.Context, args string) (string, e
 
 // Helper function to check if string contains substring
 func contains(str, substr string) bool {
-	return len(str) >= len(substr) && (str == substr || (len(str) > len(substr) && 
-		(str[:len(substr)] == substr || str[len(str)-len(substr):] == substr || 
-		 indexOf(str, substr) >= 0)))
+	return len(str) >= len(substr) && (str == substr || (len(str) > len(substr) &&
+		(str[:len(substr)] == substr || str[len(str)-len(substr):] == substr ||
+			indexOf(str, substr) >= 0)))
 }
 
 // Simple indexOf implementation
@@ -145,7 +145,6 @@ func indexOf(str, substr string) int {
 	}
 	return -1
 }
-
 
 // StreamingMetrics tracks performance metrics during streaming
 type StreamingMetrics struct {
@@ -384,7 +383,7 @@ func processAdvancedAgentStream(eventChan <-chan interfaces.AgentStreamEvent, co
 			fmt.Printf("%s%s%s", ColorGray, event.ThinkingStep, ColorReset)
 
 		case interfaces.AgentEventToolCall:
-			// TODO: Remove debug logs after investigating streaming issues  
+			// TODO: Remove debug logs after investigating streaming issues
 			if inThinkingMode {
 				// End thinking mode when we get a tool call
 				fmt.Printf("\n%s\n", strings.Repeat("─", 60))
@@ -490,6 +489,4 @@ Use rigorous analytical methods and show your calculations clearly.`),
 	)
 }
 
-
 // Utility functions
-

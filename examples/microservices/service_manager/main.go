@@ -31,41 +31,41 @@ func main() {
 
 	// Create multiple specialized agents
 	agents := []struct {
-		name        string
-		description string
+		name         string
+		description  string
 		systemPrompt string
-		port        int
+		port         int
 	}{
 		{
-			name:        "MathAgent",
-			description: "Specialized in mathematical calculations and problem solving",
+			name:         "MathAgent",
+			description:  "Specialized in mathematical calculations and problem solving",
 			systemPrompt: "You are a mathematical expert. Solve problems step by step and show your work clearly.",
-			port:        8080,
+			port:         8080,
 		},
 		{
-			name:        "WritingAgent", 
-			description: "Specialized in writing, editing, and content creation",
+			name:         "WritingAgent",
+			description:  "Specialized in writing, editing, and content creation",
 			systemPrompt: "You are a writing expert. Help with creative writing, editing, grammar, and content creation.",
-			port:        8081,
+			port:         8081,
 		},
 		{
-			name:        "CodeAgent",
-			description: "Specialized in software development and programming",
+			name:         "CodeAgent",
+			description:  "Specialized in software development and programming",
 			systemPrompt: "You are a coding expert. Write clean, efficient code and explain programming concepts clearly.",
-			port:        8082,
+			port:         8082,
 		},
 		{
-			name:        "ResearchAgent",
-			description: "Specialized in research, analysis, and information gathering",
+			name:         "ResearchAgent",
+			description:  "Specialized in research, analysis, and information gathering",
 			systemPrompt: "You are a research expert. Provide thorough analysis and well-researched information.",
-			port:        8083,
+			port:         8083,
 		},
 	}
 
 	// Create and register microservices
 	for _, agentConfig := range agents {
 		fmt.Printf("Creating %s...\n", agentConfig.name)
-		
+
 		// Create the agent
 		ag, err := agent.NewAgent(
 			agent.WithName(agentConfig.name),
@@ -107,7 +107,7 @@ func main() {
 		if !exists {
 			log.Fatalf("Service %s not found in manager", agentConfig.name)
 		}
-		
+
 		if err := service.WaitForReady(10 * time.Second); err != nil {
 			log.Fatalf("Service %s failed to become ready: %v", agentConfig.name, err)
 		}
@@ -117,15 +117,15 @@ func main() {
 	fmt.Println("\nService Registry:")
 	for _, serviceName := range manager.ListServices() {
 		service, _ := manager.GetService(serviceName)
-		fmt.Printf("   • %s: %s (Port: %d)\n", 
-			serviceName, 
+		fmt.Printf("   • %s: %s (Port: %d)\n",
+			serviceName,
 			service.GetAgent().GetDescription(),
 			service.GetPort())
 	}
 
 	// Demonstrate using the remote agents
 	fmt.Println("\nTesting distributed agent system...")
-	
+
 	// Create remote connections to all our services
 	var remoteAgents []*agent.Agent
 	for _, agentConfig := range agents {
@@ -164,11 +164,11 @@ func main() {
 	ctx := context.Background()
 	for i, task := range testTasks {
 		fmt.Printf("\nTask %d: %s\n", i+1, task)
-		
+
 		start := time.Now()
 		result, err := orchestrator.Run(ctx, task)
 		duration := time.Since(start)
-		
+
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {
@@ -193,7 +193,7 @@ func main() {
 
 	// Set up graceful shutdown
 	fmt.Println("\nMicroservice Manager is running. Press Ctrl+C to shutdown all services...")
-	
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

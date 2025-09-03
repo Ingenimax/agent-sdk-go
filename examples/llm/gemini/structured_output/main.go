@@ -13,12 +13,12 @@ import (
 
 // Define structs that match our JSON schemas for type safety
 type PersonAnalysis struct {
-	Name        string   `json:"name"`
-	Profession  string   `json:"profession"`
-	Skills      []string `json:"skills"`
-	Experience  int      `json:"experience_years"`
+	Name         string        `json:"name"`
+	Profession   string        `json:"profession"`
+	Skills       []string      `json:"skills"`
+	Experience   int           `json:"experience_years"`
 	Achievements []Achievement `json:"achievements"`
-	Summary     string   `json:"summary"`
+	Summary      string        `json:"summary"`
 }
 
 type Achievement struct {
@@ -106,10 +106,10 @@ func main() {
 	fmt.Println("=== Example 1: Person Analysis ===")
 	personFormat := structuredoutput.NewResponseFormat(PersonAnalysis{})
 
-	personPrompt := `Analyze this person: 
-	Marie Curie was a Polish-French physicist and chemist who conducted pioneering research on radioactivity. 
-	She was the first woman to win a Nobel Prize, the first person to win a Nobel Prize twice, and the only 
-	person to win a Nobel Prize in two different sciences. She discovered two elements, polonium and radium. 
+	personPrompt := `Analyze this person:
+	Marie Curie was a Polish-French physicist and chemist who conducted pioneering research on radioactivity.
+	She was the first woman to win a Nobel Prize, the first person to win a Nobel Prize twice, and the only
+	person to win a Nobel Prize in two different sciences. She discovered two elements, polonium and radium.
 	She founded the Radium Institute in Paris and Warsaw. She died in 1934 from radiation exposure.`
 
 	response, err := client.Generate(ctx, personPrompt,
@@ -142,12 +142,12 @@ func main() {
 	fmt.Println("=== Example 2: Business Analysis ===")
 	businessFormat := structuredoutput.NewResponseFormat(BusinessAnalysis{})
 
-	businessPrompt := `Analyze this company: 
-	Tesla, Inc. is an American multinational automotive and clean energy company headquartered in Austin, Texas. 
-	Tesla designs and manufactures electric vehicles, battery energy storage systems, and solar panels. 
-	Founded in 2003 by Martin Eberhard and Marc Tarpenning, the company was later led by Elon Musk as CEO. 
-	Tesla went public in 2010 and has become the world's most valuable automaker. The company has around 140,000 
-	employees worldwide and reported revenue of approximately $96 billion in 2023. Major products include Model S, 
+	businessPrompt := `Analyze this company:
+	Tesla, Inc. is an American multinational automotive and clean energy company headquartered in Austin, Texas.
+	Tesla designs and manufactures electric vehicles, battery energy storage systems, and solar panels.
+	Founded in 2003 by Martin Eberhard and Marc Tarpenning, the company was later led by Elon Musk as CEO.
+	Tesla went public in 2010 and has become the world's most valuable automaker. The company has around 140,000
+	employees worldwide and reported revenue of approximately $96 billion in 2023. Major products include Model S,
 	Model 3, Model X, Model Y vehicles, Powerwall home batteries, and solar roof tiles.`
 
 	response, err = client.Generate(ctx, businessPrompt,
@@ -184,21 +184,21 @@ func main() {
 	recipeFormat := structuredoutput.NewResponseFormat(RecipeAnalysis{})
 
 	recipePrompt := `Analyze this recipe text and extract structured information:
-	
+
 	Spaghetti Carbonara (Serves 4)
-	
+
 	This classic Italian pasta dish takes about 30 minutes total - 10 minutes prep and 20 minutes cooking.
 	It's moderately difficult due to the technique required for the egg mixture.
-	
+
 	Ingredients:
 	- 400g spaghetti pasta
 	- 150g pancetta or guanciale, diced
 	- 3 large eggs plus 1 extra yolk
 	- 100g Pecorino Romano cheese, grated
-	- 50g Parmigiano-Reggiano, grated  
+	- 50g Parmigiano-Reggiano, grated
 	- Black pepper, freshly ground
 	- Salt for pasta water
-	
+
 	Instructions:
 	1. Bring a large pot of salted water to boil and cook spaghetti until al dente
 	2. Meanwhile, cook pancetta in a large pan until crispy
@@ -208,7 +208,7 @@ func main() {
 	6. Remove from heat and quickly mix in egg mixture, adding pasta water gradually
 	7. Toss until creamy sauce forms
 	8. Serve immediately with extra cheese and pepper
-	
+
 	This dish is high in protein and carbohydrates. Each serving has approximately 650 calories.`
 
 	response, err = client.Generate(ctx, recipePrompt,
@@ -227,7 +227,7 @@ func main() {
 		fmt.Printf("Recipe: %s\n", recipeAnalysis.Name)
 		fmt.Printf("Cuisine: %s\n", recipeAnalysis.Cuisine)
 		fmt.Printf("Difficulty: %s\n", recipeAnalysis.Difficulty)
-		fmt.Printf("Time: %d min prep + %d min cook = %d min total\n", 
+		fmt.Printf("Time: %d min prep + %d min cook = %d min total\n",
 			recipeAnalysis.PrepTime, recipeAnalysis.CookTime, recipeAnalysis.PrepTime+recipeAnalysis.CookTime)
 		fmt.Printf("Servings: %d\n", recipeAnalysis.Servings)
 		fmt.Printf("Ingredients:\n")
@@ -254,9 +254,9 @@ func main() {
 			Dates         []string `json:"dates"`
 			Numbers       []string `json:"numbers"`
 		} `json:"entities"`
-		Sentiment   string `json:"sentiment"`
+		Sentiment   string   `json:"sentiment"`
 		KeyTopics   []string `json:"key_topics"`
-		Summary     string `json:"summary"`
+		Summary     string   `json:"summary"`
 		ActionItems []struct {
 			Task     string `json:"task"`
 			Priority string `json:"priority"`
@@ -273,13 +273,13 @@ func main() {
 	Meeting Notes - Q4 Planning Session
 	Date: December 15, 2024
 	Attendees: Sarah Johnson (CEO), Mike Chen (CTO), Lisa Rodriguez (Marketing Director)
-	
-	Sarah opened the meeting discussing the 25% revenue growth this quarter, reaching $2.3M. 
-	She praised the team's efforts in the New York and London markets. Mike reported that the 
-	new AI platform will launch in January 2025, requiring 3 additional engineers. Lisa 
-	mentioned the upcoming campaign for the European market will cost $150K but could bring 
-	in 500 new customers. The team agreed to hire 2 engineers by January 15th and increase 
-	the marketing budget by $200K for Q1 2025. Overall, everyone was optimistic about next 
+
+	Sarah opened the meeting discussing the 25% revenue growth this quarter, reaching $2.3M.
+	She praised the team's efforts in the New York and London markets. Mike reported that the
+	new AI platform will launch in January 2025, requiring 3 additional engineers. Lisa
+	mentioned the upcoming campaign for the European market will cost $150K but could bring
+	in 500 new customers. The team agreed to hire 2 engineers by January 15th and increase
+	the marketing budget by $200K for Q1 2025. Overall, everyone was optimistic about next
 	year's projections of $12M annual revenue.`
 
 	response, err = client.Generate(ctx, extractionPrompt,
@@ -317,7 +317,7 @@ func main() {
 	fmt.Println("✅ Structured output examples completed!")
 	fmt.Println("\nKey capabilities demonstrated:")
 	fmt.Println("- Person biographical analysis")
-	fmt.Println("- Business/company analysis") 
+	fmt.Println("- Business/company analysis")
 	fmt.Println("- Recipe and culinary data extraction")
 	fmt.Println("- Multi-field entity and data extraction")
 	fmt.Println("- Automatic JSON schema generation from Go structs")

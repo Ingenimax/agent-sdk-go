@@ -370,7 +370,7 @@ func TestParallelToolExecution(t *testing.T) {
 													"parameters": {"param1": "value1"}
 												},
 												{
-													"recipient_name": "test_tool_2", 
+													"recipient_name": "test_tool_2",
 													"parameters": {"param2": "value2"}
 												}
 											]

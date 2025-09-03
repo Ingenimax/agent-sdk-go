@@ -304,4 +304,4 @@ When contributing to the vLLM client:
 3. Update documentation for API changes
 4. Ensure backward compatibility
 5. Test with multiple model types
-6. Consider vLLM-specific optimizations 
+6. Consider vLLM-specific optimizations

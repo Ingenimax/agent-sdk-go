@@ -14,52 +14,52 @@ type ContextKey string
 const (
 	// SubAgentNameKey is the context key for sub-agent name
 	SubAgentNameKey ContextKey = "sub_agent_name"
-	
+
 	// ParentAgentKey is the context key for parent agent
 	ParentAgentKey ContextKey = "parent_agent"
-	
+
 	// RecursionDepthKey is the context key for recursion depth
 	RecursionDepthKey ContextKey = "recursion_depth"
-	
+
 	// InvocationIDKey is the context key for invocation ID
 	InvocationIDKey ContextKey = "invocation_id"
-	
+
 	// MaxRecursionDepth is the maximum allowed recursion depth
 	MaxRecursionDepth = 5
-	
+
 	// DefaultSubAgentTimeout is the default timeout for sub-agent calls
 	DefaultSubAgentTimeout = 30 * time.Second
 )
 
 // SubAgentContext contains context information for sub-agent invocations
 type SubAgentContext struct {
-	ParentAgent   string
-	SubAgentName  string
+	ParentAgent    string
+	SubAgentName   string
 	RecursionDepth int
-	InvocationID  string
-	StartTime     time.Time
+	InvocationID   string
+	StartTime      time.Time
 }
 
 // WithSubAgentContext adds sub-agent context to the context
 func WithSubAgentContext(ctx context.Context, parentAgent, subAgentName string) context.Context {
 	// Get current recursion depth
 	depth := GetRecursionDepth(ctx)
-	
+
 	// Create sub-agent context
 	subCtx := SubAgentContext{
-		ParentAgent:   parentAgent,
-		SubAgentName:  subAgentName,
+		ParentAgent:    parentAgent,
+		SubAgentName:   subAgentName,
 		RecursionDepth: depth + 1,
-		InvocationID:  generateInvocationID(),
-		StartTime:     time.Now(),
+		InvocationID:   generateInvocationID(),
+		StartTime:      time.Now(),
 	}
-	
+
 	// Add to context
 	ctx = context.WithValue(ctx, SubAgentNameKey, subAgentName)
 	ctx = context.WithValue(ctx, ParentAgentKey, parentAgent)
 	ctx = context.WithValue(ctx, RecursionDepthKey, depth+1)
 	ctx = context.WithValue(ctx, InvocationIDKey, subCtx.InvocationID)
-	
+
 	return ctx
 }
 

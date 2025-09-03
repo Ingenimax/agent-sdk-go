@@ -55,27 +55,27 @@ func TestFormatHistoryIntoPrompt(t *testing.T) {
 			result := formatHistoryIntoPrompt(tt.history)
 			if result != tt.expected {
 				t.Errorf("formatHistoryIntoPrompt() mismatch\nGot:\n%s\n\nExpected:\n%s", result, tt.expected)
-				
+
 				// Show differences for debugging
 				gotLines := strings.Split(result, "\n")
 				expectedLines := strings.Split(tt.expected, "\n")
-				
+
 				maxLines := len(gotLines)
 				if len(expectedLines) > maxLines {
 					maxLines = len(expectedLines)
 				}
-				
+
 				for i := 0; i < maxLines; i++ {
 					gotLine := ""
 					expectedLine := ""
-					
+
 					if i < len(gotLines) {
 						gotLine = gotLines[i]
 					}
 					if i < len(expectedLines) {
 						expectedLine = expectedLines[i]
 					}
-					
+
 					if gotLine != expectedLine {
 						t.Errorf("Line %d differs:\nGot:      '%s'\nExpected: '%s'", i+1, gotLine, expectedLine)
 					}

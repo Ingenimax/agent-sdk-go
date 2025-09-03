@@ -76,7 +76,7 @@ func TestNewClient(t *testing.T) {
 
 func TestNewClientWithOptions(t *testing.T) {
 	logger := logging.New()
-	
+
 	client, err := NewClient(
 		"test-api-key",
 		WithModel(ModelGemini25Pro),
@@ -94,52 +94,52 @@ func TestNewClientWithOptions(t *testing.T) {
 
 func TestGetModelCapabilities(t *testing.T) {
 	tests := []struct {
-		model                string
-		expectedStreaming    bool
-		expectedToolCalling  bool
-		expectedVision       bool
-		expectedAudio        bool
-		expectedInputTokens  int
+		model               string
+		expectedStreaming   bool
+		expectedToolCalling bool
+		expectedVision      bool
+		expectedAudio       bool
+		expectedInputTokens int
 	}{
 		{
-			model:                ModelGemini25Pro,
-			expectedStreaming:    true,
-			expectedToolCalling:  true,
-			expectedVision:       true,
-			expectedAudio:        true,
-			expectedInputTokens:  2097152,
+			model:               ModelGemini25Pro,
+			expectedStreaming:   true,
+			expectedToolCalling: true,
+			expectedVision:      true,
+			expectedAudio:       true,
+			expectedInputTokens: 2097152,
 		},
 		{
-			model:                ModelGemini25Flash,
-			expectedStreaming:    true,
-			expectedToolCalling:  true,
-			expectedVision:       true,
-			expectedAudio:        true,
-			expectedInputTokens:  1048576,
+			model:               ModelGemini25Flash,
+			expectedStreaming:   true,
+			expectedToolCalling: true,
+			expectedVision:      true,
+			expectedAudio:       true,
+			expectedInputTokens: 1048576,
 		},
 		{
-			model:                ModelGemini25FlashLite,
-			expectedStreaming:    true,
-			expectedToolCalling:  true,
-			expectedVision:       false,
-			expectedAudio:        false,
-			expectedInputTokens:  32768,
+			model:               ModelGemini25FlashLite,
+			expectedStreaming:   true,
+			expectedToolCalling: true,
+			expectedVision:      false,
+			expectedAudio:       false,
+			expectedInputTokens: 32768,
 		},
 		{
-			model:                ModelGemini15Pro,
-			expectedStreaming:    true,
-			expectedToolCalling:  true,
-			expectedVision:       true,
-			expectedAudio:        false,
-			expectedInputTokens:  2097152,
+			model:               ModelGemini15Pro,
+			expectedStreaming:   true,
+			expectedToolCalling: true,
+			expectedVision:      true,
+			expectedAudio:       false,
+			expectedInputTokens: 2097152,
 		},
 		{
-			model:                ModelGemini15Flash,
-			expectedStreaming:    true,
-			expectedToolCalling:  true,
-			expectedVision:       true,
-			expectedAudio:        false,
-			expectedInputTokens:  1048576,
+			model:               ModelGemini15Flash,
+			expectedStreaming:   true,
+			expectedToolCalling: true,
+			expectedVision:      true,
+			expectedAudio:       false,
+			expectedInputTokens: 1048576,
 		},
 	}
 
@@ -495,7 +495,7 @@ func TestToolArrayItemsHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that we can create the client and it handles array items properly
-	// This test ensures that the convertTool method (which includes our fix) 
+	// This test ensures that the convertTool method (which includes our fix)
 	// doesn't panic and properly processes array items
 	assert.Equal(t, "gemini", client.Name())
 	assert.Equal(t, "array_test_tool", tool.Name())
@@ -503,17 +503,17 @@ func TestToolArrayItemsHandling(t *testing.T) {
 	// Verify the tool has the expected parameters structure
 	params := tool.Parameters()
 	assert.Contains(t, params, "string_array")
-	assert.Contains(t, params, "object_array") 
+	assert.Contains(t, params, "object_array")
 	assert.Contains(t, params, "enum_array")
 	assert.Contains(t, params, "simple_string")
 
 	// Verify items are properly structured
 	assert.NotNil(t, params["string_array"].Items)
 	assert.Equal(t, "string", params["string_array"].Items.Type)
-	
+
 	assert.NotNil(t, params["object_array"].Items)
 	assert.Equal(t, "object", params["object_array"].Items.Type)
-	
+
 	assert.NotNil(t, params["enum_array"].Items)
 	assert.Equal(t, "string", params["enum_array"].Items.Type)
 	assert.Equal(t, []interface{}{"option1", "option2", "option3"}, params["enum_array"].Items.Enum)

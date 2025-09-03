@@ -8,25 +8,25 @@ option go_package = "github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb";
 service AgentService {
     // Run executes the agent with the given input
     rpc Run(RunRequest) returns (RunResponse);
-    
+
     // RunStream executes the agent with streaming response
     rpc RunStream(RunRequest) returns (stream RunStreamResponse);
-    
+
     // GetMetadata returns agent metadata
     rpc GetMetadata(MetadataRequest) returns (MetadataResponse);
-    
+
     // GetCapabilities returns agent capabilities
     rpc GetCapabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
-    
+
     // Health check endpoint
     rpc Health(HealthRequest) returns (HealthResponse);
-    
+
     // Readiness check endpoint
     rpc Ready(ReadinessRequest) returns (ReadinessResponse);
-    
+
     // Generate execution plan (if supported)
     rpc GenerateExecutionPlan(PlanRequest) returns (PlanResponse);
-    
+
     // Approve execution plan (if supported)
     rpc ApproveExecutionPlan(ApprovalRequest) returns (ApprovalResponse);
 }
@@ -52,7 +52,7 @@ message RunStreamResponse {
     string chunk = 1;
     bool is_final = 2;
     string error = 3;
-    
+
     // Enhanced fields for richer streaming events
     EventType event_type = 4;
     ToolCall tool_call = 5;

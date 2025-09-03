@@ -6,7 +6,7 @@ This example demonstrates advanced streaming capabilities with a focused archite
 
 This example now supports **OpenAI**, **Anthropic**, and **Google Gemini** providers:
 - Auto-detection based on available API keys
-- Configurable models via environment variables  
+- Configurable models via environment variables
 - Native thinking support for compatible models (Anthropic Claude, Gemini 2.5)
 
 ## Architecture Overview
@@ -14,7 +14,7 @@ This example now supports **OpenAI**, **Anthropic**, and **Google Gemini** provi
 ```
 Project Manager (Main Agent)
 ├── Tool 1: Market Data Lookup (Mock)
-├── Tool 2: Trend Analysis (Mock) 
+├── Tool 2: Trend Analysis (Mock)
 ├── Subagent 1: Research Assistant
 └── Subagent 2: Data Analyst
 ```
@@ -27,7 +27,7 @@ Project Manager (Main Agent)
 - **Capabilities**: Extended thinking tokens, iterative tool execution, final answer synthesis
 - **Responsibilities**: Task breakdown, data gathering, analysis, and comprehensive reporting
 
-#### **2 Subagents** 
+#### **2 Subagents**
 - **Research Assistant**: Trend analysis and information organization
 - **Data Analyst**: Market data lookup and statistical analysis
 
@@ -45,7 +45,7 @@ Project Manager (Main Agent)
 
 ### 🧠 **AI Capabilities Demonstrated**
 - **Extended Thinking Tokens** - Real-time reasoning process in gray text
-- **Tool Integration** - Seamless mock tool execution within streaming  
+- **Tool Integration** - Seamless mock tool execution within streaming
 - **Iterative Tool Calling** - Multiple tool calls with result feedback to LLM
 - **Final Answer Generation** - Guaranteed synthesis after tool completion
 - **Agent Coordination** - Multi-agent task delegation and synthesis
@@ -98,7 +98,7 @@ go run main.go
 ### With Full API Integration
 ```bash
 export ANTHROPIC_API_KEY="your_key"
-export SERPER_API_KEY="your_serper_key" 
+export SERPER_API_KEY="your_serper_key"
 export GITHUB_TOKEN="your_github_token"
 go run main.go
 ```
@@ -112,7 +112,7 @@ go run main.go
 
 **Supported Models:**
 - `gpt-4o` - Full streaming, tools, and reasoning support
-- `gpt-4-turbo` - Full streaming and tools support  
+- `gpt-4-turbo` - Full streaming and tools support
 - `o1-mini`, `o1-preview` - Built-in reasoning only (no external tools)
 
 ## Output Features
@@ -149,12 +149,12 @@ TOOL EXECUTION: market_data_lookup
 ```
 THINKING BLOCK #1
 ────────────────────────────────────────────────────────────
-Let me analyze this request and execute a plan for comprehensive 
+Let me analyze this request and execute a plan for comprehensive
 e-commerce market analysis.
 
 I need to:
 1. Analyze current e-commerce trends and growth patterns
-2. Calculate market projections for Q1 2025  
+2. Calculate market projections for Q1 2025
 3. Identify opportunities/risks for expansion
 4. Provide data-backed recommendations
 
@@ -162,7 +162,7 @@ I'll start with trend analysis tool to understand overall trends,
 then use market data lookup for specific statistics...
 ────────────────────────────────────────────────────────────
 Final response:
-Based on the comprehensive analysis using both trend analysis and 
+Based on the comprehensive analysis using both trend analysis and
 market data tools, here are my findings and recommendations...
 ```
 
@@ -188,7 +188,7 @@ Agent Layer
   ↓ Agent Events
 Tool Execution
   ↓ Tool Results
-Subagent Delegation  
+Subagent Delegation
   ↓ Coordinated Results
 Terminal Display
 ```
@@ -201,7 +201,7 @@ Terminal Display
 - **Iterative Tool Calling**: Proper implementation of tool result feedback to LLM for continued conversation
 - **Debug Logging**: Comprehensive logging for troubleshooting streaming issues
 
-### 🛠️ **Tool System Improvements**  
+### 🛠️ **Tool System Improvements**
 - **Simplified Mock Tools**: Replaced complex calculator with reliable mock data tools
 - **No External Dependencies**: All tools work without API keys for easy testing
 - **Consistent Tool Responses**: Predictable mock data for demonstration purposes
@@ -240,7 +240,7 @@ streamConfig := interfaces.StreamConfig{
 
 When API keys are not provided, the example runs in mock mode with simulated:
 - Web search results
-- GitHub repository data  
+- GitHub repository data
 - Realistic response timing
 - Full streaming visualization
 

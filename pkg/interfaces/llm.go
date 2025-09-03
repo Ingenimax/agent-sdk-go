@@ -12,7 +12,7 @@ type LLM interface {
 
 	// Name returns the name of the LLM provider
 	Name() string
-	
+
 	// SupportsStreaming returns true if this LLM supports streaming
 	SupportsStreaming() bool
 }

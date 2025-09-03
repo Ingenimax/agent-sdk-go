@@ -199,7 +199,7 @@ func (a *Agent) runStreamingGeneration(
 ) error {
 	// Prepare generation options
 	options := []interfaces.GenerateOption{}
-	
+
 	// Add system prompt if available
 	if a.systemPrompt != "" {
 		options = append(options, func(opts *interfaces.GenerateOptions) {
@@ -252,7 +252,7 @@ func (a *Agent) runStreamingGeneration(
 	// Forward LLM events as agent events
 	for llmEvent := range llmEventChan {
 		agentEvent := a.convertLLMEventToAgentEvent(llmEvent)
-		
+
 		// Handle tool calls specially
 		if llmEvent.Type == interfaces.StreamEventToolUse && llmEvent.ToolCall != nil {
 			// Execute tool and send progress events
@@ -290,7 +290,7 @@ func (a *Agent) runStreamingGeneration(
 		Timestamp: time.Now(),
 		Metadata: map[string]interface{}{
 			"total_content_length": accumulatedContent.Len(),
-			"had_error":           finalError != nil,
+			"had_error":            finalError != nil,
 		},
 	}
 
@@ -309,19 +309,19 @@ func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) int
 	case interfaces.StreamEventMessageStart:
 		agentEvent.Type = interfaces.AgentEventContent
 		agentEvent.Content = llmEvent.Content
-		
+
 	case interfaces.StreamEventContentDelta:
 		agentEvent.Type = interfaces.AgentEventContent
 		agentEvent.Content = llmEvent.Content
-		
+
 	case interfaces.StreamEventContentComplete:
 		agentEvent.Type = interfaces.AgentEventContent
 		agentEvent.Content = llmEvent.Content
-		
+
 	case interfaces.StreamEventThinking:
 		agentEvent.Type = interfaces.AgentEventThinking
 		agentEvent.ThinkingStep = llmEvent.Content
-		
+
 	case interfaces.StreamEventToolUse:
 		agentEvent.Type = interfaces.AgentEventToolCall
 		if llmEvent.ToolCall != nil {
@@ -332,7 +332,7 @@ func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) int
 				Status:    "received",
 			}
 		}
-		
+
 	case interfaces.StreamEventToolResult:
 		agentEvent.Type = interfaces.AgentEventToolResult
 		if llmEvent.ToolCall != nil {
@@ -343,15 +343,15 @@ func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) int
 				Status: "completed",
 			}
 		}
-		
+
 	case interfaces.StreamEventError:
 		agentEvent.Type = interfaces.AgentEventError
 		agentEvent.Error = llmEvent.Error
-		
+
 	case interfaces.StreamEventMessageStop:
 		agentEvent.Type = interfaces.AgentEventContent
 		agentEvent.Content = llmEvent.Content
-		
+
 	default:
 		// Unknown event type, treat as content
 		agentEvent.Type = interfaces.AgentEventContent
@@ -409,7 +409,7 @@ func (a *Agent) handleToolCallStreaming(
 
 	// Execute the tool
 	toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
-	
+
 	// Send tool result event
 	resultEvent := interfaces.AgentStreamEvent{
 		Type: interfaces.AgentEventToolResult,
@@ -446,4 +446,3 @@ func (a *Agent) runRemoteStream(ctx context.Context, input string) (<-chan inter
 
 	return a.remoteClient.RunStream(ctx, input)
 }
-

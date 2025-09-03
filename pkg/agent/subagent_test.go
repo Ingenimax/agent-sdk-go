@@ -180,7 +180,7 @@ func TestSubAgentRetrieval(t *testing.T) {
 func TestMaxDepthValidation(t *testing.T) {
 	// Create a chain of agents that exceeds max depth
 	var agents []*Agent
-	
+
 	for i := 0; i < 10; i++ {
 		llm := &TestMockLLM{llmName: fmt.Sprintf("llm%d", i)}
 		agent, err := NewAgent(
@@ -190,15 +190,15 @@ func TestMaxDepthValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create agent %d: %v", i, err)
 		}
-		
+
 		// Add previous agent as sub-agent
 		if i > 0 {
 			agent.subAgents = append(agent.subAgents, agents[i-1])
 		}
-		
+
 		agents = append(agents, agent)
 	}
-	
+
 	// Validate the deepest agent (should exceed max depth)
 	err := validateAgentTree(agents[9], 5)
 	if err == nil {
@@ -208,44 +208,44 @@ func TestMaxDepthValidation(t *testing.T) {
 
 func TestContextManagement(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Test initial recursion depth
 	depth := GetRecursionDepth(ctx)
 	if depth != 0 {
 		t.Errorf("Expected initial depth 0, got %d", depth)
 	}
-	
+
 	// Add sub-agent context
 	ctx = WithSubAgentContext(ctx, "MainAgent", "SubAgent1")
-	
+
 	// Test updated depth
 	depth = GetRecursionDepth(ctx)
 	if depth != 1 {
 		t.Errorf("Expected depth 1, got %d", depth)
 	}
-	
+
 	// Test sub-agent name
 	name := GetSubAgentName(ctx)
 	if name != "SubAgent1" {
 		t.Errorf("Expected sub-agent name SubAgent1, got %s", name)
 	}
-	
+
 	// Test parent agent
 	parent := GetParentAgent(ctx)
 	if parent != "MainAgent" {
 		t.Errorf("Expected parent agent MainAgent, got %s", parent)
 	}
-	
+
 	// Test IsSubAgentCall
 	if !IsSubAgentCall(ctx) {
 		t.Error("Expected IsSubAgentCall to return true")
 	}
-	
+
 	// Test recursion depth validation
 	for i := 0; i < MaxRecursionDepth; i++ {
 		ctx = WithSubAgentContext(ctx, fmt.Sprintf("Agent%d", i), fmt.Sprintf("Agent%d", i+1))
 	}
-	
+
 	err := ValidateRecursionDepth(ctx)
 	if err == nil {
 		t.Error("Expected recursion depth validation error")

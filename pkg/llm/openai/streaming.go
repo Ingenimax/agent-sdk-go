@@ -99,7 +99,7 @@ func (c *OpenAIClient) GenerateStream(
 			Model:    openai.ChatModel(c.Model),
 			Messages: messages,
 		}
-		
+
 		// Reasoning models only support temperature=1 (default), so don't set it
 		if !isReasoningModel(c.Model) {
 			streamParams.Temperature = openai.Float(params.LLMConfig.Temperature)
@@ -126,7 +126,7 @@ func (c *OpenAIClient) GenerateStream(
 			streamParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 				IncludeUsage: openai.Bool(true),
 			}
-			
+
 			// Log reasoning support
 			if isReasoningModel(c.Model) {
 				c.logger.Debug(ctx, "Using reasoning model with built-in reasoning", map[string]interface{}{
@@ -162,9 +162,9 @@ func (c *OpenAIClient) GenerateStream(
 
 		// Log the request
 		c.logger.Debug(ctx, "Creating OpenAI streaming request", map[string]interface{}{
-			"model":       c.Model,
-			"temperature": params.LLMConfig.Temperature,
-			"top_p":       params.LLMConfig.TopP,
+			"model":              c.Model,
+			"temperature":        params.LLMConfig.Temperature,
+			"top_p":              params.LLMConfig.TopP,
 			"is_reasoning_model": isReasoningModel(c.Model),
 		})
 
@@ -274,7 +274,7 @@ func (c *OpenAIClient) GenerateStream(
 				Role:    "user",
 				Content: prompt,
 			})
-			
+
 			// Store system message if provided
 			if params.SystemMessage != "" {
 				_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -282,7 +282,7 @@ func (c *OpenAIClient) GenerateStream(
 					Content: params.SystemMessage,
 				})
 			}
-			
+
 			// Store accumulated assistant response
 			if accumulatedContent.Len() > 0 {
 				_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -355,7 +355,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 		openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
 		for i, tool := range tools {
 			schema := c.convertToOpenAISchema(tool.Parameters())
-			
+
 			openaiTools[i] = openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
 				Name:        tool.Name(),
 				Description: openai.String(tool.Description()),
@@ -413,7 +413,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				Role:    "user",
 				Content: prompt,
 			})
-			
+
 			if params.SystemMessage != "" {
 				_ = params.Memory.AddMessage(ctx, interfaces.Message{
 					Role:    "system",
@@ -440,7 +440,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				Tools:      openaiTools,
 				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("auto")},
 			}
-			
+
 			// Reasoning models only support temperature=1 (default), so don't set it
 			if !isReasoningModel(c.Model) {
 				streamParams.Temperature = openai.Float(params.LLMConfig.Temperature)
@@ -451,7 +451,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				streamParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 					IncludeUsage: openai.Bool(true),
 				}
-				
+
 				if isReasoningModel(c.Model) {
 					c.logger.Debug(ctx, "Using reasoning model with built-in reasoning for tools", map[string]interface{}{
 						"model": c.Model,
@@ -487,7 +487,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				"maxIterations": maxIterations,
 				"message_count": len(messages),
 			})
-			
+
 			// Debug log messages array for second iteration
 			if iteration > 0 {
 				c.logger.Debug(ctx, "Messages array for iteration", map[string]interface{}{
@@ -565,7 +565,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 										Name: toolCall.Function.Name,
 									}
 									toolCallBuffer.Reset()
-									
+
 									// Add to assistant response
 									assistantResponse.ToolCalls = append(assistantResponse.ToolCalls, openai.ChatCompletionMessageToolCallUnion{
 										ID:   toolCall.ID,
@@ -652,7 +652,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				"count":     len(assistantResponse.ToolCalls),
 				"iteration": iteration + 1,
 			})
-			
+
 			// Debug log all tool calls in assistant response
 			for i, tc := range assistantResponse.ToolCalls {
 				c.logger.Debug(ctx, "Assistant tool call", map[string]interface{}{
@@ -761,7 +761,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					"tool_name":     toolCall.Function.Name,
 					"result_length": len(result),
 				})
-				
+
 				// Ensure tool call ID is not swapped with result
 				if len(toolCall.ID) > 40 {
 					c.logger.Error(ctx, "Tool call ID too long", map[string]interface{}{
@@ -770,7 +770,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					})
 					continue
 				}
-				
+
 				// Create tool message - correct parameter order: content first, then tool_call_id
 				toolMessage := openai.ToolMessage(result, toolCall.ID)
 				c.logger.Debug(ctx, "Created tool message", map[string]interface{}{
@@ -793,7 +793,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			Model:    openai.ChatModel(c.Model),
 			Messages: finalMessages,
 		}
-		
+
 		// Reasoning models only support temperature=1 (default), so don't set it
 		if !isReasoningModel(c.Model) {
 			finalStreamParams.Temperature = openai.Float(params.LLMConfig.Temperature)

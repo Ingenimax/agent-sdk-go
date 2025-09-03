@@ -21,12 +21,12 @@ import (
 // ANSI color codes for terminal output
 const (
 	ColorReset  = "\033[0m"
-	ColorGray   = "\033[90m"  // Dark gray for thinking
-	ColorWhite  = "\033[97m"  // Bright white for content
-	ColorGreen  = "\033[32m"  // Green for success
-	ColorYellow = "\033[33m"  // Yellow for tools
-	ColorRed    = "\033[31m"  // Red for errors
-	ColorBlue   = "\033[34m"  // Blue for metadata
+	ColorGray   = "\033[90m" // Dark gray for thinking
+	ColorWhite  = "\033[97m" // Bright white for content
+	ColorGreen  = "\033[32m" // Green for success
+	ColorYellow = "\033[33m" // Yellow for tools
+	ColorRed    = "\033[31m" // Red for errors
+	ColorBlue   = "\033[34m" // Blue for metadata
 )
 
 // This example demonstrates streaming functionality with the Agent SDK
@@ -56,7 +56,7 @@ func main() {
 	fmt.Printf("Using provider: %s\n\n", provider)
 
 	ctx := context.Background()
-	
+
 	// Add required context for memory operations
 	ctx = multitenancy.WithOrgID(ctx, "streaming-examples")
 	ctx = memory.WithConversationID(ctx, "streaming-demo")
@@ -134,12 +134,12 @@ func basicLLMStreaming(ctx context.Context, provider string) error {
 	// Process streaming events
 	fmt.Print("Response: ")
 	var inThinking bool
-	
+
 	for event := range eventChan {
 		switch event.Type {
 		case interfaces.StreamEventContentDelta:
 			content := event.Content
-			
+
 			// Check for thinking tags in content
 			if strings.Contains(content, "<thinking>") {
 				parts := strings.Split(content, "<thinking>")
@@ -224,12 +224,12 @@ func agentStreaming(ctx context.Context, provider string) error {
 	// Process agent streaming events
 	fmt.Print("Agent Response: ")
 	var inThinking bool
-	
+
 	for event := range eventChan {
 		switch event.Type {
 		case interfaces.AgentEventContent:
 			content := event.Content
-			
+
 			// Check for thinking tags in content
 			if strings.Contains(content, "<thinking>") {
 				parts := strings.Split(content, "<thinking>")
@@ -416,7 +416,7 @@ func advancedStreamingFeatures(ctx context.Context, provider string) error {
 
 	fmt.Print("Response: ")
 	var inThinking bool
-	
+
 	for event := range eventChan {
 		eventCount++
 
@@ -426,7 +426,7 @@ func advancedStreamingFeatures(ctx context.Context, provider string) error {
 		case interfaces.StreamEventContentDelta:
 			content := event.Content
 			contentLength += len(content)
-			
+
 			// Check for thinking tags in content
 			if strings.Contains(content, "<thinking>") {
 				parts := strings.Split(content, "<thinking>")
@@ -551,7 +551,7 @@ func realReasoningDemo(ctx context.Context, provider string) error {
 	// Use different prompts and models based on provider capabilities
 	var prompt string
 	var options []interfaces.GenerateOption
-	
+
 	switch provider {
 	case "anthropic":
 		prompt = "Solve this step-by-step: If a car travels 120 km in 2 hours for the first part of a journey, then 200 km in 2.5 hours for the second part, what is the average speed for the entire journey?"
@@ -561,7 +561,7 @@ func realReasoningDemo(ctx context.Context, provider string) error {
 				opts.SystemMessage = "You are a math tutor. Solve the problem systematically."
 			},
 		}
-		
+
 		// Check if the current model supports thinking tokens
 		anthropicClient, _ := llm.(*anthropic.AnthropicClient)
 		if anthropicClient != nil {
@@ -617,11 +617,11 @@ func realReasoningDemo(ctx context.Context, provider string) error {
 	// Process streaming events with proper thinking content accumulation
 	fmt.Println("Response:")
 	fmt.Println("=" + strings.Repeat("=", 60))
-	
+
 	var thinkingContent strings.Builder
 	var inThinkingMode bool
 	var thinkingBlockCount int
-	
+
 	for event := range eventChan {
 		switch event.Type {
 		case interfaces.StreamEventContentDelta:

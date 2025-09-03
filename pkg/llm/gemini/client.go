@@ -28,27 +28,27 @@ const (
 	ModelGemini15Pro       = "gemini-1.5-pro"
 	ModelGemini15Flash     = "gemini-1.5-flash"
 	ModelGemini15Flash8B   = "gemini-1.5-flash-8b"
-	
+
 	// Preview/Experimental models
-	ModelGeminiLive25FlashPreview             = "gemini-live-2.5-flash-preview"
-	ModelGemini25FlashPreviewNativeAudio      = "gemini-2.5-flash-preview-native-audio-dialog"
-	ModelGemini25FlashExpNativeAudioThinking  = "gemini-2.5-flash-exp-native-audio-thinking-dialog"
-	ModelGemini25FlashPreviewTTS              = "gemini-2.5-flash-preview-tts"
-	ModelGemini25ProPreviewTTS                = "gemini-2.5-pro-preview-tts"
-	ModelGemini20FlashPreviewImageGen         = "gemini-2.0-flash-preview-image-generation"
-	ModelGemini20FlashLive001                 = "gemini-2.0-flash-live-001"
-	
+	ModelGeminiLive25FlashPreview            = "gemini-live-2.5-flash-preview"
+	ModelGemini25FlashPreviewNativeAudio     = "gemini-2.5-flash-preview-native-audio-dialog"
+	ModelGemini25FlashExpNativeAudioThinking = "gemini-2.5-flash-exp-native-audio-thinking-dialog"
+	ModelGemini25FlashPreviewTTS             = "gemini-2.5-flash-preview-tts"
+	ModelGemini25ProPreviewTTS               = "gemini-2.5-pro-preview-tts"
+	ModelGemini20FlashPreviewImageGen        = "gemini-2.0-flash-preview-image-generation"
+	ModelGemini20FlashLive001                = "gemini-2.0-flash-live-001"
+
 	// Default model
 	DefaultModel = ModelGemini15Flash
 )
 
 // GeminiClient implements the LLM interface for Google Gemini API
 type GeminiClient struct {
-	client        *genai.Client
-	apiKey        string
-	model         string
-	logger        logging.Logger
-	retryExecutor *retry.Executor
+	client         *genai.Client
+	apiKey         string
+	model          string
+	logger         logging.Logger
+	retryExecutor  *retry.Executor
 	thinkingConfig *ThinkingConfig
 }
 
@@ -150,18 +150,18 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 	// Add system instruction if provided or if reasoning is specified
 	var systemInstruction *genai.Content
 	systemMessage := params.SystemMessage
-	
+
 	// Log reasoning mode usage - only affects native thinking models (2.5 series)
 	if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
 		if SupportsThinking(c.model) {
 			c.logger.Debug(ctx, "Using reasoning mode with thinking-capable model", map[string]interface{}{
 				"reasoning": params.LLMConfig.Reasoning,
-				"model": c.model,
+				"model":     c.model,
 			})
 		} else {
 			c.logger.Debug(ctx, "Reasoning mode specified for non-thinking model - native thinking tokens not available", map[string]interface{}{
-				"reasoning": params.LLMConfig.Reasoning, 
-				"model": c.model,
+				"reasoning":        params.LLMConfig.Reasoning,
+				"model":            c.model,
 				"supportsThinking": false,
 			})
 		}
@@ -199,9 +199,9 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 		if genConfig == nil {
 			genConfig = &genai.GenerationConfig{}
 		}
-		
+
 		genConfig.ResponseMIMEType = "application/json"
-		
+
 		// Convert schema for genai
 		if schemaBytes, err := json.Marshal(params.ResponseFormat.Schema); err == nil {
 			var schema *genai.Schema
@@ -230,7 +230,7 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 		config := &genai.GenerateContentConfig{
 			SystemInstruction: systemInstruction,
 		}
-		
+
 		// Apply generation config parameters directly to config
 		if genConfig != nil {
 			if genConfig.Temperature != nil {
@@ -257,14 +257,14 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 					IncludeThoughts: c.thinkingConfig.IncludeThoughts,
 					ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
 				}
-				
+
 				c.logger.Debug(ctx, "Enabled thinking configuration", map[string]interface{}{
 					"includeThoughts": c.thinkingConfig.IncludeThoughts,
 					"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
 				})
 			}
 		}
-		
+
 		result, err = c.client.Models.GenerateContent(ctx, c.model, contents, config)
 		if err != nil {
 			c.logger.Error(ctx, "Error from Gemini API", map[string]interface{}{
@@ -294,10 +294,10 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 		c.logger.Debug(ctx, "Successfully received response from Gemini", map[string]interface{}{
 			"model": c.model,
 		})
-		
+
 		var textParts []string
 		var thinkingParts []string
-		
+
 		for _, part := range result.Candidates[0].Content.Parts {
 			if part.Text != "" {
 				if part.Thought {
@@ -312,7 +312,7 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 				}
 			}
 		}
-		
+
 		// For non-streaming Generate, we return only the final response content
 		// The thinking content is available but not returned in this interface
 		// (it would be available in streaming through StreamEventThinking)
@@ -322,7 +322,7 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 				"finalParts":    len(textParts),
 			})
 		}
-		
+
 		return strings.Join(textParts, ""), nil
 	}
 
@@ -380,7 +380,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			paramSchema := &genai.Schema{
 				Description: param.Description,
 			}
-			
+
 			// Set type
 			switch param.Type {
 			case "string":
@@ -398,7 +398,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			// Handle array items
 			if param.Items != nil {
 				itemSchema := &genai.Schema{}
-				
+
 				// Set items type
 				switch param.Items.Type {
 				case "string":
@@ -412,7 +412,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				case "object":
 					itemSchema.Type = genai.TypeObject
 				}
-				
+
 				// Handle items enum if present
 				if param.Items.Enum != nil {
 					enumStrings := make([]string, len(param.Items.Enum))
@@ -421,7 +421,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 					}
 					itemSchema.Enum = enumStrings
 				}
-				
+
 				paramSchema.Items = itemSchema
 			}
 
@@ -464,12 +464,12 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			if SupportsThinking(c.model) {
 				c.logger.Debug(ctx, "Using reasoning mode with thinking-capable model", map[string]interface{}{
 					"reasoning": params.LLMConfig.Reasoning,
-					"model": c.model,
+					"model":     c.model,
 				})
 			} else {
 				c.logger.Debug(ctx, "Reasoning mode specified for non-thinking model - native thinking tokens not available", map[string]interface{}{
-					"reasoning": params.LLMConfig.Reasoning, 
-					"model": c.model,
+					"reasoning":        params.LLMConfig.Reasoning,
+					"model":            c.model,
 					"supportsThinking": false,
 				})
 			}
@@ -497,7 +497,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 		var genConfig *genai.GenerationConfig
 		if params.LLMConfig != nil {
 			genConfig = &genai.GenerationConfig{}
-			
+
 			if params.LLMConfig.Temperature > 0 {
 				temp := float32(params.LLMConfig.Temperature)
 				genConfig.Temperature = &temp
@@ -517,7 +517,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				genConfig = &genai.GenerationConfig{}
 			}
 			genConfig.ResponseMIMEType = "application/json"
-			
+
 			// Convert schema for genai
 			if schemaBytes, err := json.Marshal(params.ResponseFormat.Schema); err == nil {
 				var schema *genai.Schema
@@ -538,7 +538,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			"iteration":       iteration + 1,
 			"maxIterations":   maxIterations,
 		}
-		
+
 		if genConfig != nil {
 			if genConfig.Temperature != nil {
 				logData["temperature"] = *genConfig.Temperature
@@ -550,14 +550,14 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				logData["stop_sequences"] = genConfig.StopSequences
 			}
 		}
-		
+
 		c.logger.Debug(ctx, "Sending request with tools to Gemini", logData)
 
 		config := &genai.GenerateContentConfig{
 			Tools:             geminiTools,
 			SystemInstruction: systemInstruction,
 		}
-		
+
 		// Apply generation config parameters directly to config
 		if genConfig != nil {
 			if genConfig.Temperature != nil {
@@ -576,7 +576,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				config.ResponseSchema = genConfig.ResponseSchema
 			}
 		}
-		
+
 		result, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
 		if err != nil {
 			c.logger.Error(ctx, "Error from Gemini API", map[string]interface{}{"error": err.Error()})
@@ -646,7 +646,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				c.logger.Error(ctx, "Tool not found", map[string]interface{}{
 					"toolName": functionCall.Name,
 				})
-				
+
 				// Add tool not found error as function response instead of returning
 				errorContent := &genai.Content{
 					Role: "user",
@@ -662,7 +662,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 					},
 				}
 				contents = append(contents, errorContent)
-				
+
 				// Store failed tool call in memory if provided
 				if params.Memory != nil {
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -681,7 +681,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 						},
 					})
 				}
-				
+
 				// Add to tracing context
 				toolCallTrace := tracing.ToolCall{
 					Name:       functionCall.Name,
@@ -693,9 +693,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 					Error:      fmt.Sprintf("tool not found: %s", functionCall.Name),
 					Result:     fmt.Sprintf("Error: tool not found: %s", functionCall.Name),
 				}
-				
+
 				tracing.AddToolCallToContext(ctx, toolCallTrace)
-				
+
 				continue // Continue processing other function calls
 			}
 
@@ -848,7 +848,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	var genConfig *genai.GenerationConfig
 	if params.LLMConfig != nil {
 		genConfig = &genai.GenerationConfig{}
-		
+
 		if params.LLMConfig.Temperature > 0 {
 			temp := float32(params.LLMConfig.Temperature)
 			genConfig.Temperature = &temp
@@ -868,7 +868,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			genConfig = &genai.GenerationConfig{}
 		}
 		genConfig.ResponseMIMEType = "application/json"
-		
+
 		// Convert schema for genai
 		if schemaBytes, err := json.Marshal(params.ResponseFormat.Schema); err == nil {
 			var schema *genai.Schema
@@ -895,7 +895,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: systemInstruction,
 	}
-	
+
 	// Apply generation config parameters directly to config
 	if genConfig != nil {
 		if genConfig.Temperature != nil {
@@ -914,7 +914,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			config.ResponseSchema = genConfig.ResponseSchema
 		}
 	}
-	
+
 	finalResult, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
 	if err != nil {
 		c.logger.Error(ctx, "Error in final call without tools", map[string]interface{}{"error": err.Error()})

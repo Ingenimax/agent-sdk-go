@@ -152,4 +152,4 @@ client, err := vertex.NewClient(ctx, projectID,
     vertex.WithLogger(logger),
     // ... other options
 )
-``` 
+```

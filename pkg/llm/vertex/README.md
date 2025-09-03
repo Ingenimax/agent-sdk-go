@@ -82,7 +82,7 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     // Create client with default settings
     client, err := vertex.NewClient(ctx, "your-project-id")
     if err != nil {
@@ -116,7 +116,7 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     // Create client with custom configuration
     client, err := vertex.NewClient(ctx, "your-project-id",
         vertex.WithModel(vertex.ModelGemini15Flash),
@@ -164,7 +164,7 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     // Create client with service account credentials
     client, err := vertex.NewClient(ctx, "your-project-id",
         vertex.WithCredentialsFile("path/to/service-account-key.json"),
@@ -231,7 +231,7 @@ func (t *CalculatorTool) Execute(ctx context.Context, args string) (string, erro
 
 func main() {
     ctx := context.Background()
-    
+
     client, err := vertex.NewClient(ctx, "your-project-id")
     if err != nil {
         log.Fatal(err)
@@ -244,8 +244,8 @@ func main() {
     }
 
     // Generate response with tools
-    response, err := client.GenerateWithTools(ctx, 
-        "What's 25 multiplied by 17?", 
+    response, err := client.GenerateWithTools(ctx,
+        "What's 25 multiplied by 17?",
         tools,
         func(options *interfaces.GenerateOptions) {
             options.SystemMessage = "You are a helpful assistant that can perform calculations."
@@ -275,16 +275,16 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     // Create clients with different reasoning modes
     clients := map[string]*vertex.Client{}
-    
+
     modes := []vertex.ReasoningMode{
         vertex.ReasoningModeNone,
-        vertex.ReasoningModeMinimal, 
+        vertex.ReasoningModeMinimal,
         vertex.ReasoningModeComprehensive,
     }
-    
+
     for _, mode := range modes {
         client, err := vertex.NewClient(ctx, "your-project-id",
             vertex.WithModel(vertex.ModelGemini15Pro),
@@ -301,7 +301,7 @@ func main() {
 
     for modeName, client := range clients {
         fmt.Printf("\n=== %s Reasoning ===\n", modeName)
-        
+
         response, err := client.Generate(ctx, prompt,
             func(options *interfaces.GenerateOptions) {
                 options.LLMConfig = &interfaces.LLMConfig{
@@ -313,7 +313,7 @@ func main() {
             log.Printf("Error with %s: %v", modeName, err)
             continue
         }
-        
+
         fmt.Println(response)
     }
 }
@@ -335,23 +335,23 @@ import (
 
 func main() {
     ctx := context.Background()
-    
+
     models := []string{
         vertex.ModelGemini15Pro,
         vertex.ModelGemini15Flash,
         vertex.ModelGemini20Flash,
     }
-    
+
     prompt := "Write a short explanation of quantum computing"
-    
+
     for _, model := range models {
         fmt.Printf("\n=== Testing %s ===\n", model)
-        
+
         // Add rate limiting between requests
         if model != models[0] {
             time.Sleep(2 * time.Second)
         }
-        
+
         client, err := vertex.NewClient(ctx, "your-project-id",
             vertex.WithModel(model),
         )
@@ -359,11 +359,11 @@ func main() {
             log.Printf("Failed to create client for %s: %v", model, err)
             continue
         }
-        
+
         start := time.Now()
         response, err := client.Generate(ctx, prompt)
         duration := time.Since(start)
-        
+
         if err != nil {
             log.Printf("Error with %s: %v", model, err)
         } else {
@@ -371,7 +371,7 @@ func main() {
             fmt.Printf("Duration: %v\n", duration)
             fmt.Printf("Response: %s\n", response)
         }
-        
+
         client.Close()
     }
 }
@@ -448,7 +448,7 @@ The client automatically handles rate limits with:
 3. **Error Handling**: Implement proper error handling for network and API failures
 4. **Retry Configuration**: Adjust retry settings based on your application's requirements
 5. **Location Selection**: Choose a location close to your users for better latency
-6. **Model Selection**: 
+6. **Model Selection**:
    - Use Gemini 1.5 Flash for faster responses
    - Use Gemini 1.5 Pro for complex reasoning tasks
    - Use Gemini 2.0 Flash for latest capabilities (experimental)
@@ -515,4 +515,4 @@ When contributing to this client:
 
 ## License
 
-This client is part of the agent-sdk-go project and follows the same licensing terms. 
+This client is part of the agent-sdk-go project and follows the same licensing terms.

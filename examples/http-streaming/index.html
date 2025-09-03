@@ -12,30 +12,30 @@
             padding: 20px;
             background-color: #f5f5f5;
         }
-        
+
         .container {
             background: white;
             border-radius: 8px;
             padding: 24px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        
+
         h1 {
             color: #333;
             margin-bottom: 24px;
         }
-        
+
         .form-group {
             margin-bottom: 16px;
         }
-        
+
         label {
             display: block;
             margin-bottom: 8px;
             font-weight: 500;
             color: #333;
         }
-        
+
         input[type="text"], textarea, select {
             width: 100%;
             padding: 12px;
@@ -44,12 +44,12 @@
             font-size: 14px;
             box-sizing: border-box;
         }
-        
+
         textarea {
             min-height: 80px;
             resize: vertical;
         }
-        
+
         button {
             background: #007AFF;
             color: white;
@@ -60,16 +60,16 @@
             font-size: 14px;
             font-weight: 500;
         }
-        
+
         button:hover {
             background: #0056CC;
         }
-        
+
         button:disabled {
             background: #ccc;
             cursor: not-allowed;
         }
-        
+
         .response-container {
             margin-top: 24px;
             border: 1px solid #ddd;
@@ -77,7 +77,7 @@
             min-height: 200px;
             background: #fafafa;
         }
-        
+
         .response-header {
             background: #f0f0f0;
             padding: 12px 16px;
@@ -87,26 +87,26 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .response-content {
             padding: 16px;
             white-space: pre-wrap;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             line-height: 1.5;
         }
-        
+
         .status {
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
             font-weight: 500;
         }
-        
+
         .status.connected { background: #e7f5e7; color: #2d7d32; }
         .status.streaming { background: #e3f2fd; color: #1976d2; }
         .status.completed { background: #f3e5f5; color: #7b1fa2; }
         .status.error { background: #ffebee; color: #c62828; }
-        
+
         .event-log {
             margin-top: 16px;
             max-height: 200px;
@@ -115,25 +115,25 @@
             border-radius: 4px;
             background: white;
         }
-        
+
         .event {
             padding: 8px 12px;
             border-bottom: 1px solid #f0f0f0;
             font-size: 12px;
             font-family: monospace;
         }
-        
+
         .event:last-child {
             border-bottom: none;
         }
-        
+
         .event.content { color: #2e7d32; }
         .event.thinking { color: #f57c00; }
         .event.tool_call { color: #1976d2; }
         .event.tool_result { color: #7b1fa2; }
         .event.error { color: #d32f2f; }
         .event.complete { color: #388e3c; }
-        
+
         .thinking {
             background: #fff3e0;
             border-left: 4px solid #ff9800;
@@ -143,7 +143,7 @@
             font-style: italic;
             color: #e65100;
         }
-        
+
         .tool-call {
             background: #e3f2fd;
             border-left: 4px solid #2196f3;
@@ -151,17 +151,17 @@
             margin: 8px 0;
             border-radius: 0 4px 4px 0;
         }
-        
+
         .tool-name {
             font-weight: 600;
             color: #1976d2;
         }
-        
+
         .tool-status {
             font-size: 12px;
             color: #666;
         }
-        
+
         .config-panel {
             margin-top: 24px;
             padding: 16px;
@@ -169,23 +169,23 @@
             border-radius: 4px;
             border: 1px solid #e9ecef;
         }
-        
+
         .config-row {
             display: flex;
             gap: 16px;
             margin-bottom: 12px;
         }
-        
+
         .config-row .form-group {
             flex: 1;
             margin-bottom: 0;
         }
-        
+
         .clear-btn {
             background: #6c757d;
             margin-left: 8px;
         }
-        
+
         .clear-btn:hover {
             background: #5a6268;
         }
@@ -194,17 +194,17 @@
 <body>
     <div class="container">
         <h1>🚀 Agent SDK Streaming Demo</h1>
-        
+
         <div class="form-group">
             <label for="endpoint">Server Endpoint:</label>
             <input type="text" id="endpoint" value="http://localhost:8080" placeholder="http://localhost:8080">
         </div>
-        
+
         <div class="form-group">
             <label for="prompt">Prompt:</label>
             <textarea id="prompt" placeholder="Ask the agent something...">Explain quantum computing in simple terms and show your reasoning process</textarea>
         </div>
-        
+
         <div class="config-panel">
             <h3>Configuration</h3>
             <div class="config-row">
@@ -218,13 +218,13 @@
                 </div>
             </div>
         </div>
-        
+
         <div style="margin-top: 16px;">
             <button id="streamBtn" onclick="startStreaming()">Start Streaming</button>
             <button id="stopBtn" onclick="stopStreaming()" disabled>Stop Stream</button>
             <button class="clear-btn" onclick="clearResponse()">Clear</button>
         </div>
-        
+
         <div class="response-container">
             <div class="response-header">
                 <span>Agent Response</span>
@@ -232,7 +232,7 @@
             </div>
             <div id="responseContent" class="response-content">Ready to stream... Click "Start Streaming" to begin.</div>
         </div>
-        
+
         <div class="event-log">
             <div class="event">Event log - streaming events will appear here</div>
         </div>
@@ -241,13 +241,13 @@
     <script>
         let eventSource = null;
         let isStreaming = false;
-        
+
         function updateStatus(status, className) {
             const statusElement = document.getElementById('status');
             statusElement.textContent = status;
             statusElement.className = `status ${className}`;
         }
-        
+
         function addToEventLog(eventType, data) {
             const eventLog = document.querySelector('.event-log');
             const event = document.createElement('div');
@@ -256,7 +256,7 @@
             eventLog.appendChild(event);
             eventLog.scrollTop = eventLog.scrollHeight;
         }
-        
+
         function appendContent(content) {
             const responseContent = document.getElementById('responseContent');
             if (responseContent.textContent === 'Ready to stream... Click "Start Streaming" to begin.') {
@@ -264,7 +264,7 @@
             }
             responseContent.textContent += content;
         }
-        
+
         function addThinking(thinking) {
             const responseContent = document.getElementById('responseContent');
             const thinkingDiv = document.createElement('div');
@@ -273,12 +273,12 @@
             responseContent.appendChild(thinkingDiv);
             responseContent.scrollTop = responseContent.scrollHeight;
         }
-        
+
         function addToolCall(toolCall) {
             const responseContent = document.getElementById('responseContent');
             const toolDiv = document.createElement('div');
             toolDiv.className = 'tool-call';
-            
+
             let toolHtml = `<div class="tool-name">🛠️ Tool: ${toolCall.name}</div>`;
             if (toolCall.arguments) {
                 toolHtml += `<div>Arguments: ${toolCall.arguments}</div>`;
@@ -287,47 +287,47 @@
                 toolHtml += `<div>Result: ${toolCall.result}</div>`;
             }
             toolHtml += `<div class="tool-status">Status: ${toolCall.status}</div>`;
-            
+
             toolDiv.innerHTML = toolHtml;
             responseContent.appendChild(toolDiv);
             responseContent.scrollTop = responseContent.scrollHeight;
         }
-        
+
         function startStreaming() {
             if (isStreaming) return;
-            
+
             const endpoint = document.getElementById('endpoint').value;
             const prompt = document.getElementById('prompt').value.trim();
             const orgId = document.getElementById('orgId').value.trim();
             const conversationId = document.getElementById('conversationId').value.trim();
-            
+
             if (!prompt) {
                 alert('Please enter a prompt');
                 return;
             }
-            
+
             // Prepare request data
             const requestData = {
                 input: prompt
             };
-            
+
             if (orgId) requestData.org_id = orgId;
             if (conversationId) requestData.conversation_id = conversationId;
-            
+
             // Update UI
             isStreaming = true;
             document.getElementById('streamBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
             updateStatus('Connecting...', 'streaming');
-            
+
             // Clear previous response
             const responseContent = document.getElementById('responseContent');
             responseContent.innerHTML = '';
-            
+
             // Clear event log except header
             const eventLog = document.querySelector('.event-log');
             eventLog.innerHTML = '<div class="event">Starting new stream...</div>';
-            
+
             // Create EventSource for SSE
             fetch(`${endpoint}/api/v1/agent/stream`, {
                 method: 'POST',
@@ -339,14 +339,14 @@
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
+
                 updateStatus('Connected', 'connected');
                 addToEventLog('connected', 'Stream connected');
-                
+
                 // Read the response as a stream
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-                
+
                 function readStream() {
                     return reader.read().then(({ done, value }) => {
                         if (done) {
@@ -357,11 +357,11 @@
                             addToEventLog('done', 'Stream completed');
                             return;
                         }
-                        
+
                         // Decode and process SSE data
                         const chunk = decoder.decode(value);
                         const lines = chunk.split('\n');
-                        
+
                         for (const line of lines) {
                             if (line.startsWith('data: ')) {
                                 try {
@@ -372,11 +372,11 @@
                                 }
                             }
                         }
-                        
+
                         return readStream();
                     });
                 }
-                
+
                 return readStream();
             }).catch(error => {
                 console.error('Streaming error:', error);
@@ -385,46 +385,46 @@
                 isStreaming = false;
                 document.getElementById('streamBtn').disabled = false;
                 document.getElementById('stopBtn').disabled = true;
-                
+
                 // Show error in response area
                 const responseContent = document.getElementById('responseContent');
                 responseContent.innerHTML = `<div style="color: red;">Error: ${error.message}</div>`;
             });
         }
-        
+
         function handleStreamEvent(data) {
             addToEventLog(data.type, data);
-            
+
             switch (data.type) {
                 case 'connected':
                     updateStatus('Streaming', 'streaming');
                     break;
-                    
+
                 case 'content':
                     if (data.content) {
                         appendContent(data.content);
                     }
                     break;
-                    
+
                 case 'thinking':
                     if (data.thinking_step) {
                         addThinking(data.thinking_step);
                     }
                     break;
-                    
+
                 case 'tool_call':
                 case 'tool_result':
                     if (data.tool_call) {
                         addToolCall(data.tool_call);
                     }
                     break;
-                    
+
                 case 'error':
                     updateStatus('Error', 'error');
                     const responseContent = document.getElementById('responseContent');
                     responseContent.innerHTML += `<div style="color: red; margin-top: 16px;">Error: ${data.error}</div>`;
                     break;
-                    
+
                 case 'complete':
                 case 'done':
                     updateStatus('Completed', 'completed');
@@ -434,30 +434,30 @@
                     break;
             }
         }
-        
+
         function stopStreaming() {
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
             }
-            
+
             isStreaming = false;
             document.getElementById('streamBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
             updateStatus('Stopped', 'error');
             addToEventLog('stopped', 'Stream stopped by user');
         }
-        
+
         function clearResponse() {
             const responseContent = document.getElementById('responseContent');
             responseContent.innerHTML = 'Ready to stream... Click "Start Streaming" to begin.';
-            
+
             const eventLog = document.querySelector('.event-log');
             eventLog.innerHTML = '<div class="event">Event log - streaming events will appear here</div>';
-            
+
             updateStatus('Ready', '');
         }
-        
+
         // Check server status on load
         window.addEventListener('load', function() {
             const endpoint = document.getElementById('endpoint').value;
@@ -472,7 +472,7 @@
                     updateStatus('Server Offline', 'error');
                 });
         });
-        
+
         // Allow Enter key to submit
         document.getElementById('prompt').addEventListener('keydown', function(e) {
             if (e.ctrlKey && e.key === 'Enter') {

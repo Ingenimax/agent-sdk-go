@@ -267,4 +267,4 @@ go run examples/llm/ollama/agent_integration/main.go
 
 # Structured output examples
 go run examples/llm/ollama/structured_output/main.go
-``` 
+```

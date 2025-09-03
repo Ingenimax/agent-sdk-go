@@ -16,7 +16,7 @@ import (
 // If not set, it tries to detect based on available API keys
 func CreateLLM() (interfaces.LLM, error) {
 	provider := strings.ToLower(os.Getenv("LLM_PROVIDER"))
-	
+
 	// If no provider specified, try to detect based on available API keys
 	if provider == "" {
 		if os.Getenv("OPENAI_API_KEY") != "" {
@@ -29,7 +29,7 @@ func CreateLLM() (interfaces.LLM, error) {
 			return nil, fmt.Errorf("no LLM provider specified and no API keys found. Set LLM_PROVIDER or provide an API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY)")
 		}
 	}
-	
+
 	switch provider {
 	case "openai":
 		apiKey := os.Getenv("OPENAI_API_KEY")
@@ -41,7 +41,7 @@ func CreateLLM() (interfaces.LLM, error) {
 			model = "gpt-4o" // Default model
 		}
 		return openai.NewClient(apiKey, openai.WithModel(model)), nil
-		
+
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
@@ -52,7 +52,7 @@ func CreateLLM() (interfaces.LLM, error) {
 			model = anthropic.Claude37Sonnet // Default model
 		}
 		return anthropic.NewClient(apiKey, anthropic.WithModel(model)), nil
-		
+
 	case "gemini":
 		apiKey := os.Getenv("GEMINI_API_KEY")
 		if apiKey == "" {
@@ -67,7 +67,7 @@ func CreateLLM() (interfaces.LLM, error) {
 			return nil, fmt.Errorf("failed to create Gemini client: %w", err)
 		}
 		return client, nil
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, anthropic, gemini)", provider)
 	}
@@ -76,7 +76,7 @@ func CreateLLM() (interfaces.LLM, error) {
 // GetProviderInfo returns information about the current LLM provider
 func GetProviderInfo() string {
 	provider := strings.ToLower(os.Getenv("LLM_PROVIDER"))
-	
+
 	// Auto-detect if not specified
 	if provider == "" {
 		if os.Getenv("OPENAI_API_KEY") != "" {
@@ -89,7 +89,7 @@ func GetProviderInfo() string {
 			return "No LLM provider configured"
 		}
 	}
-	
+
 	switch provider {
 	case "openai":
 		model := os.Getenv("OPENAI_MODEL")
@@ -97,21 +97,21 @@ func GetProviderInfo() string {
 			model = "gpt-4o"
 		}
 		return fmt.Sprintf("OpenAI (%s)", model)
-		
+
 	case "anthropic":
 		model := os.Getenv("ANTHROPIC_MODEL")
 		if model == "" {
 			model = anthropic.Claude37Sonnet
 		}
 		return fmt.Sprintf("Anthropic (%s)", model)
-		
+
 	case "gemini":
 		model := os.Getenv("GEMINI_MODEL")
 		if model == "" {
 			model = gemini.ModelGemini15Flash
 		}
 		return fmt.Sprintf("Gemini (%s)", model)
-		
+
 	default:
 		return fmt.Sprintf("Unknown provider: %s", provider)
 	}

@@ -108,10 +108,10 @@ func TestConvertAnthropicEventToStreamEvent(t *testing.T) {
 	client := &AnthropicClient{}
 
 	tests := []struct {
-		name          string
+		name           string
 		anthropicEvent *AnthropicSSEEvent
-		expectedType  interfaces.StreamEventType
-		expectError   bool
+		expectedType   interfaces.StreamEventType
+		expectError    bool
 	}{
 		{
 			name: "Message start event",

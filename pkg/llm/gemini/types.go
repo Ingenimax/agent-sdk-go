@@ -15,28 +15,28 @@ const (
 type SafetyThreshold string
 
 const (
-	SafetyThresholdUnspecified      SafetyThreshold = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
-	SafetyThresholdBlockLowAndAbove SafetyThreshold = "BLOCK_LOW_AND_ABOVE"
+	SafetyThresholdUnspecified         SafetyThreshold = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
+	SafetyThresholdBlockLowAndAbove    SafetyThreshold = "BLOCK_LOW_AND_ABOVE"
 	SafetyThresholdBlockMediumAndAbove SafetyThreshold = "BLOCK_MEDIUM_AND_ABOVE"
-	SafetyThresholdBlockOnlyHigh    SafetyThreshold = "BLOCK_ONLY_HIGH"
-	SafetyThresholdBlockNone        SafetyThreshold = "BLOCK_NONE"
+	SafetyThresholdBlockOnlyHigh       SafetyThreshold = "BLOCK_ONLY_HIGH"
+	SafetyThresholdBlockNone           SafetyThreshold = "BLOCK_NONE"
 )
 
 // HarmCategory represents the harm category for safety filtering
 type HarmCategory string
 
 const (
-	HarmCategoryUnspecified       HarmCategory = "HARM_CATEGORY_UNSPECIFIED"
-	HarmCategoryDerogatory        HarmCategory = "HARM_CATEGORY_DEROGATORY"
-	HarmCategoryToxicity          HarmCategory = "HARM_CATEGORY_TOXICITY"
-	HarmCategoryViolence          HarmCategory = "HARM_CATEGORY_VIOLENCE"
-	HarmCategorySexual            HarmCategory = "HARM_CATEGORY_SEXUAL"
-	HarmCategoryMedical           HarmCategory = "HARM_CATEGORY_MEDICAL"
-	HarmCategoryDangerous         HarmCategory = "HARM_CATEGORY_DANGEROUS"
-	HarmCategoryHarassment        HarmCategory = "HARM_CATEGORY_HARASSMENT"
-	HarmCategoryHateSpeech        HarmCategory = "HARM_CATEGORY_HATE_SPEECH"
-	HarmCategorySexuallyExplicit  HarmCategory = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
-	HarmCategoryDangerousContent  HarmCategory = "HARM_CATEGORY_DANGEROUS_CONTENT"
+	HarmCategoryUnspecified      HarmCategory = "HARM_CATEGORY_UNSPECIFIED"
+	HarmCategoryDerogatory       HarmCategory = "HARM_CATEGORY_DEROGATORY"
+	HarmCategoryToxicity         HarmCategory = "HARM_CATEGORY_TOXICITY"
+	HarmCategoryViolence         HarmCategory = "HARM_CATEGORY_VIOLENCE"
+	HarmCategorySexual           HarmCategory = "HARM_CATEGORY_SEXUAL"
+	HarmCategoryMedical          HarmCategory = "HARM_CATEGORY_MEDICAL"
+	HarmCategoryDangerous        HarmCategory = "HARM_CATEGORY_DANGEROUS"
+	HarmCategoryHarassment       HarmCategory = "HARM_CATEGORY_HARASSMENT"
+	HarmCategoryHateSpeech       HarmCategory = "HARM_CATEGORY_HATE_SPEECH"
+	HarmCategorySexuallyExplicit HarmCategory = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	HarmCategoryDangerousContent HarmCategory = "HARM_CATEGORY_DANGEROUS_CONTENT"
 )
 
 // SafetySetting represents a safety setting for content filtering
@@ -88,15 +88,15 @@ func DefaultThinkingConfig() ThinkingConfig {
 
 // ModelCapabilities represents the capabilities of different Gemini models
 type ModelCapabilities struct {
-	SupportsStreaming    bool
-	SupportsToolCalling  bool
-	SupportsVision       bool
-	SupportsAudio        bool
-	SupportsThinking     bool
-	MaxInputTokens       int
-	MaxOutputTokens      int
-	MaxThinkingTokens    *int32 // nil if thinking not supported
-	SupportedMimeTypes   []string
+	SupportsStreaming   bool
+	SupportsToolCalling bool
+	SupportsVision      bool
+	SupportsAudio       bool
+	SupportsThinking    bool
+	MaxInputTokens      int
+	MaxOutputTokens     int
+	MaxThinkingTokens   *int32 // nil if thinking not supported
+	SupportedMimeTypes  []string
 }
 
 // GetModelCapabilities returns the capabilities for a given model
@@ -160,7 +160,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling: true,
 			SupportsVision:      true,
 			SupportsAudio:       false,
-			SupportsThinking:    false, // 2.0 and 1.5 models don't support thinking
+			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
 			MaxInputTokens:      1048576, // 1M tokens
 			MaxOutputTokens:     8192,
 			MaxThinkingTokens:   nil,
@@ -189,7 +189,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling: true,
 			SupportsVision:      true,
 			SupportsAudio:       false,
-			SupportsThinking:    false, // 2.0 and 1.5 models don't support thinking
+			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
 			MaxInputTokens:      2097152, // 2M tokens
 			MaxOutputTokens:     8192,
 			MaxThinkingTokens:   nil,
@@ -206,7 +206,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling: true,
 			SupportsVision:      true,
 			SupportsAudio:       false,
-			SupportsThinking:    false, // 2.0 and 1.5 models don't support thinking
+			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
 			MaxInputTokens:      1048576, // 1M tokens
 			MaxOutputTokens:     8192,
 			MaxThinkingTokens:   nil,
@@ -223,7 +223,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling: true,
 			SupportsVision:      true,
 			SupportsAudio:       false,
-			SupportsThinking:    false, // 2.0 and 1.5 models don't support thinking
+			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
 			MaxInputTokens:      1048576, // 1M tokens
 			MaxOutputTokens:     8192,
 			MaxThinkingTokens:   nil,
@@ -235,7 +235,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 		}
 	// Preview/Experimental models
 	case ModelGeminiLive25FlashPreview, ModelGemini25FlashPreviewNativeAudio, ModelGemini25FlashExpNativeAudioThinking,
-		 ModelGemini25FlashPreviewTTS, ModelGemini25ProPreviewTTS, ModelGemini20FlashLive001:
+		ModelGemini25FlashPreviewTTS, ModelGemini25ProPreviewTTS, ModelGemini20FlashLive001:
 		return ModelCapabilities{
 			SupportsStreaming:   true,
 			SupportsToolCalling: true,
@@ -257,7 +257,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling: true,
 			SupportsVision:      true,
 			SupportsAudio:       false,
-			SupportsThinking:    false, // 2.0 and 1.5 models don't support thinking
+			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
 			MaxInputTokens:      1048576, // 1M tokens
 			MaxOutputTokens:     8192,
 			MaxThinkingTokens:   nil,
@@ -319,11 +319,11 @@ func ValidateThinkingBudget(model string, budget int32) error {
 	if !SupportsThinking(model) {
 		return fmt.Errorf("model %s does not support thinking", model)
 	}
-	
+
 	maxTokens := GetMaxThinkingTokens(model)
 	if maxTokens != nil && budget > *maxTokens {
 		return fmt.Errorf("thinking budget %d exceeds maximum %d for model %s", budget, *maxTokens, model)
 	}
-	
+
 	return nil
 }

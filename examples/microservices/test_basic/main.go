@@ -63,7 +63,7 @@ func main() {
 	if err := service.Start(); err != nil {
 		log.Fatalf("Failed to start microservice: %v", err)
 	}
-	
+
 	// Step 5: Wait for service to be ready
 	fmt.Println("\n5. Waiting for service to be ready...")
 	if err := service.WaitForReady(10 * time.Second); err != nil {
@@ -102,7 +102,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create orchestrator: %v", err)
 	}
-	
+
 	orchResult, err := orchestrator.Run(ctx, "Use the MathAgent to calculate: What is the square root of 144?")
 	if err != nil {
 		log.Printf("Orchestrator test failed: %v", err)

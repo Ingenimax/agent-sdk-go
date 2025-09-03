@@ -144,10 +144,10 @@ const (
 	Claude35Haiku  = "claude-3-5-haiku-latest"
 	Claude35Sonnet = "claude-3-5-sonnet-latest"
 	Claude3Opus    = "claude-3-opus-latest"
-	Claude37Sonnet = "claude-3-7-sonnet-20250219"  // Supports thinking tokens
-	ClaudeSonnet4  = "claude-sonnet-4-20250514"    // Latest model with thinking
-	ClaudeOpus4    = "claude-opus-4-20250514"      // Latest Opus with thinking
-	ClaudeOpus41   = "claude-opus-4-1-20250805"    // Latest Opus 4.1
+	Claude37Sonnet = "claude-3-7-sonnet-20250219" // Supports thinking tokens
+	ClaudeSonnet4  = "claude-sonnet-4-20250514"   // Latest model with thinking
+	ClaudeOpus4    = "claude-opus-4-20250514"     // Latest Opus with thinking
+	ClaudeOpus41   = "claude-opus-4-1-20250805"   // Latest Opus 4.1
 )
 
 // SupportsThinking returns true if the model supports thinking tokens
@@ -158,7 +158,7 @@ func SupportsThinking(model string) bool {
 		"claude-opus-4-20250514",
 		"claude-opus-4-1-20250805",
 	}
-	
+
 	for _, supportedModel := range supportedModels {
 		if model == supportedModel {
 			return true
@@ -191,26 +191,26 @@ type ToolResult struct {
 
 // CompletionRequest represents a request for Anthropic API
 type CompletionRequest struct {
-	Model            string        `json:"model,omitempty"`
-	Messages         []Message     `json:"messages"`
-	MaxTokens        int           `json:"max_tokens,omitempty"`
-	Temperature      float64       `json:"temperature,omitempty"`
-	TopP             float64       `json:"top_p,omitempty"`
-	TopK             int           `json:"top_k,omitempty"`
-	StopSequences    []string      `json:"stop_sequences,omitempty"`
-	System           string        `json:"system,omitempty"`
-	Tools            []Tool        `json:"tools,omitempty"`
-	ToolChoice       interface{}   `json:"tool_choice,omitempty"`
-	Stream           bool          `json:"stream,omitempty"`
-	MetadataKey      string        `json:"metadata,omitempty"`
-	AnthropicVersion string        `json:"anthropic_version,omitempty"` // For Vertex AI
-	Thinking         *ReasoningSpec `json:"thinking,omitempty"` // Keep "thinking" for API compatibility
+	Model            string         `json:"model,omitempty"`
+	Messages         []Message      `json:"messages"`
+	MaxTokens        int            `json:"max_tokens,omitempty"`
+	Temperature      float64        `json:"temperature,omitempty"`
+	TopP             float64        `json:"top_p,omitempty"`
+	TopK             int            `json:"top_k,omitempty"`
+	StopSequences    []string       `json:"stop_sequences,omitempty"`
+	System           string         `json:"system,omitempty"`
+	Tools            []Tool         `json:"tools,omitempty"`
+	ToolChoice       interface{}    `json:"tool_choice,omitempty"`
+	Stream           bool           `json:"stream,omitempty"`
+	MetadataKey      string         `json:"metadata,omitempty"`
+	AnthropicVersion string         `json:"anthropic_version,omitempty"` // For Vertex AI
+	Thinking         *ReasoningSpec `json:"thinking,omitempty"`          // Keep "thinking" for API compatibility
 }
 
 // ReasoningSpec represents the reasoning configuration for Anthropic API
 // Note: API still uses "thinking" parameter name for compatibility
 type ReasoningSpec struct {
-	Type         string `json:"type"`           // "enabled" to enable reasoning
+	Type         string `json:"type"`                    // "enabled" to enable reasoning
 	BudgetTokens int    `json:"budget_tokens,omitempty"` // Optional token budget for reasoning
 }
 
@@ -331,7 +331,7 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		} else {
 			apiType = "Anthropic API"
 		}
-		
+
 		c.logger.Debug(ctx, "Executing "+apiType+" request", map[string]interface{}{
 			"model":          c.Model,
 			"temperature":    req.Temperature,
@@ -341,14 +341,14 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		})
 
 		var httpReq *http.Request
-		
+
 		if c.VertexConfig != nil && c.VertexConfig.Enabled {
 			// Vertex AI mode
 			c.logger.Debug(ctx, "Using Vertex AI endpoint", map[string]interface{}{
 				"region":    c.VertexConfig.Region,
 				"projectID": c.VertexConfig.ProjectID,
 			})
-			
+
 			httpReq, err = c.VertexConfig.CreateVertexHTTPRequest(ctx, &req, "POST", "/v1/messages")
 			if err != nil {
 				return fmt.Errorf("failed to create Vertex AI request: %w", err)
@@ -534,7 +534,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 		} else {
 			apiType = "Anthropic API"
 		}
-		
+
 		c.logger.Debug(ctx, "Executing "+apiType+" Chat request", map[string]interface{}{
 			"model":          c.Model,
 			"temperature":    req.Temperature,
@@ -544,7 +544,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 		})
 
 		var httpReq *http.Request
-		
+
 		if c.VertexConfig != nil && c.VertexConfig.Enabled {
 			// Vertex AI mode
 			httpReq, err = c.VertexConfig.CreateVertexHTTPRequest(ctx, &req, "POST", "/v1/messages")
@@ -942,15 +942,15 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						return names
 					}(),
 				})
-				
+
 				// Add tool not found error as tool result instead of returning
 				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolName)
-				
+
 				// Store failed tool call in memory if provided
 				if params.Memory != nil {
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolName,
@@ -966,14 +966,14 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 						},
 					})
 				}
-				
+
 				// Add error as tool result
 				toolResults = append(toolResults, ToolResult{
 					Type:     "tool_result",
 					Content:  errorMessage,
 					ToolName: toolName,
 				})
-				
+
 				continue // Continue processing other tool calls
 			}
 
@@ -1027,14 +1027,14 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 					"iteration": iteration + 1,
 				})
 			}
-			
+
 			// Store tool call and result in memory if provided
 			if params.Memory != nil {
 				if err != nil {
 					// Store failed tool call result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolName,
@@ -1052,8 +1052,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 				} else {
 					// Store successful tool call and result
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "assistant",
-						Content:    "",
+						Role:    "assistant",
+						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
 							ID:        toolCall.ID,
 							Name:      toolName,
@@ -1070,7 +1070,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 					})
 				}
 			}
-			
+
 			if err != nil {
 				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
 					"toolName":  selectedTool.Name(),
@@ -1231,7 +1231,7 @@ func (c *AnthropicClient) createHTTPRequest(ctx context.Context, req *Completion
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-API-Key", c.APIKey)
 		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
-		
+
 		return httpReq, nil
 	}
 }
@@ -1245,7 +1245,7 @@ func (c *AnthropicClient) createStreamingHTTPRequest(ctx context.Context, req *C
 		// Standard Anthropic API mode
 		// Ensure streaming is enabled
 		req.Stream = true
-		
+
 		// Convert request to JSON
 		reqBody, err := json.Marshal(req)
 		if err != nil {
@@ -1269,7 +1269,7 @@ func (c *AnthropicClient) createStreamingHTTPRequest(ctx context.Context, req *C
 		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 		httpReq.Header.Set("Accept", "text/event-stream")
 		httpReq.Header.Set("Cache-Control", "no-cache")
-		
+
 		return httpReq, nil
 	}
 }

@@ -37,16 +37,15 @@ type RemoteAgentClient struct {
 	client     pb.AgentServiceClient
 	timeout    time.Duration
 	retryCount int
-	
+
 	// Event handlers
-	thinkingHandlers []func(string)
-	contentHandlers  []func(string)
-	toolCallHandlers []func(*interfaces.ToolCallEvent)
+	thinkingHandlers   []func(string)
+	contentHandlers    []func(string)
+	toolCallHandlers   []func(*interfaces.ToolCallEvent)
 	toolResultHandlers []func(*interfaces.ToolCallEvent)
-	errorHandlers    []func(error)
-	completeHandlers []func()
-	handlersMu       sync.RWMutex
-	
+	errorHandlers      []func(error)
+	completeHandlers   []func()
+	handlersMu         sync.RWMutex
 }
 
 // RemoteAgentConfig configures the remote agent client
@@ -386,7 +385,7 @@ func (r *RemoteAgentClient) RunStream(ctx context.Context, input string) (<-chan
 	go func() {
 		defer cancel()
 		defer close(eventChan)
-		
+
 		// Recover from any panics in the streaming goroutine
 		defer func() {
 			if r := recover(); r != nil {
@@ -491,7 +490,7 @@ func (r *RemoteAgentClient) RunStreamWithAuth(ctx context.Context, input string,
 	go func() {
 		defer cancel()
 		defer close(eventChan)
-		
+
 		// Recover from any panics in the streaming goroutine
 		defer func() {
 			if r := recover(); r != nil {

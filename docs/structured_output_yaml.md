@@ -243,4 +243,4 @@ The SDK validates that:
 
 - Currently only supports "json_object" response format
 - Schema definitions must be valid JSON Schema
-- Complex nested schemas may require careful testing with your LLM provider 
+- Complex nested schemas may require careful testing with your LLM provider

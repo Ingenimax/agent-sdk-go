@@ -53,7 +53,7 @@ Each sub-agent call creates a span named `sub_agent.{AgentName}` with these attr
 
 ```go
 span.SetAttribute("sub_agent.name", agentName)
-span.SetAttribute("sub_agent.input", input)  
+span.SetAttribute("sub_agent.input", input)
 span.SetAttribute("sub_agent.tool_name", toolName)
 span.SetAttribute("sub_agent.response", result)
 span.SetAttribute("sub_agent.duration_ms", duration.Milliseconds())
@@ -77,7 +77,7 @@ span.SetAttribute("sub_agent.error", err.Error())
   "level": "DEBUG",
   "msg": "Sub-agent tool execution started",
   "sub_agent": "MathAgent",
-  "tool_name": "MathAgent_agent", 
+  "tool_name": "MathAgent_agent",
   "raw_args": "{\"query\":\"sum 1 + 333\"}"
 }
 ```
@@ -97,7 +97,7 @@ span.SetAttribute("sub_agent.error", err.Error())
 ### 3. Sub-Agent Invocation
 ```json
 {
-  "level": "DEBUG", 
+  "level": "DEBUG",
   "msg": "Invoking sub-agent",
   "sub_agent": "MathAgent",
   "tool_name": "MathAgent_agent",
@@ -111,7 +111,7 @@ span.SetAttribute("sub_agent.error", err.Error())
 ```json
 {
   "level": "DEBUG",
-  "msg": "Sub-agent execution completed", 
+  "msg": "Sub-agent execution completed",
   "sub_agent": "MathAgent",
   "tool_name": "MathAgent_agent",
   "input_prompt": "sum 1 + 333",
@@ -126,7 +126,7 @@ span.SetAttribute("sub_agent.error", err.Error())
 {
   "level": "ERROR",
   "msg": "Sub-agent execution failed",
-  "sub_agent": "MathAgent", 
+  "sub_agent": "MathAgent",
   "error": "calculation failed",
   "duration": "1.2s"
 }

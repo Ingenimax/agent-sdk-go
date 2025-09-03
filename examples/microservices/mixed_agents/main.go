@@ -15,7 +15,7 @@ import (
 func main() {
 	fmt.Println("Setting up mixed local and remote agent system...")
 	fmt.Printf("Using LLM provider: %s\n", shared.GetProviderInfo())
-	
+
 	// Create an LLM client based on environment configuration
 	llm, err := shared.CreateLLM()
 	if err != nil {
@@ -35,7 +35,7 @@ func main() {
 
 	// Start Research Agent as a microservice (use different port to avoid conflicts)
 	researchService, err := microservice.CreateMicroservice(researchAgent, microservice.Config{
-		Port: 8091,  // Changed from 8081 to avoid conflicts
+		Port: 8091, // Changed from 8081 to avoid conflicts
 	})
 	if err != nil {
 		log.Fatalf("Failed to create research microservice: %v", err)
@@ -80,7 +80,7 @@ func main() {
 
 	// Step 4: Create a remote connection to our Research Agent
 	remoteResearchAgent, err := agent.NewAgent(
-		agent.WithURL("localhost:8091"),  // Updated to match the new port
+		agent.WithURL("localhost:8091"), // Updated to match the new port
 	)
 	if err != nil {
 		log.Fatalf("Failed to create remote research agent connection: %v", err)
@@ -89,9 +89,9 @@ func main() {
 
 	// Step 5: Create the main orchestrator agent with mixed subagents
 	var subAgents []*agent.Agent
-	subAgents = append(subAgents, codeAgent)        // Local agent
+	subAgents = append(subAgents, codeAgent)           // Local agent
 	subAgents = append(subAgents, remoteResearchAgent) // Remote agent (our own service)
-	
+
 	if remoteMathAgent != nil {
 		subAgents = append(subAgents, remoteMathAgent) // Remote agent (external service)
 	}
@@ -123,25 +123,25 @@ func main() {
 	for i, task := range testTasks {
 		fmt.Printf("Task %d: %s\n", i+1, task)
 		fmt.Println("   (This will be delegated to the appropriate agent)")
-		
+
 		start := time.Now()
 		result, err := mainAgent.Run(ctx, task)
 		duration := time.Since(start)
-		
+
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {
 			fmt.Printf("Result (took %v):\n%s\n", duration, result)
 		}
 		fmt.Println(strings.Repeat("-", 80))
-		
+
 		// Add delay between tasks
 		time.Sleep(1 * time.Second)
 	}
 
 	// Step 7: Cleanup
 	fmt.Println("\nCleaning up...")
-	
+
 	// Disconnect from remote agents
 	if remoteMathAgent != nil {
 		if err := remoteMathAgent.Disconnect(); err != nil {
@@ -151,7 +151,7 @@ func main() {
 	if err := remoteResearchAgent.Disconnect(); err != nil {
 		fmt.Printf("Warning: failed to disconnect remote research agent: %v\n", err)
 	}
-	
+
 	// Stop our microservice
 	if err := researchService.Stop(); err != nil {
 		log.Printf("Error stopping research service: %v", err)
@@ -164,4 +164,3 @@ func main() {
 	fmt.Println("   - Connected to 2 remote agents")
 	fmt.Println("   - Orchestrated tasks across local and remote agents")
 }
-

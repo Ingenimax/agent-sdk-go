@@ -212,7 +212,7 @@ func TestRedisMemoryOptions(t *testing.T) {
 
 	t.Run("DefaultOptions", func(t *testing.T) {
 		memory := NewRedisMemory(client)
-		
+
 		assert.Equal(t, 24*time.Hour, memory.ttl)
 		assert.Equal(t, "agent:memory:", memory.keyPrefix)
 		assert.False(t, memory.summarizationEnabled)
@@ -230,7 +230,7 @@ func TestRedisMemoryOptions(t *testing.T) {
 			WithMaxMessageSize(2048),
 			WithSummarization(mockLLM, 20, 3),
 		)
-		
+
 		assert.Equal(t, 2*time.Hour, memory.ttl)
 		assert.Equal(t, "custom:", memory.keyPrefix)
 		assert.True(t, memory.compressionEnabled)

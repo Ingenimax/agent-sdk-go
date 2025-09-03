@@ -50,7 +50,7 @@ The example demonstrates:
 
 1. Connecting to Weaviate
 2. Storing documents with metadata
-3. Searching for similar documents  
+3. Searching for similar documents
 4. Dynamic field selection (auto-discovery vs specific fields)
 5. Filtering search results by metadata
 6. Vector-based search
@@ -67,7 +67,7 @@ This vector store implementation provides **dynamic field discovery** for flexib
 3. **Smart Type Inference**: Weaviate automatically detects optimal data types:
    - `string` → `text`
    - `int/int64` → `int`
-   - `float32/float64` → `number` 
+   - `float32/float64` → `number`
    - `bool` → `boolean`
    - `[]interface{}` → `text[]` (arrays)
    - `map[string]interface{}` → `object`
@@ -75,7 +75,7 @@ This vector store implementation provides **dynamic field discovery** for flexib
 
 ### 💡 **Benefits**
 
-- ✅ **Zero setup** - just start storing documents  
+- ✅ **Zero setup** - just start storing documents
 - ✅ **Automatic adaptation** - schema evolves with your data
 - ✅ **Type safety** - Weaviate validates data types automatically
 - ✅ **Performance optimized** - Weaviate chooses optimal settings
@@ -118,7 +118,7 @@ The Weaviate vector store supports dynamic field selection for search operations
 results, err := store.Search(ctx, "fox jumps", 5)
 
 // Specific fields: Only retrieve content and source fields
-results, err := store.Search(ctx, "fox jumps", 5, 
+results, err := store.Search(ctx, "fox jumps", 5,
     interfaces.WithFields("content", "source"))
 
 // Minimal fields: Just content for lightweight responses
@@ -191,7 +191,7 @@ results, err := store.Search(ctx, "query", 5,
 #### Supported Operators
 - `equals` / `notEquals` - String and number equality
 - `greaterThan` / `greaterThanEqual` - Number comparisons
-- `lessThan` / `lessThanEqual` - Number comparisons  
+- `lessThan` / `lessThanEqual` - Number comparisons
 - `like` / `contains` - String pattern matching
 - `in` - Array containment (for array fields)
 

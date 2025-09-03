@@ -27,15 +27,15 @@ type AgentMicroservice struct {
 	mu         sync.RWMutex
 	cancelFunc context.CancelFunc
 	servingCh  chan struct{} // Channel to signal when server starts serving
-	
+
 	// Event handlers
-	thinkingHandlers []func(string)
-	contentHandlers  []func(string)
-	toolCallHandlers []func(*interfaces.ToolCallEvent)
+	thinkingHandlers   []func(string)
+	contentHandlers    []func(string)
+	toolCallHandlers   []func(*interfaces.ToolCallEvent)
 	toolResultHandlers []func(*interfaces.ToolCallEvent)
-	errorHandlers    []func(error)
-	completeHandlers []func()
-	handlersMu       sync.RWMutex
+	errorHandlers      []func(error)
+	completeHandlers   []func()
+	handlersMu         sync.RWMutex
 }
 
 // Config holds configuration for creating an agent microservice
@@ -83,7 +83,7 @@ func (m *AgentMicroservice) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on port %d: %w", m.port, err)
 	}
-	
+
 	// Update port if it was auto-assigned (port 0)
 	if m.port == 0 {
 		m.port = listener.Addr().(*net.TCPAddr).Port
@@ -95,7 +95,7 @@ func (m *AgentMicroservice) Start() error {
 
 	// Mark as running now that we have successfully bound to the port
 	m.running = true
-	
+
 	// Start the server in a goroutine
 	go func() {
 		defer func() {
@@ -104,13 +104,13 @@ func (m *AgentMicroservice) Start() error {
 			m.serving = false
 			m.mu.Unlock()
 		}()
-		
+
 		// Signal that we're about to start serving
 		m.mu.Lock()
 		m.serving = true
 		close(m.servingCh) // Signal that server is starting to serve
 		m.mu.Unlock()
-		
+
 		err := m.server.StartWithListener(listener)
 		if err != nil {
 			fmt.Printf("Agent server error: %v\n", err)
@@ -170,7 +170,7 @@ func (m *AgentMicroservice) GetAgent() *agent.Agent {
 // WaitForReady waits for the microservice to be ready to serve requests
 func (m *AgentMicroservice) WaitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	
+
 	// First, wait for the service to be marked as running
 	for time.Now().Before(deadline) {
 		if m.IsRunning() {
@@ -178,12 +178,12 @@ func (m *AgentMicroservice) WaitForReady(timeout time.Duration) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	
+
 	// If still not running after timeout, return error
 	if !m.IsRunning() {
 		return fmt.Errorf("microservice failed to start within %v", timeout)
 	}
-	
+
 	// Wait for the server to start serving with timeout
 	servingTimeout := time.Until(deadline)
 	select {
@@ -194,7 +194,7 @@ func (m *AgentMicroservice) WaitForReady(timeout time.Duration) error {
 	case <-time.After(servingTimeout):
 		return fmt.Errorf("microservice failed to start serving within %v", timeout)
 	}
-	
+
 	// Now test gRPC health endpoint
 	for time.Now().Before(deadline) {
 		if err := m.testGRPCHealth(); err == nil {
@@ -260,7 +260,7 @@ func (m *AgentMicroservice) RunStream(ctx context.Context, input string) (<-chan
 
 			// Convert gRPC response to AgentStreamEvent
 			event := convertGRPCResponseToAgentEvent(response)
-			
+
 			// Send event to channel
 			select {
 			case outputCh <- event:
@@ -413,7 +413,7 @@ func convertGRPCResponseToAgentEvent(response *pb.RunStreamResponse) interfaces.
 		} else {
 			event.Type = interfaces.AgentEventToolResult
 		}
-		
+
 		if response.ToolCall != nil {
 			event.ToolCall = &interfaces.ToolCallEvent{
 				ID:        response.ToolCall.Id,
@@ -447,7 +447,7 @@ func (m *AgentMicroservice) testGRPCHealth() error {
 	// Create a gRPC connection with a short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	// Create gRPC client for health check
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", m.port),
@@ -463,18 +463,18 @@ func (m *AgentMicroservice) testGRPCHealth() error {
 			fmt.Printf("Warning: failed to close gRPC connection: %v\n", closeErr)
 		}
 	}()
-	
+
 	// Test the standard gRPC health service
 	healthClient := grpc_health_v1.NewHealthClient(conn)
 	resp, err := healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{
 		Service: "", // Check overall server health
 	})
-	
+
 	if err != nil {
 		fmt.Printf("Debug: Health check failed for localhost:%d: %v\n", m.port, err)
 		return err
 	}
-	
+
 	fmt.Printf("Debug: Health check succeeded for localhost:%d, status: %v\n", m.port, resp.Status)
 	return nil
 }
