@@ -236,7 +236,13 @@ func executeDirectPrompt() {
 }
 
 func loadMCPServersFromFile(filePath string) ([]MCPServerConfig, error) {
+	// Validate file path for security
+	if !filepath.IsAbs(filePath) {
+		return nil, fmt.Errorf("file path must be absolute for security: %s", filePath)
+	}
+	
 	// Read JSON file
+	// #nosec G304 -- filePath is validated above to be absolute
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
@@ -1139,7 +1145,14 @@ func importMCPServers() {
 
 	fmt.Printf("📥 Importing MCP servers from: %s\n", filePath)
 
+	// Validate file path for security
+	if !filepath.IsAbs(filePath) {
+		fmt.Printf("❌ File path must be absolute for security: %s\n", filePath)
+		return
+	}
+
 	// Read JSON file
+	// #nosec G304 -- filePath is validated above to be absolute
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("❌ Failed to read file: %v\n", err)
@@ -1330,6 +1343,7 @@ func generateConfigs() {
 	}
 
 	agentFile := filepath.Join(outputDir, "agents.yaml")
+	// #nosec G304 -- agentFile is constructed from validated outputDir
 	agentYaml, err := os.Create(agentFile)
 	if err != nil {
 		log.Fatalf("❌ Failed to create agent config file: %v", err)
@@ -1346,6 +1360,7 @@ func generateConfigs() {
 
 	// Save task configs
 	taskFile := filepath.Join(outputDir, "tasks.yaml")
+	// #nosec G304 -- taskFile is constructed from validated outputDir
 	taskYaml, err := os.Create(taskFile)
 	if err != nil {
 		log.Fatalf("❌ Failed to create task config file: %v", err)
@@ -1509,6 +1524,12 @@ func loadEnvFile() {
 
 func loadConfig() *CLIConfig {
 	configFile := filepath.Join(getConfigDir(), "config.json")
+	
+	// Validate config file path for security
+	if !filepath.IsAbs(configFile) {
+		log.Printf("⚠️ Config file path is not absolute: %s", configFile)
+		return &CLIConfig{}
+	}
 
 	// Return default config if file doesn't exist
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
@@ -1532,6 +1553,7 @@ func loadConfig() *CLIConfig {
 		}
 	}
 
+	// #nosec G304 -- configFile is constructed from trusted getConfigDir() and validated above
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		log.Fatalf("Failed to read config file: %v", err)

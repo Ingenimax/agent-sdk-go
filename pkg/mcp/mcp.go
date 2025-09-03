@@ -166,7 +166,8 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("command path is a directory, not executable: %q", commandPath)
 	}
 
-	// Create the command with context - #nosec G204 (validated above)
+	// Create the command with context
+	// #nosec G204 -- commandPath is validated above with LookPath and security checks
 	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
