@@ -18,16 +18,34 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
+// LazyMCPConfig holds configuration for lazy MCP server initialization
+type LazyMCPConfig struct {
+	Name    string
+	Type    string // "stdio" or "http"
+	Command string
+	Args    []string
+	Env     []string
+	URL     string
+	Tools   []LazyMCPToolConfig
+}
+
+// LazyMCPToolConfig holds configuration for a lazy MCP tool
+type LazyMCPToolConfig struct {
+	Name        string
+	Description string
+	Schema      interface{}
+}
+
 // Agent represents an AI agent
 type Agent struct {
 	llm                  interfaces.LLM
 	memory               interfaces.Memory
 	tools                []interfaces.Tool
-	subAgents            []*Agent               // Sub-agents that can be called as tools
+	subAgents            []*Agent // Sub-agents that can be called as tools
 	orgID                string
 	tracer               interfaces.Tracer
 	guardrails           interfaces.Guardrails
-	logger               logging.Logger         // Logger for the agent
+	logger               logging.Logger // Logger for the agent
 	systemPrompt         string
 	name                 string                   // Name of the agent, e.g., "PlatformOps", "Math", "Research"
 	description          string                   // Description of what the agent does
@@ -40,13 +58,14 @@ type Agent struct {
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer // MCP servers for the agent
+	lazyMCPConfigs       []LazyMCPConfig        // Lazy MCP server configurations
 	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
-	
+
 	// Remote agent fields
-	isRemote        bool                     // Whether this is a remote agent
-	remoteURL       string                   // URL of the remote agent service
-	remoteTimeout   time.Duration            // Timeout for remote agent operations
-	remoteClient    *client.RemoteAgentClient // gRPC client for remote communication
+	isRemote      bool                      // Whether this is a remote agent
+	remoteURL     string                    // URL of the remote agent service
+	remoteTimeout time.Duration             // Timeout for remote agent operations
+	remoteClient  *client.RemoteAgentClient // gRPC client for remote communication
 }
 
 // Option represents an option for configuring an agent
@@ -164,13 +183,19 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 	}
 }
 
+// WithLazyMCPConfigs sets the lazy MCP server configurations for the agent
+func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
+	return func(a *Agent) {
+		a.lazyMCPConfigs = configs
+	}
+}
+
 // WithMaxIterations sets the maximum number of tool-calling iterations for the agent
 func WithMaxIterations(maxIterations int) Option {
 	return func(a *Agent) {
 		a.maxIterations = maxIterations
 	}
 }
-
 
 // WithURL creates a remote agent that communicates via gRPC
 func WithURL(url string) Option {
@@ -196,7 +221,7 @@ func WithAgents(subAgents ...*Agent) Option {
 		// Automatically wrap sub-agents as tools
 		for _, subAgent := range subAgents {
 			agentTool := tools.NewAgentTool(subAgent)
-			
+
 			// Pass logger and tracer if available on parent agent
 			// Note: This will be set later in NewAgent after the agent is fully constructed
 			a.tools = append(a.tools, agentTool)
@@ -241,7 +266,7 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 		if err := agent.validateSubAgents(); err != nil {
 			return nil, fmt.Errorf("sub-agent validation failed: %w", err)
 		}
-		
+
 		// Validate agent tree depth (max 5 levels)
 		if err := validateAgentTree(agent, 5); err != nil {
 			return nil, fmt.Errorf("agent tree validation failed: %w", err)
@@ -256,7 +281,6 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
 	agent.planExecutor = executionplan.NewExecutor(agent.tools)
 
-
 	return agent, nil
 }
 
@@ -266,7 +290,7 @@ func validateRemoteAgent(agent *Agent) (*Agent, error) {
 	if agent.remoteURL == "" {
 		return nil, fmt.Errorf("URL is required for remote agents")
 	}
-	
+
 	// Initialize remote client
 	config := client.RemoteAgentConfig{
 		URL: agent.remoteURL,
@@ -508,6 +532,12 @@ func (a *Agent) runLocal(ctx context.Context, input string) (string, error) {
 			allTools = append(allTools, mcpTools...)
 		}
 	}
+
+	// Add lazy MCP tools if available
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		allTools = append(allTools, lazyMCPTools...)
+	}
 	// If tools are available and plan approval is required, generate an execution plan
 	if (len(allTools) > 0) && a.requirePlanApproval {
 		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
@@ -539,6 +569,36 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 	}
 
 	return mcpTools, nil
+}
+
+// createLazyMCPTools creates lazy MCP tools from configurations
+func (a *Agent) createLazyMCPTools() []interfaces.Tool {
+	var lazyTools []interfaces.Tool
+
+	for _, config := range a.lazyMCPConfigs {
+		// Create lazy server config
+		lazyServerConfig := mcp.LazyMCPServerConfig{
+			Name:    config.Name,
+			Type:    config.Type,
+			Command: config.Command,
+			Args:    config.Args,
+			Env:     config.Env,
+			URL:     config.URL,
+		}
+
+		// Create lazy tools for each configured tool
+		for _, toolConfig := range config.Tools {
+			lazyTool := mcp.NewLazyMCPTool(
+				toolConfig.Name,
+				toolConfig.Description,
+				toolConfig.Schema,
+				lazyServerConfig,
+			)
+			lazyTools = append(lazyTools, lazyTool)
+		}
+	}
+
+	return lazyTools
 }
 
 // runWithoutExecutionPlanWithTools runs the agent without an execution plan but with the specified tools
@@ -785,7 +845,7 @@ func formatHistoryIntoPrompt(history []interfaces.Message) string {
 
 		// Add role marker and content
 		prompt += roleMarker + ": " + msg.Content
-		
+
 		// Add double newline between messages for clear separation
 		// Except for the last message
 		if i < len(history)-1 {

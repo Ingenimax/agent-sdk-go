@@ -3,70 +3,117 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// TimeArgs defines the input structure for the time tool
+type TimeArgs struct {
+	Format string `json:"format,omitempty" jsonschema:"the time format to use (default: RFC3339)"`
+}
+
+// TimeResult defines the output structure for the time tool
+type TimeResult struct {
+	CurrentTime string `json:"current_time" jsonschema:"the current time in the specified format"`
+}
+
+// DrinkArgs defines the input structure for the what_to_drink tool
+type DrinkArgs struct {
+	Objective string `json:"objective" jsonschema:"the objective for the drink (hydrate, energize, relax, focus)"`
+}
+
+// DrinkResult defines the output structure for the what_to_drink tool
+type DrinkResult struct {
+	Drink string `json:"drink" jsonschema:"recommended drink for the objective"`
+}
+
 func main() {
-	// Create a new MCP server
-	mcpServer := server.NewMCPServer(
-		"mcp-golang-stateless-http-example",
-		"0.0.1",
-		server.WithInstructions("A simple example of a stateless HTTP server using mcp-golang"),
-	)
+	// Create a new MCP server with implementation details
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "mcp-golang-http-example",
+		Version: "0.0.1",
+	}, nil)
 
-	// Register the time tool
-	timeTool := mcp.NewTool("time",
-		mcp.WithDescription("Returns the current time in the specified format"),
-		mcp.WithString("format"),
-	)
+	// Add the time tool using the generic AddTool function
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "time",
+		Description: "Returns the current time in the specified format",
+	}, timeHandler)
 
-	mcpServer.AddTool(timeTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Get format parameter
-		format := request.GetString("format", time.RFC3339)
+	// Add the what_to_drink tool using the generic AddTool function
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "what_to_drink",
+		Description: "Returns a drink based on the objective",
+	}, drinkHandler)
 
-		return mcp.NewToolResultText(time.Now().Format(format)), nil
+	// Create SSE handler for HTTP transport
+	sseHandler := mcp.NewSSEHandler(func(request *http.Request) *mcp.Server {
+		return server
 	})
 
-	// Register the what_to_drink tool
-	drinkTool := mcp.NewTool("what_to_drink",
-		mcp.WithDescription("Returns a drink based on the objective"),
-		mcp.WithString("objective", mcp.Required()),
-	)
+	// Set up HTTP routes
+	http.Handle("/mcp", sseHandler)
 
-	mcpServer.AddTool(drinkTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Get objective parameter
-		objective := request.GetString("objective", "energize")
-
-		var drink string
-		switch objective {
-		case "hydrate":
-			drink = "water"
-		case "energize":
-			drink = "coffee"
-		case "relax":
-			drink = "tea"
-		case "focus":
-			drink = "coffee"
-		default:
-			drink = "coffee"
-		}
-
-		return mcp.NewToolResultText(drink), nil
+	// Optional: Add a simple health check endpoint
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	})
 
-	// Create an SSE server for HTTP transport
-	sseServer := server.NewSSEServer(
-		mcpServer,
-		server.WithBaseURL("http://localhost:8083"),
-		server.WithStaticBasePath("/mcp"),
-	)
-
-	// Start the server
+	// Start the HTTP server
 	log.Println("Starting HTTP server on :8083...")
-	if err := sseServer.Start(":8083"); err != nil {
+	log.Println("MCP endpoint available at: http://localhost:8083/mcp")
+	log.Println("Health check available at: http://localhost:8083/health")
+
+	if err := http.ListenAndServe(":8083", nil); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
+}
+
+// timeHandler handles the time tool calls
+func timeHandler(ctx context.Context, req *mcp.CallToolRequest, args TimeArgs) (*mcp.CallToolResult, TimeResult, error) {
+	format := args.Format
+	if format == "" {
+		format = time.RFC3339
+	}
+
+	currentTime := time.Now().Format(format)
+	result := TimeResult{
+		CurrentTime: currentTime,
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: currentTime},
+		},
+	}, result, nil
+}
+
+// drinkHandler handles the what_to_drink tool calls
+func drinkHandler(ctx context.Context, req *mcp.CallToolRequest, args DrinkArgs) (*mcp.CallToolResult, DrinkResult, error) {
+	var drink string
+	switch args.Objective {
+	case "hydrate":
+		drink = "water"
+	case "energize":
+		drink = "coffee"
+	case "relax":
+		drink = "tea"
+	case "focus":
+		drink = "coffee"
+	default:
+		drink = "coffee"
+	}
+
+	result := DrinkResult{
+		Drink: drink,
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: drink},
+		},
+	}, result, nil
 }

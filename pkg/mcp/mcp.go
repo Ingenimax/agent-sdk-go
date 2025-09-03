@@ -3,122 +3,133 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
-// MCPServer represents a connection to an MCP server
-type MCPServer interface {
-	// Initialize initializes the connection to the MCP server
-	Initialize(ctx context.Context) error
-
-	// ListTools lists the tools available on the MCP server
-	ListTools(ctx context.Context) ([]interfaces.MCPTool, error)
-
-	// CallTool calls a tool on the MCP server
-	CallTool(ctx context.Context, name string, args interface{}) (*interfaces.MCPToolResponse, error)
-
-	// Close closes the connection to the MCP server
-	Close() error
-}
-
-// Tool represents a tool available on an MCP server
-type Tool struct {
-	Name        string
-	Description string
-	Schema      interface{}
-}
-
-// ToolResponse represents a response from a tool call
-type ToolResponse struct {
-	Content []*mcp.Content
-	IsError bool
-}
-
-// MCPServerImpl is the implementation of interfaces.MCPServer
+// MCPServerImpl is the implementation of interfaces.MCPServer using the official SDK
 type MCPServerImpl struct {
-	client *client.Client
+	session *mcp.ClientSession
+	logger  logging.Logger
 }
 
-// NewMCPServer creates a new MCPServer with the given client
-func NewMCPServer(ctx context.Context, c *client.Client) (interfaces.MCPServer, error) {
-	// Initialize the client
-	initReq := mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			Capabilities: mcp.ClientCapabilities{
-				Sampling: &struct{}{},
-			},
-			ClientInfo: mcp.Implementation{
-				Name:    "agent-sdk-go",
-				Version: "1.0.0",
-			},
-		},
-	}
+// NewMCPServer creates a new MCPServer with the given transport using the official SDK
+func NewMCPServer(ctx context.Context, transport mcp.Transport) (interfaces.MCPServer, error) {
+	// Create logger
+	logger := logging.New()
 
-	_, err := c.Initialize(ctx, initReq)
+	// Create a new client with basic implementation info
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "agent-sdk-go",
+		Version: "0.0.0",
+	}, nil)
+
+	// Connect to the server using the transport
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return nil, err
 	}
 
+	logger.Debug(ctx, "MCP server connection established", nil)
+
 	return &MCPServerImpl{
-		client: c,
+		session: session,
+		logger:  logger,
 	}, nil
 }
 
 // Initialize initializes the connection to the MCP server
 func (s *MCPServerImpl) Initialize(ctx context.Context) error {
-	// Client is already initialized in NewMCPServer, so this is a no-op
+	// Session is already initialized in NewMCPServer, so this is a no-op
 	return nil
 }
 
 // ListTools lists the tools available on the MCP server
 func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, error) {
-	resp, err := s.client.ListTools(ctx, mcp.ListToolsRequest{})
+	s.logger.Debug(ctx, "Listing MCP tools", nil)
+
+	resp, err := s.session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
+		s.logger.Error(ctx, "Failed to list MCP tools", map[string]interface{}{
+			"error": err.Error(),
+		})
 		return nil, err
 	}
 
 	tools := make([]interfaces.MCPTool, 0, len(resp.Tools))
 	for _, t := range resp.Tools {
-		description := t.Description // Description is now string, not *string
-
 		tools = append(tools, interfaces.MCPTool{
 			Name:        t.Name,
-			Description: description,
+			Description: t.Description,
 			Schema:      t.InputSchema,
 		})
 	}
+
+	s.logger.Info(ctx, "Successfully listed MCP tools", map[string]interface{}{
+		"tool_count": len(tools),
+	})
 
 	return tools, nil
 }
 
 // CallTool calls a tool on the MCP server
 func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interface{}) (*interfaces.MCPToolResponse, error) {
-	resp, err := s.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      name,
-			Arguments: args,
-		},
+	s.logger.Debug(ctx, "Calling MCP tool", map[string]interface{}{
+		"tool_name": name,
+		"args":      args,
 	})
+
+	params := &mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	}
+
+	resp, err := s.session.CallTool(ctx, params)
 	if err != nil {
+		s.logger.Error(ctx, "Failed to call MCP tool", map[string]interface{}{
+			"tool_name": name,
+			"error":     err.Error(),
+		})
 		return nil, err
 	}
 
+	if resp.IsError {
+		s.logger.Warn(ctx, "MCP tool returned error", map[string]interface{}{
+			"tool_name": name,
+			"content":   resp.Content,
+		})
+	} else {
+		s.logger.Debug(ctx, "MCP tool executed successfully", map[string]interface{}{
+			"tool_name": name,
+		})
+	}
+
 	return &interfaces.MCPToolResponse{
-		Content: resp.Content, // This is now interface{} which can hold []*mcp.Content
-		IsError: false,        // The new client API handles errors differently
+		Content: resp.Content,
+		IsError: resp.IsError,
 	}, nil
 }
 
 // Close closes the connection to the MCP server
 func (s *MCPServerImpl) Close() error {
-	return s.client.Close()
+	s.logger.Debug(context.Background(), "Closing MCP server connection", nil)
+	err := s.session.Close()
+	if err != nil {
+		s.logger.Error(context.Background(), "Failed to close MCP server connection", map[string]interface{}{
+			"error": err.Error(),
+		})
+	} else {
+		s.logger.Debug(context.Background(), "MCP server connection closed successfully", nil)
+	}
+	return err
 }
 
 // StdioServerConfig holds configuration for a stdio MCP server
@@ -128,7 +139,7 @@ type StdioServerConfig struct {
 	Env     []string
 }
 
-// NewStdioServer creates a new MCPServer that communicates over stdio
+// NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
 func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.MCPServer, error) {
 	// Validate the command and arguments to mitigate command injection risks
 	if config.Command == "" {
@@ -142,30 +153,17 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 		return nil, fmt.Errorf("invalid command %q: %v", config.Command, err)
 	}
 
-	// Create client using the new API
-	c, err := client.NewStdioMCPClient(commandPath, config.Env, config.Args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdio client: %v", err)
+	// Create the command with context
+	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
+	if len(config.Env) > 0 {
+		cmd.Env = append(os.Environ(), config.Env...)
 	}
 
-	// Start the client
-	err = c.Start(ctx)
-	if err != nil {
-		if closeErr := c.Close(); closeErr != nil {
-			return nil, fmt.Errorf("failed to start client: %v (close error: %v)", err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to start client: %v", err)
-	}
+	// Create the command transport using the official SDK
+	transport := &mcp.CommandTransport{Command: cmd}
 
-	server, err := NewMCPServer(ctx, c)
-	if err != nil {
-		if closeErr := c.Close(); closeErr != nil {
-			return nil, fmt.Errorf("failed to create MCP server: %v (close error: %v)", err, closeErr)
-		}
-		return nil, err
-	}
-
-	return server, nil
+	// Create the MCP server using the transport
+	return NewMCPServer(ctx, transport)
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server
@@ -175,44 +173,38 @@ type HTTPServerConfig struct {
 	Token   string
 }
 
-// NewHTTPServer creates a new MCPServer that communicates over HTTP
+// NewHTTPServer creates a new MCPServer that communicates over HTTP using the official SDK
 func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCPServer, error) {
-	baseURL := config.BaseURL + config.Path
+	// Create logger
+	logger := logging.New()
 
-	// Create SSE client using the new API
-	var c *client.Client
-	var err error
+	// Create a new client with basic implementation info
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "agent-sdk-go",
+		Version: "0.0.0",
+	}, nil)
 
-	if config.Token != "" {
-		// Use SSE client with headers for authentication
-		headers := map[string]string{
-			"Authorization": "Bearer " + config.Token,
-		}
-		c, err = client.NewStreamableHttpClient(baseURL, transport.WithHTTPHeaders(headers))
-	} else {
-		c, err = client.NewStreamableHttpClient(baseURL)
+	// Create SSE client transport for HTTP communication
+	transport := &mcp.SSEClientTransport{
+		Endpoint: config.BaseURL,
 	}
 
+	// Connect to the server using the transport
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP client: %v", err)
-	}
-
-	// Start the client
-	err = c.Start(ctx)
-	if err != nil {
-		if closeErr := c.Close(); closeErr != nil {
-			return nil, fmt.Errorf("failed to start client: %v (close error: %v)", err, closeErr)
-		}
-		return nil, fmt.Errorf("failed to start client: %v", err)
-	}
-
-	server, err := NewMCPServer(ctx, c)
-	if err != nil {
-		if closeErr := c.Close(); closeErr != nil {
-			return nil, fmt.Errorf("failed to create MCP server: %v (close error: %v)", err, closeErr)
-		}
+		logger.Error(ctx, "Failed to connect to HTTP MCP server", map[string]interface{}{
+			"error":    err.Error(),
+			"base_url": config.BaseURL,
+		})
 		return nil, err
 	}
 
-	return server, nil
+	logger.Debug(ctx, "HTTP MCP server connection established", map[string]interface{}{
+		"base_url": config.BaseURL,
+	})
+
+	return &MCPServerImpl{
+		session: session,
+		logger:  logger,
+	}, nil
 }

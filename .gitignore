@@ -47,6 +47,7 @@ agg_code.py
 .Trashes
 ehthumbs.db
 Thumbs.db
+notes.sh
 
 # Test coverage
 coverage.txt

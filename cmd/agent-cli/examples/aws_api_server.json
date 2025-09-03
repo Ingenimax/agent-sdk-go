@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "awslabs.aws-api-mcp-server": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "--interactive",
+        "--env",
+        "AWS_REGION=us-west-2",
+        "--env",
+        "AWS_PROFILE=preview",
+        "--volume",
+        "/Users/meidad/.aws:/app/.aws",
+        "public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server:latest"
+      ],
+      "env": {
+        "AWS_REGION": "us-west-2",
+        "AWS_PROFILE": "preview"
+      }
+    }
+  }
+}

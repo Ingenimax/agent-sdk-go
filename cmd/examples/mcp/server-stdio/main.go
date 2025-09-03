@@ -2,55 +2,65 @@ package main
 
 import (
 	"context"
-	"os"
+	"log"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// WhatToEatArgs defines the input structure for the what_to_eat tool
+type WhatToEatArgs struct {
+	Objective string `json:"objective" jsonschema:"the meal objective (breakfast, lunch, dinner, snack)"`
+}
+
+// WhatToEatResult defines the output structure for the what_to_eat tool
+type WhatToEatResult struct {
+	Food string `json:"food" jsonschema:"recommended food for the objective"`
+}
+
 func main() {
-	// Create a new MCP server
-	mcpServer := server.NewMCPServer(
-		"mcp-golang-stdio-example",
-		"0.0.1",
-		server.WithInstructions("A simple example of a stdio server using mcp-go"),
-	)
+	// Create a new MCP server with implementation details
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    "mcp-golang-stdio-example",
+		Version: "0.0.1",
+	}, nil)
 
-	// Register the what_to_eat tool
-	whatToEatTool := mcp.NewTool("what_to_eat",
-		mcp.WithDescription("Returns a list of foods based on the objective"),
-		mcp.WithString("objective", mcp.Required()),
-	)
+	// Add the what_to_eat tool using the generic AddTool function
+	// This automatically generates the input and output schemas
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "what_to_eat",
+		Description: "Returns a list of foods based on the objective",
+	}, whatToEatHandler)
 
-	mcpServer.AddTool(whatToEatTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Get objective parameter
-		objective := request.GetString("objective", "lunch")
-
-		var food string
-		switch objective {
-		case "breakfast":
-			food = "bread, eggs, coffee"
-		case "lunch":
-			food = "pasta, salad, water"
-		case "dinner":
-			food = "pizza, salad, water"
-		case "snack":
-			food = "apple, almonds, water"
-		default:
-			food = "pasta, salad, water"
-		}
-
-		return mcp.NewToolResultText(food), nil
-	})
-
-	// Create context for stdio server
-	ctx := context.Background()
-
-	// Create stdio server
-	stdioServer := server.NewStdioServer(mcpServer)
-
-	// Serve the server using stdio
-	if err := stdioServer.Listen(ctx, os.Stdin, os.Stdout); err != nil {
-		panic(err)
+	// Run the server on the stdio transport
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// whatToEatHandler handles the what_to_eat tool calls
+func whatToEatHandler(ctx context.Context, req *mcp.CallToolRequest, args WhatToEatArgs) (*mcp.CallToolResult, WhatToEatResult, error) {
+	var food string
+	switch args.Objective {
+	case "breakfast":
+		food = "bread, eggs, coffee"
+	case "lunch":
+		food = "pasta, salad, water"
+	case "dinner":
+		food = "pizza, salad, water"
+	case "snack":
+		food = "apple, almonds, water"
+	default:
+		food = "pasta, salad, water"
+	}
+
+	result := WhatToEatResult{
+		Food: food,
+	}
+
+	// Return the result with text content
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: result.Food},
+		},
+	}, result, nil
 }

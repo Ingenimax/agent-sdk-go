@@ -848,10 +848,10 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					"toolcall": toolCall,
 					"resp":     resp,
 				})
-				
+
 				// Add tool not found error as tool result instead of returning
 				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Function.Name)
-				
+
 				// Store failed tool call in memory if provided
 				if params.Memory != nil {
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -872,7 +872,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 						},
 					})
 				}
-				
+
 				// Add to tracing context
 				toolCallTrace := tracing.ToolCall{
 					Name:       toolCall.Function.Name,
@@ -885,12 +885,12 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 					Error:      fmt.Sprintf("tool not found: %s", toolCall.Function.Name),
 					Result:     errorMessage,
 				}
-				
+
 				tracing.AddToolCallToContext(ctx, toolCallTrace)
-				
+
 				// Add error message as tool response
 				messages = append(messages, openai.ToolMessage(errorMessage, toolCall.ID))
-				
+
 				continue // Continue processing other tool calls
 			}
 

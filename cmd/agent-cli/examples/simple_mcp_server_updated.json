@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "simple-food-server": {
+      "command": "./bin/mcp-server-stdio",
+      "args": [],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,66 @@
+help_task:
+  description: >
+    Provide helpful assistance with the user's question or request.
+    Be thorough, accurate, and friendly in your response.
+  expected_output: >
+    A comprehensive and helpful response that addresses the user's needs
+  agent: assistant
+
+research_task:
+  description: >
+    Conduct thorough research about {topic}.
+    Find reliable sources and provide a comprehensive overview of the subject.
+    Focus on recent developments and current best practices.
+  expected_output: >
+    A detailed research report with key findings, sources, and summary
+  agent: researcher
+  output_file: "{topic}_research_report.md"
+
+code_task:
+  description: >
+    Write {language} code for {requirement}.
+    Follow best practices, include proper error handling, and add comments.
+    Ensure the code is production-ready and well-structured.
+  expected_output: >
+    Clean, well-documented code with explanations and usage examples
+  agent: coder
+  output_file: "{requirement}_{language}_implementation.{extension}"
+
+analysis_task:
+  description: >
+    Analyze the provided data about {subject}.
+    Identify trends, patterns, and insights.
+    Provide actionable recommendations based on your findings.
+  expected_output: >
+    A comprehensive analysis report with visualizations and recommendations
+  agent: analyst
+  output_file: "{subject}_analysis_report.md"
+
+writing_task:
+  description: >
+    Write {content_type} about {topic} for {audience}.
+    Ensure the content is engaging, informative, and appropriate for the target audience.
+    Follow best practices for {content_type} writing.
+  expected_output: >
+    Well-structured, engaging content that meets the specified requirements
+  agent: writer
+  output_file: "{topic}_{content_type}.md"
+
+explain_task:
+  description: >
+    Explain {concept} in simple terms that a {audience} can understand.
+    Use analogies, examples, and clear language to make the concept accessible.
+    Break down complex ideas into digestible parts.
+  expected_output: >
+    A clear, easy-to-understand explanation with examples and analogies
+  agent: assistant
+
+summarize_task:
+  description: >
+    Summarize the key points from {source}.
+    Focus on the most important information and main takeaways.
+    Keep the summary concise but comprehensive.
+  expected_output: >
+    A concise summary highlighting the key points and main insights
+  agent: assistant
+  output_file: "{source}_summary.md"

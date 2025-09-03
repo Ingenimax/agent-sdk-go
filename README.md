@@ -10,7 +10,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 ## Features
 
 ### Core Capabilities
-- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, Google Vertex AI, and Gemini API.
+- 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and Google Vertex AI (Gemini models).
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
 - 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
 - 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
@@ -34,10 +34,50 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 
 ### Installation
 
+#### As a Go Library
+
 Add the SDK to your Go project:
 
 ```bash
 go get github.com/Ingenimax/agent-sdk-go
+```
+
+#### As a CLI Tool (Headless SDK)
+
+Build and install the CLI tool for headless usage:
+
+```bash
+# Clone the repository
+git clone https://github.com/Ingenimax/agent-sdk-go
+cd agent-sdk-go
+
+# Build the CLI tool
+make build-cli
+
+# Install to system PATH (optional)
+make install
+
+# Or run the installation script
+./scripts/install-cli.sh
+```
+
+**Quick CLI Start:**
+```bash
+# Initialize configuration
+./bin/agent-cli init
+
+# Option 1: Set environment variables
+export OPENAI_API_KEY=your_api_key_here
+
+# Option 2: Use .env file (recommended)
+cp env.example .env
+# Edit .env with your API keys
+
+# Run a simple query
+./bin/agent-cli run "What's the weather in San Francisco?"
+
+# Start interactive chat
+./bin/agent-cli chat
 ```
 
 ### Configuration
@@ -45,8 +85,6 @@ go get github.com/Ingenimax/agent-sdk-go
 The SDK uses environment variables for configuration. Key variables include:
 
 - `OPENAI_API_KEY`: Your OpenAI API key
-- `ANTHROPIC_API_KEY`: Your Anthropic API key
-- `GEMINI_API_KEY`: Your Google Gemini API key
 - `OPENAI_MODEL`: The model to use (e.g., gpt-4o-mini)
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 - `REDIS_ADDRESS`: Redis server address (if using Redis for memory)
@@ -416,6 +454,87 @@ This approach dramatically reduces the effort needed to create specialized agent
 
 ### Using MCP Servers with an Agent
 
+The SDK supports both **eager** and **lazy** MCP server initialization:
+
+- **Eager**: MCP servers are initialized when the agent is created
+- **Lazy**: MCP servers are initialized only when their tools are first called (recommended)
+
+#### Lazy MCP Integration (Recommended)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+)
+
+func main() {
+	// Create OpenAI LLM client
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	llm := openai.NewClient(apiKey, openai.WithModel("gpt-4o-mini"))
+
+	// Define lazy MCP configurations
+	// Note: The CLI supports dynamic tool discovery, but the SDK requires explicit tool definitions
+	lazyMCPConfigs := []agent.LazyMCPConfig{
+		{
+			Name:    "aws-api-server",
+			Type:    "stdio",
+			Command: "docker",
+			Args:    []string{"run", "--rm", "-i", "public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server:latest"},
+			Env:     []string{"AWS_REGION=us-west-2"},
+			Tools: []agent.LazyMCPToolConfig{
+				{
+					Name:        "suggest_aws_commands",
+					Description: "Suggest AWS CLI commands based on natural language",
+					Schema:      map[string]interface{}{"type": "object", "properties": map[string]interface{}{"query": map[string]interface{}{"type": "string"}}},
+				},
+			},
+		},
+		{
+			Name:    "kubectl-ai",
+			Type:    "stdio",
+			Command: "kubectl-ai",
+			Args:    []string{"--mcp-server"},
+			Tools: []agent.LazyMCPToolConfig{
+				{
+					Name:        "kubectl",
+					Description: "Execute kubectl commands against Kubernetes cluster",
+					Schema:      map[string]interface{}{"type": "object", "properties": map[string]interface{}{"command": map[string]interface{}{"type": "string"}}},
+				},
+			},
+		},
+	}
+
+	// Create agent with lazy MCP configurations
+	myAgent, err := agent.NewAgent(
+		agent.WithLLM(llm),
+		agent.WithLazyMCPConfigs(lazyMCPConfigs),
+		agent.WithMemory(memory.NewConversationBuffer()),
+		agent.WithSystemPrompt("You are an AI assistant with access to AWS and Kubernetes tools."),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create agent: %v", err)
+	}
+
+	// Use the agent - MCP servers will be initialized on first tool use
+	response, err := myAgent.Run(context.Background(), "List my EC2 instances and show cluster pods")
+	if err != nil {
+		log.Fatalf("Failed to run agent: %v", err)
+	}
+
+	fmt.Println("Agent Response:", response)
+}
+```
+
+#### Eager MCP Integration
+
 ```go
 package main
 
@@ -512,13 +631,7 @@ The SDK follows a modular architecture with these key components:
 ### Supported LLM Providers
 
 - **OpenAI**: GPT-4, GPT-3.5, and other OpenAI models
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Haiku, and other Claude models  
-- **Google Gemini API**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite models
-  - Advanced reasoning modes (none, minimal, comprehensive)
-  - Multimodal capabilities with vision and audio
-  - Function calling and structured output
-  - Long context processing (up to 2M tokens)
-  - Real-time streaming responses
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Haiku, and other Claude models
 - **Google Vertex AI**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash, and Gemini Pro Vision
   - Advanced reasoning modes (none, minimal, comprehensive)
   - Multimodal capabilities with vision models
@@ -536,6 +649,99 @@ The SDK follows a modular architecture with these key components:
   - Model management (list, pull, switch models)
   - Local processing for reduced latency and privacy
 
+## CLI Tool (Headless SDK)
+
+The Agent SDK includes a powerful command-line interface for headless usage:
+
+### CLI Features
+
+- 🤖 **Multiple LLM Providers**: OpenAI, Anthropic, Google Vertex AI, Ollama, vLLM
+- 💬 **Interactive Chat Mode**: Real-time conversations with persistent memory
+- 📝 **Task Execution**: Run predefined tasks from YAML configurations
+- 🎨 **Auto-Configuration**: Generate agent configs from simple prompts
+- 🔧 **Flexible Configuration**: JSON-based configuration with environment variables
+- 🛠️ **Rich Tool Integration**: Web search, GitHub, MCP servers, and more
+- 🔌 **MCP Server Management**: Add, list, remove, and test MCP servers
+- 📄 **.env File Support**: Automatic loading of environment variables from .env files
+
+### CLI Commands
+
+```bash
+# Initialize configuration
+agent-cli init
+
+# Run agent with a single prompt
+agent-cli run "Explain quantum computing in simple terms"
+
+# Direct execution (no setup required)
+agent-cli --prompt "What is 2+2?"
+
+# Direct execution with MCP server
+agent-cli --prompt "List my EC2 instances" \
+  --mcp-config ./aws_api_server.json \
+  --allowedTools "mcp__aws__suggest_aws_commands,mcp__aws__call_aws" \
+  --dangerously-skip-permissions
+
+# Execute predefined tasks
+agent-cli task --agent-config=agents.yaml --task-config=tasks.yaml --task=research_task --topic="AI"
+
+# Start interactive chat
+agent-cli chat
+
+# Generate configurations from system prompt
+agent-cli generate --prompt="You are a travel advisor" --output=./configs
+
+# List available resources
+agent-cli list providers
+agent-cli list models
+agent-cli list tools
+
+# Manage configuration
+agent-cli config show
+agent-cli config set provider anthropic
+
+# Manage MCP servers
+agent-cli mcp add --type=http --url=http://localhost:8083/mcp --name=my-server
+agent-cli mcp list
+agent-cli mcp remove --name=my-server
+
+# Import/Export MCP servers from JSON config
+agent-cli mcp import --file=mcp-servers.json
+agent-cli mcp export --file=mcp-servers.json
+
+# Direct execution with MCP servers and tool filtering
+agent-cli --prompt "List my EC2 instances" \
+  --mcp-config ./aws_api_server.json \
+  --allowedTools "suggest_aws_commands,call_aws" \
+  --dangerously-skip-permissions
+
+# Kubernetes management with kubectl-ai
+agent-cli --prompt "List all pods in the default namespace" \
+  --mcp-config ./kubectl_ai.json \
+  --allowedTools "kubectl" \
+  --dangerously-skip-permissions
+```
+
+### Advanced MCP Features
+
+The CLI now supports **dynamic tool discovery** and **flexible tool filtering**:
+
+- **No Hardcoded Tools**: MCP servers define their own tools and schemas
+- **Dynamic Discovery**: Tools are discovered when MCP servers are first initialized
+- **Flexible Filtering**: Use `--allowedTools` to specify exactly which tools can be used
+- **JSON Configuration**: Load MCP server configurations from external JSON files
+- **Environment Variables**: Each MCP server can specify custom environment variables
+
+**Popular MCP Servers:**
+- **AWS API Server**: AWS CLI operations and suggestions
+- **kubectl-ai**: Kubernetes cluster management via natural language
+- **Filesystem Server**: File system operations and management
+- **Database Server**: SQL query execution and database operations
+
+### CLI Documentation
+
+For complete CLI documentation, see: [CLI README](cmd/agent-cli/README.md)
+
 ## Examples
 
 Check out the `cmd/examples` directory for complete examples:
@@ -545,15 +751,13 @@ Check out the `cmd/examples` directory for complete examples:
 - **Auto-Configuration**: Generating agent configurations from system prompts
 - **Agent Config Wizard**: Interactive CLI for creating and using agents
 - **MCP Integration**: Using Model Context Protocol servers with agents
-- **Multi-LLM Support**: Examples using OpenAI, Anthropic, Gemini API, and Vertex AI
-- **Gemini API Integration**: Comprehensive examples with Gemini models, streaming, tools, and structured output
+- **Multi-LLM Support**: Examples using OpenAI, Anthropic, and Vertex AI
 - **Vertex AI Integration**: Comprehensive examples with Gemini models, reasoning modes, and tools
 
 ### LLM Provider Examples
 
 - `examples/llm/openai/`: OpenAI integration examples
-- `examples/llm/anthropic/`: Anthropic Claude integration examples  
-- `examples/llm/gemini/`: Google Gemini API integration examples with streaming, tools, and structured output
+- `examples/llm/anthropic/`: Anthropic Claude integration examples
 - `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
 - `examples/llm/ollama/`: Ollama local LLM integration examples
 - `examples/llm/vllm/`: vLLM high-performance local LLM integration examples
@@ -577,5 +781,4 @@ For more detailed information, refer to the following documents:
 - [Agent](docs/agent.md)
 - [Execution Plan](docs/execution_plan.md)
 - [Guardrails](docs/guardrails.md)
-- [Gemini API](docs/gemini-api.md)
 - [MCP](docs/mcp.md)

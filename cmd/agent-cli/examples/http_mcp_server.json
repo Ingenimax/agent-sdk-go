@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "http-server": {
+      "type": "http",
+      "url": "http://localhost:8083/mcp",
+      "env": {}
+    }
+  }
+}
