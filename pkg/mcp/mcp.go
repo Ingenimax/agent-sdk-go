@@ -158,7 +158,7 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 	if !filepath.IsAbs(commandPath) {
 		return nil, fmt.Errorf("command path must be absolute for security: %q", commandPath)
 	}
-	
+
 	// Check if the file exists and is executable
 	if info, err := os.Stat(commandPath); err != nil {
 		return nil, fmt.Errorf("command not accessible: %v", err)

@@ -389,8 +389,6 @@ func containsAnyTool(allowedTools, toolNames []string) bool {
 	return false
 }
 
-
-
 func printDirectUsage() {
 	fmt.Println()
 	fmt.Println("Direct Execution Mode:")
@@ -1281,8 +1279,6 @@ func exportMCPServers() {
 
 	fmt.Printf("✅ Exported %d MCP servers to %s\n", len(config.MCPServers), filePath)
 }
-
-
 
 func generateConfigs() {
 	var systemPrompt, outputDir string
