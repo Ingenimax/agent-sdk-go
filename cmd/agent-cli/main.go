@@ -240,7 +240,7 @@ func loadMCPServersFromFile(filePath string) ([]MCPServerConfig, error) {
 	if !filepath.IsAbs(filePath) {
 		return nil, fmt.Errorf("file path must be absolute for security: %s", filePath)
 	}
-	
+
 	// Read JSON file
 	// #nosec G304 -- filePath is validated above to be absolute
 	data, err := os.ReadFile(filePath)
@@ -1524,7 +1524,7 @@ func loadEnvFile() {
 
 func loadConfig() *CLIConfig {
 	configFile := filepath.Join(getConfigDir(), "config.json")
-	
+
 	// Validate config file path for security
 	if !filepath.IsAbs(configFile) {
 		log.Printf("⚠️ Config file path is not absolute: %s", configFile)
