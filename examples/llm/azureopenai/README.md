@@ -44,7 +44,7 @@ export AZURE_OPENAI_API_VERSION="2024-08-01-preview"  # Optional
 2. **Base URL**: The endpoint URL from your Azure OpenAI resource (without the `/openai/deployments/` part)
 3. **Region**: The Azure region where your resource is deployed (e.g., "eastus", "westus2")
 4. **Resource Name**: The name of your Azure OpenAI resource
-5. **Deployment Name**: The name you gave to your model deployment in Azure OpenAI Studio
+5. **Deployment Name**: The name you gave to your model deployment in Azure OpenAI Studio (this serves as both the deployment and model identifier)
 6. **API Version**: The Azure OpenAI API version (optional, defaults to `2024-08-01-preview`, required for structured output)
 
 ## Running the Example
@@ -68,8 +68,7 @@ go run main.go
 client := azureopenai.NewClient(
     apiKey,
     baseURL,
-    deployment,
-    azureopenai.WithModel("gpt-4o-mini"), // For reference/logging
+    deployment,    // Deployment name serves as the model identifier
     azureopenai.WithLogger(logger),
     azureopenai.WithAPIVersion(apiVersion), // Optional
 )
@@ -79,8 +78,7 @@ client := azureopenai.NewClientFromRegion(
     apiKey,
     region,        // e.g., "eastus"
     resourceName,  // e.g., "my-openai-resource"
-    deployment,
-    azureopenai.WithModel("gpt-4o-mini"),
+    deployment,    // e.g., "gpt-4-deployment" (this is your model identifier)
     azureopenai.WithLogger(logger),
     azureopenai.WithAPIVersion(apiVersion),
 )

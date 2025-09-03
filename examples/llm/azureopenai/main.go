@@ -61,7 +61,6 @@ func main() {
 
 	// Create client with options
 	clientOptions := []azureopenai.Option{
-		azureopenai.WithModel("gpt-4o-mini"), // This is for reference/logging
 		azureopenai.WithLogger(logger),
 	}
 

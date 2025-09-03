@@ -32,7 +32,6 @@ type Config struct {
 		// Azure OpenAI configuration
 		AzureOpenAI struct {
 			APIKey       string
-			Model        string
 			Temperature  float64
 			BaseURL      string
 			Region       string
@@ -141,7 +140,6 @@ type AnthropicConfig struct {
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration
 type AzureOpenAIConfig struct {
 	APIKey       string
-	Model        string
 	Temperature  float64
 	BaseURL      string
 	Region       string
@@ -221,7 +219,6 @@ func initLLMConfig(config *Config) {
 
 	// Azure OpenAI defaults
 	config.LLM.AzureOpenAI.APIKey = getEnvString("AZURE_OPENAI_API_KEY", "")
-	config.LLM.AzureOpenAI.Model = getEnvString("AZURE_OPENAI_MODEL", "gpt-4o-mini")
 	config.LLM.AzureOpenAI.Temperature = getEnvFloat("AZURE_OPENAI_TEMPERATURE", 0.7)
 	config.LLM.AzureOpenAI.BaseURL = getEnvString("AZURE_OPENAI_BASE_URL", "")
 	config.LLM.AzureOpenAI.Region = getEnvString("AZURE_OPENAI_REGION", "")

@@ -26,8 +26,8 @@ func TestNewClient(t *testing.T) {
 		t.Errorf("Expected deployment %s, got %s", deployment, client.deployment)
 	}
 
-	if client.Model != "gpt-4o-mini" {
-		t.Errorf("Expected default model gpt-4o-mini, got %s", client.Model)
+	if client.Model != deployment {
+		t.Errorf("Expected model to match deployment, got %s", client.Model)
 	}
 
 	if client.apiVersion != "2024-08-01-preview" {
@@ -141,8 +141,8 @@ func TestNewClientFromRegion(t *testing.T) {
 		t.Errorf("Expected deployment %s, got %s", deployment, client.deployment)
 	}
 
-	if client.Model != "gpt-4o-mini" {
-		t.Errorf("Expected default model gpt-4o-mini, got %s", client.Model)
+	if client.Model != deployment {
+		t.Errorf("Expected model to match deployment, got %s", client.Model)
 	}
 
 	if client.apiVersion != "2024-08-01-preview" {

@@ -36,7 +36,7 @@ import "github.com/Ingenimax/agent-sdk-go/pkg/llm/azureopenai"
 client := azureopenai.NewClient(
     "your-api-key",
     "https://your-resource.openai.azure.com",
-    "your-deployment-name",
+    "your-deployment-name", // Deployment name serves as model identifier
 )
 
 // Option 2: Using Region and Resource Name (recommended)
@@ -44,7 +44,7 @@ client := azureopenai.NewClientFromRegion(
     "your-api-key",
     "eastus",              // Azure region
     "your-resource-name",  // Azure OpenAI resource name
-    "your-deployment-name",
+    "your-deployment-name", // Deployment name serves as model identifier
 )
 
 // Client with custom options
@@ -52,9 +52,8 @@ client := azureopenai.NewClientFromRegion(
     "your-api-key",
     "eastus",
     "your-resource-name",
-    "your-deployment-name",
-    azureopenai.WithModel("gpt-4"),
-    azureopenai.WithAPIVersion("2024-02-15-preview"),
+    "your-deployment-name", // Deployment name serves as model identifier
+    azureopenai.WithAPIVersion("2024-08-01-preview"),
     azureopenai.WithRegion("eastus"),
     azureopenai.WithResourceName("your-resource-name"),
     azureopenai.WithLogger(customLogger),
@@ -178,8 +177,8 @@ The Azure OpenAI client provides several configuration options:
 
 ### Client Options (used during client creation)
 
-- `WithModel(string)` - Sets the model name (for logging/reference)
-- `WithDeployment(string)` - Sets the Azure deployment name
+- `WithModel(string)` - Sets the model name (for logging/reference, defaults to deployment name)
+- `WithDeployment(string)` - Sets the Azure deployment name (also used as model identifier)
 - `WithAPIVersion(string)` - Sets the Azure OpenAI API version
 - `WithRegion(string)` - Sets the Azure region
 - `WithResourceName(string)` - Sets the Azure resource name
@@ -317,11 +316,12 @@ client := azureopenai.NewClientFromRegion(
 
 ## Differences from Standard OpenAI Client
 
-1. **Deployment Names**: Uses Azure deployment names instead of model names in API calls
+1. **Deployment Names**: Uses Azure deployment names as both deployment and model identifiers in API calls
 2. **Endpoint Structure**: Constructs Azure-specific endpoint URLs
 3. **API Versioning**: Includes API version as query parameter
 4. **Authentication**: Uses Azure OpenAI authentication format
 5. **Configuration**: Requires additional Azure-specific parameters (deployment, API version)
+6. **Model Identification**: Deployment name serves as the model identifier (no separate model parameter needed)
 
 ## Best Practices
 

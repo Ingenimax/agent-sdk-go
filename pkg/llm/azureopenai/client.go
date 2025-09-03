@@ -174,7 +174,7 @@ func (c *AzureOpenAIClient) recreateClients() {
 func NewClient(apiKey, baseURL, deployment string, options ...Option) *AzureOpenAIClient {
 	// Create client with default options
 	client := &AzureOpenAIClient{
-		Model:      "gpt-4o-mini",
+		Model:      deployment, // In Azure OpenAI, deployment name is the model identifier
 		apiKey:     apiKey,
 		baseURL:    baseURL,
 		deployment: deployment,
@@ -198,7 +198,7 @@ func NewClient(apiKey, baseURL, deployment string, options ...Option) *AzureOpen
 func NewClientFromRegion(apiKey, region, resourceName, deployment string, options ...Option) *AzureOpenAIClient {
 	// Create client with region-based configuration
 	client := &AzureOpenAIClient{
-		Model:        "gpt-4o-mini",
+		Model:        deployment, // In Azure OpenAI, deployment name is the model identifier
 		apiKey:       apiKey,
 		region:       region,
 		resourceName: resourceName,
