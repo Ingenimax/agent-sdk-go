@@ -5,7 +5,7 @@
       "args": [
         "--mcp-server",
         "--kubeconfig",
-        "/Users/meidad/.kube/config"
+        "/path/to/your/.kube/config"
       ],
       "env": {}
     }

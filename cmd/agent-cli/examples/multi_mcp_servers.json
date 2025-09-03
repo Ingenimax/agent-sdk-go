@@ -11,7 +11,7 @@
         "--env",
         "AWS_PROFILE=default",
         "--volume",
-        "~/.aws:/app/.aws",
+        "/path/to/your/.aws:/app/.aws",
         "public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server:latest"
       ],
       "env": {
@@ -22,7 +22,9 @@
     "kubectl-ai": {
       "command": "kubectl-ai",
       "args": [
-        "--mcp-server"
+        "--mcp-server",
+        "--kubeconfig",
+        "/path/to/your/.kube/config"
       ],
       "env": {}
     },
