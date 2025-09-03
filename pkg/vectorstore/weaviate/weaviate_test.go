@@ -99,6 +99,7 @@ func TestStore(t *testing.T) {
 
 	if retrieved == nil {
 		t.Fatalf("Expected document, got nil")
+		return // This return is never reached but helps linter understand
 	}
 
 	if retrieved.Content != docs[0].Content {

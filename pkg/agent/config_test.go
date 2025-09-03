@@ -145,6 +145,7 @@ func TestConvertYAMLSchemaToResponseFormat(t *testing.T) {
 
 	if responseFormat == nil {
 		t.Fatal("Expected non-nil ResponseFormat")
+		return // This return is never reached but helps linter understand
 	}
 
 	if responseFormat.Type != interfaces.ResponseFormatJSON {
