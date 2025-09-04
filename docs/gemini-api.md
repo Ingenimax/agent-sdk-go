@@ -4,7 +4,7 @@ This document provides comprehensive information about the Gemini API integratio
 
 ## Overview
 
-The Gemini API integration enables developers to use Google's powerful Gemini models within the Agent SDK framework. Gemini models provide state-of-the-art capabilities including:
+The Gemini client in the Agent SDK for Go provides a unified interface for interacting with Google's powerful Gemini models through both the **Gemini API** and the **Vertex AI** platform. This allows developers to choose the backend that best suits their needs while using the same consistent SDK. Gemini models provide state-of-the-art capabilities including:
 
 - **Multi-modal understanding** (text, images, video, audio)
 - **Function calling** for tool integration
@@ -15,13 +15,17 @@ The Gemini API integration enables developers to use Google's powerful Gemini mo
 
 ## Supported Models
 
-| Model | Context Length | Vision | Audio | Tools | Thinking | Best For |
-|-------|----------------|---------|-------|-------|----------|-----------|
-| `gemini-2.5-pro` | 2M tokens | ✅ | ✅ | ✅ | ✅ | Complex reasoning, multimodal |
-| `gemini-2.5-flash` | 1M tokens | ✅ | ✅ | ✅ | ✅ | Balanced speed & capability |
-| `gemini-2.5-flash-lite` | 32K tokens | ❌ | ❌ | ✅ | ❌ | Fast text processing |
-| `gemini-1.5-pro` | 2M tokens | ✅ | ❌ | ✅ | ❌ | Legacy complex tasks |
-| `gemini-1.5-flash` | 1M tokens | ✅ | ❌ | ✅ | ❌ | Legacy balanced performance |
+| Model | Context Length | Vision | Audio | Tools | Thinking | Backend Support | Best For |
+|-------|----------------|---------|-------|-------|----------|-----------------|-----------|
+| `gemini-2.5-pro` | 2M tokens | ✅ | ✅ | ✅ | ✅ | Gemini API, Vertex API | Complex reasoning, multimodal |
+| `gemini-2.5-flash` | 1M tokens | ✅ | ✅ | ✅ | ✅ | Gemini API, Vertex API | Balanced speed & capability |
+| `gemini-2.5-flash-lite` | 32K tokens | ❌ | ❌ | ✅ | ❌ | Gemini API, Vertex API | Fast text processing |
+| `gemini-1.5-pro` | 2M tokens | ✅ | ❌ | ✅ | ❌ | Gemini API | Legacy complex tasks |
+| `gemini-1.5-flash` | 1M tokens | ✅ | ❌ | ✅ | ❌ | Gemini API | Legacy balanced performance |
+
+**Note**: Model availability varies by backend:
+- **Gemini API**: Supports all models listed above
+- **Vertex AI**: Has a different set of available models. Some models like Gemini 1.5 series are not supported in Vertex AI. See [Vertex AI Model Garden](https://cloud.google.com/vertex-ai/generative-ai/docs/model-garden/available-models) for the complete list of supported models.
 
 ## Installation and Setup
 
@@ -48,6 +52,7 @@ package main
 
 import (
     "context"
+    "fmt"
     "log"
     "os"
 
@@ -56,7 +61,8 @@ import (
 
 func main() {
     client, err := gemini.NewClient(
-        os.Getenv("GEMINI_API_KEY"),
+        context.Background(),
+        gemini.WithAPIKey(os.Getenv("GEMINI_API_KEY")),
         gemini.WithModel(gemini.ModelGemini25Flash),
     )
     if err != nil {
@@ -96,6 +102,44 @@ func main() {
     fmt.Printf("Using LLM: %s\n", shared.GetProviderInfo())
 
     response, err := llm.Generate(context.Background(), "Hello, world!")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println(response)
+}
+```
+
+#### Option 3: Vertex AI Backend
+
+For users on Google Cloud Platform, the client can use the Vertex AI backend, which authenticates using Application Default Credentials (e.g., a service account) instead of an API key.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
+    "google.golang.org/genai"
+)
+
+func main() {
+    // Assumes you have authenticated with GCP CLI or have a service account set up
+    client, err := gemini.NewClient(
+        context.Background(),
+        gemini.WithBackend(genai.BackendVertexAI),
+        gemini.WithProjectID("your-gcp-project-id"),
+        gemini.WithLocation("us-central1"), // Optional, defaults to us-central1
+        gemini.WithModel(gemini.ModelGemini15Pro),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    response, err := client.Generate(context.Background(), "Hello from Vertex AI!")
     if err != nil {
         log.Fatal(err)
     }
@@ -190,20 +234,25 @@ for event := range stream {
 
 ### 5. Reasoning Modes
 
-Control the level of explanation in responses:
+For models that support native "thinking" capabilities (like the `gemini-2.5-pro` and `gemini-2.5-flash` series), you can enable options to receive the model's thought process alongside the final answer. This is useful for debugging, understanding the model's logic, and building more transparent applications.
 
 ```go
-// Comprehensive reasoning - detailed explanations
-response, err := client.Generate(ctx, "Solve 2x + 5 = 13",
-    gemini.WithReasoning("comprehensive"))
+// Enable thinking to get the model's thought process
+// The thought process is delivered via the StreamEventThinking event in streaming mode.
+response, err := client.Generate(ctx, "Solve this riddle: ...",
+    gemini.WithThinking(true))
 
-// Minimal reasoning - brief explanations
-response, err := client.Generate(ctx, prompt,
-    gemini.WithReasoning("minimal"))
+// You can also set a budget for thinking tokens
+budget := int32(4096)
+response, err := client.Generate(ctx, "Analyze this document...",
+    gemini.WithThinkingBudget(budget))
 
-// No reasoning - direct answers only
-response, err := client.Generate(ctx, prompt,
-    gemini.WithReasoning("none"))
+// For models that do not support native thinking, the `WithReasoning` option
+// can be used to guide the verbosity of the explanation by modifying the system prompt.
+response, err := client.Generate(ctx, "Explain black holes",
+    gemini.WithReasoning(gemini.ReasoningModeComprehensive), // "comprehensive", "minimal", or "none"
+    gemini.WithSystemMessage("You are a physics teacher."),
+)
 ```
 
 ## Agent Integration
@@ -218,7 +267,8 @@ import (
 )
 
 // Create Gemini client
-geminiClient, err := gemini.NewClient(apiKey,
+geminiClient, err := gemini.NewClient(context.Background(),
+    gemini.WithAPIKey(apiKey),
     gemini.WithModel(gemini.ModelGemini25Flash))
 
 // Create agent
@@ -299,10 +349,11 @@ Robust error handling with retry support:
 ```go
 import "github.com/Ingenimax/agent-sdk-go/pkg/retry"
 
-client, err := gemini.NewClient(apiKey,
+client, err := gemini.NewClient(context.Background(),
+    gemini.WithAPIKey(apiKey),
     gemini.WithRetry(
-        retry.WithMaxRetries(3),
-        retry.WithBackoff(retry.ExponentialBackoff),
+        retry.WithMaxAttempts(3),
+        retry.WithBackoffCoefficient(2.0),
     ),
 )
 ```
@@ -315,17 +366,23 @@ Integrate with your logging system:
 import "github.com/Ingenimax/agent-sdk-go/pkg/logging"
 
 logger := logging.New()
-client, err := gemini.NewClient(apiKey,
-    gemini.WithLogger(logger),
-)
+client, err := gemini.NewClient(context.Background(),
+    gemini.WithAPIKey(apiKey),
+    gemini.WithLogger(logger))
 ```
 
 ## Configuration Options
 
 ### Client Options
 
+The `NewClient` function is highly configurable using options. Here are examples for both Gemini API and Vertex AI backends.
+
 ```go
-client, err := gemini.NewClient(apiKey,
+// Example for Gemini API Backend
+client, err := gemini.NewClient(ctx,
+    // Authentication
+    gemini.WithAPIKey(apiKey),
+
     // Model selection
     gemini.WithModel(gemini.ModelGemini25Pro),
 
@@ -334,12 +391,22 @@ client, err := gemini.NewClient(apiKey,
 
     // Retry configuration
     gemini.WithRetry(
-        retry.WithMaxRetries(5),
-        retry.WithBackoff(retry.ExponentialBackoff),
+        retry.WithMaxAttempts(5),
     ),
+)
 
-    // Custom endpoint (if needed)
-    gemini.WithBaseURL("https://custom-endpoint.com"),
+// Example for Vertex AI Backend
+vertexClient, err := gemini.NewClient(ctx,
+    // Backend selection
+    gemini.WithBackend(genai.BackendVertexAI),
+
+    // Vertex AI configuration
+    gemini.WithProjectID("your-gcp-project-id"),
+    gemini.WithLocation("us-central1"),
+    gemini.WithCredentialsFile("/path/to/your/credentials.json"), // Optional: for service accounts
+
+    // Model selection
+    gemini.WithModel(gemini.ModelGemini15Pro), // Note: Vertex has a different set of available models
 )
 ```
 
@@ -530,10 +597,16 @@ GetModel() string
 
 ```go
 // Client configuration
+WithAPIKey(apiKey string) Option // For Gemini API backend
+WithBackend(backend genai.Backend) Option // genai.BackendGeminiAPI or genai.BackendVertexAI
+WithProjectID(projectID string) Option // For Vertex AI backend
+WithLocation(location string) Option // For Vertex AI backend
+WithCredentialsFile(path string) Option // For Vertex AI with a service account file
 WithModel(model string) Option
 WithLogger(logger logging.Logger) Option
 WithRetry(opts ...retry.Option) Option
-WithBaseURL(baseURL string) Option
+WithBaseURL(baseURL string) Option // For Gemini API backend
+WithClient(client *genai.Client) Option // Use an existing genai.Client
 
 // Generation options
 WithTemperature(temperature float64) interfaces.GenerateOption

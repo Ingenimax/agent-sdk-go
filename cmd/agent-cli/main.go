@@ -14,9 +14,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/ollama"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/vertex"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/vllm"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
@@ -25,6 +25,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/github"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/websearch"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
+	"google.golang.org/genai"
 )
 
 const (
@@ -1683,8 +1684,10 @@ func createLLM(config *CLIConfig) interfaces.LLM {
 		if projectID == "" {
 			log.Fatal("GOOGLE_CLOUD_PROJECT environment variable is required for Vertex AI provider")
 		}
-		client, err := vertex.NewClient(context.Background(), projectID,
-			vertex.WithModel(config.Model))
+		client, err := gemini.NewClient(context.Background(),
+			gemini.WithBackend(genai.BackendVertexAI),
+			gemini.WithProjectID(projectID),
+			gemini.WithModel(config.Model))
 		if err != nil {
 			log.Fatalf("Failed to create Vertex AI client: %v", err)
 		}

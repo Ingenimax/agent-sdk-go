@@ -4,13 +4,22 @@ This directory contains examples demonstrating how to use the Gemini API integra
 
 ## Prerequisites
 
-Before running these examples, you need:
+Before running these examples, you need one of the following:
 
+### Option 1: Gemini API (Recommended for most users)
 1. **Google Cloud API Key**: Get your API key from the [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. **Environment Variable**: Set your API key as an environment variable:
    ```bash
    export GEMINI_API_KEY="your-api-key-here"
    ```
+
+### Option 2: Vertex AI (For Google Cloud Platform users)
+1. **GCP Project ID**: Your Google Cloud Platform project ID
+2. **Environment Variable**: Set your project ID as an environment variable:
+   ```bash
+   export GEMINI_VERTEX_PROJECT_ID="your-gcp-project-id"
+   ```
+3. **Authentication**: Ensure you have authenticated with GCP CLI (`gcloud auth application-default login`)
 
 ## Available Examples
 

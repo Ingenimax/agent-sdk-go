@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -62,7 +63,7 @@ func CreateLLM() (interfaces.LLM, error) {
 		if model == "" {
 			model = gemini.ModelGemini15Flash // Default model
 		}
-		client, err := gemini.NewClient(apiKey, gemini.WithModel(model))
+		client, err := gemini.NewClient(context.Background(), gemini.WithAPIKey(apiKey), gemini.WithModel(model))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Gemini client: %w", err)
 		}

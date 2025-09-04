@@ -517,7 +517,8 @@ func createLLM(provider string) (interfaces.LLM, error) {
 		}
 		// Use thinking-enabled client to demonstrate native thinking capabilities
 		return gemini.NewClient(
-			apiKey,
+			context.Background(),
+			gemini.WithAPIKey(apiKey),
 			gemini.WithModel(gemini.ModelGemini25Flash),
 			gemini.WithDynamicThinking(), // Enable native thinking tokens
 		)

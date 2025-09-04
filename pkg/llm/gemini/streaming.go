@@ -228,7 +228,7 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 		var accumulatedContent strings.Builder
 
 		// Start streaming
-		streamIter := c.client.Models.GenerateContentStream(ctx, c.model, contents, config)
+		streamIter := c.genaiClient.Models.GenerateContentStream(ctx, c.model, contents, config)
 
 		for response, err := range streamIter {
 			if err != nil {
@@ -538,8 +538,8 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		c.logger.Debug(ctx, "Using system message for tool streaming", map[string]interface{}{"system_message": params.SystemMessage})
 	}
 
-	// Convert tools to Gemini format
-	geminiTools := make([]*genai.Tool, 0, len(tools))
+	// Convert tools to Gemini format - all function declarations in a single tool
+	var functionDeclarations []*genai.FunctionDeclaration
 	for _, tool := range tools {
 		functionDeclaration := &genai.FunctionDeclaration{
 			Name:        tool.Name(),
@@ -585,9 +585,14 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			}
 		}
 
-		geminiTools = append(geminiTools, &genai.Tool{
-			FunctionDeclarations: []*genai.FunctionDeclaration{functionDeclaration},
-		})
+		functionDeclarations = append(functionDeclarations, functionDeclaration)
+	}
+
+	// Create a single tool with all function declarations
+	geminiTools := []*genai.Tool{
+		{
+			FunctionDeclarations: functionDeclarations,
+		},
 	}
 
 	// Main conversation loop with streaming events
@@ -678,7 +683,10 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 		contents = append(contents, assistantMessage)
 
-		// Execute each tool and add results
+		// Collect all tool results to add them in a single content message
+		var functionResponses []*genai.Part
+
+		// Execute each tool and collect results
 		for _, toolCall := range toolCalls {
 			// Find the requested tool
 			var selectedTool interfaces.Tool
@@ -694,20 +702,13 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 					"toolName": toolCall.Name,
 				})
 
-				// Add tool not found error as tool result instead of returning
+				// Add tool not found error as function response
 				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
-
-				// Add tool result message
-				contents = append(contents, &genai.Content{
-					Role: "user",
-					Parts: []*genai.Part{
-						{
-							FunctionResponse: &genai.FunctionResponse{
-								Name: toolCall.Name,
-								Response: map[string]any{
-									"error": errorMessage,
-								},
-							},
+				functionResponses = append(functionResponses, &genai.Part{
+					FunctionResponse: &genai.FunctionResponse{
+						Name: toolCall.Name,
+						Response: map[string]any{
+							"error": errorMessage,
 						},
 					},
 				})
@@ -786,17 +787,12 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 				}
 			}
 
-			// Add tool result message
-			contents = append(contents, &genai.Content{
-				Role: "user",
-				Parts: []*genai.Part{
-					{
-						FunctionResponse: &genai.FunctionResponse{
-							Name: toolCall.Name,
-							Response: map[string]any{
-								"result": toolResult,
-							},
-						},
+			// Add tool result as function response
+			functionResponses = append(functionResponses, &genai.Part{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: toolCall.Name,
+					Response: map[string]any{
+						"result": toolResult,
 					},
 				},
 			})
@@ -816,6 +812,14 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			case <-ctx.Done():
 				return "", ctx.Err()
 			}
+		}
+
+		// Add all function responses in a single content message
+		if len(functionResponses) > 0 {
+			contents = append(contents, &genai.Content{
+				Role:  "user",
+				Parts: functionResponses,
+			})
 		}
 
 		// Continue to next iteration with updated conversation
@@ -927,7 +931,7 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 	})
 
 	// Generate content with tools
-	result, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
+	result, err := c.genaiClient.Models.GenerateContent(ctx, c.model, contents, config)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to generate content: %w", err)
 	}

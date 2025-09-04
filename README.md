@@ -759,7 +759,6 @@ Check out the `cmd/examples` directory for complete examples:
 - `examples/llm/openai/`: OpenAI integration examples
 - `examples/llm/azureopenai/`: Azure OpenAI integration examples with deployment-based configuration
 - `examples/llm/anthropic/`: Anthropic Claude integration examples
-- `examples/llm/vertex/`: Google Vertex AI integration examples with Gemini models
 - `examples/llm/ollama/`: Ollama local LLM integration examples
 - `examples/llm/vllm/`: vLLM high-performance local LLM integration examples
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/structuredoutput"
+	"google.golang.org/genai"
 )
 
 // Define structs that match our JSON schemas for type safety
@@ -87,15 +88,27 @@ func main() {
 
 	// Get API key
 	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("GEMINI_API_KEY environment variable is required")
+	vertexProjectID := os.Getenv("GEMINI_VERTEX_PROJECT_ID")
+	if apiKey == "" && vertexProjectID == "" {
+		log.Fatal("GEMINI_API_KEY or GEMINI_VERTEX_PROJECT_ID environment variable is required. Get your API key from https://aistudio.google.com/app/apikey")
+	}
+	authOption := gemini.WithAPIKey(apiKey)
+	backendOption := gemini.WithBackend(genai.BackendGeminiAPI)
+	if apiKey != "" {
+		authOption = gemini.WithAPIKey(apiKey)
+		backendOption = gemini.WithBackend(genai.BackendGeminiAPI)
+	}
+	if vertexProjectID != "" {
+		authOption = gemini.WithProjectID(vertexProjectID)
+		backendOption = gemini.WithBackend(genai.BackendVertexAI)
 	}
 
 	ctx := context.Background()
 
 	// Create Gemini client
 	client, err := gemini.NewClient(
-		apiKey,
+		ctx,
+		authOption, backendOption,
 		gemini.WithModel(gemini.ModelGemini25Flash),
 	)
 	if err != nil {

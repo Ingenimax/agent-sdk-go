@@ -66,12 +66,73 @@ func WithStreamConfig(config StreamConfig) GenerateOption {
 // WithReasoning creates a GenerateOption to enable native reasoning tokens
 func WithReasoning(enabled bool, budget ...int) GenerateOption {
 	return func(options *GenerateOptions) {
-		if options.LLMConfig == nil {
-			options.LLMConfig = &LLMConfig{}
-		}
 		options.LLMConfig.EnableReasoning = enabled
 		if len(budget) > 0 {
 			options.LLMConfig.ReasoningBudget = budget[0]
 		}
+	}
+}
+
+// WithSystemMessage creates a GenerateOption to set the system message
+func WithSystemMessage(systemMessage string) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.SystemMessage = systemMessage
+	}
+}
+
+// WithTemperature creates a GenerateOption to set the temperature
+func WithTemperature(temperature float64) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.Temperature = temperature
+	}
+}
+
+// WithTopP creates a GenerateOption to set the top_p
+func WithTopP(topP float64) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.TopP = topP
+	}
+}
+
+// WithFrequencyPenalty creates a GenerateOption to set the frequency penalty
+func WithFrequencyPenalty(frequencyPenalty float64) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.FrequencyPenalty = frequencyPenalty
+	}
+}
+
+// WithPresencePenalty creates a GenerateOption to set the presence penalty
+func WithPresencePenalty(presencePenalty float64) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.PresencePenalty = presencePenalty
+	}
+}
+
+// WithStopSequences creates a GenerateOption to set the stop sequences
+func WithStopSequences(stopSequences []string) GenerateOption {
+	return func(options *GenerateOptions) {
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.StopSequences = stopSequences
+	}
+}
+
+// WithResponseFormat creates a GenerateOption to set the response format
+func WithResponseFormat(format ResponseFormat) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.ResponseFormat = &format
 	}
 }
