@@ -15,7 +15,7 @@ require (
 	github.com/openai/openai-go v1.12.0
 	github.com/openai/openai-go/v2 v2.1.1
 	github.com/rs/zerolog v1.34.0
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	github.com/supabase-community/postgrest-go v0.0.11
 	github.com/supabase-community/supabase-go v0.0.4
 	github.com/weaviate/weaviate v1.32.4
