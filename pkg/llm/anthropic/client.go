@@ -375,13 +375,8 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
 	}
 
-	// Create request with messages
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
+	// Build messages with memory and current prompt
+	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
 	// Handle structured output if requested
 	if params.ResponseFormat != nil {
@@ -942,13 +937,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)
 
-	// Create messages array with user message
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
+	// Build messages with memory and current prompt
+	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
@@ -1884,4 +1874,75 @@ func extractJSONFromResponse(response string) string {
 func isValidJSONStart(s string) bool {
 	s = strings.TrimSpace(s)
 	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
+}
+
+// buildMessagesWithMemory builds Anthropic messages from memory and current prompt
+func (c *AnthropicClient) buildMessagesWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) []Message {
+	messages := []Message{}
+
+	// Retrieve and add memory messages if available
+	if params.Memory != nil {
+		memoryMessages, err := params.Memory.GetMessages(ctx)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
+				"error": err.Error(),
+			})
+		} else {
+			// Convert memory messages to Anthropic format, ensuring system messages come first
+			var systemMessages []Message
+			var otherMessages []Message
+
+			for _, msg := range memoryMessages {
+				switch msg.Role {
+				case interfaces.MessageRoleUser:
+					otherMessages = append(otherMessages, Message{
+						Role:    "user",
+						Content: msg.Content,
+					})
+				case interfaces.MessageRoleAssistant:
+					if msg.Content != "" {
+						otherMessages = append(otherMessages, Message{
+							Role:    "assistant",
+							Content: msg.Content,
+						})
+					}
+				case interfaces.MessageRoleTool:
+					// Tool messages in Anthropic are handled as user messages with tool results
+					if msg.ToolCallID != "" {
+						toolName := "unknown"
+						if msg.Metadata != nil {
+							if name, ok := msg.Metadata["tool_name"].(string); ok {
+								toolName = name
+							}
+						}
+						otherMessages = append(otherMessages, Message{
+							Role:    "user",
+							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
+						})
+					}
+				case interfaces.MessageRoleSystem:
+					// System messages in Anthropic are handled separately in the request
+					// We collect them here but they won't be added to messages array
+
+					// TODO: Decide how to handle system messages in Anthropic
+					// systemMessages = append(systemMessages, Message{
+					// 	Role:    "system",
+					// 	Content: msg.Content,
+					// })
+				}
+			}
+
+			// Add system messages first, then other messages
+			messages = append(messages, systemMessages...)
+			messages = append(messages, otherMessages...)
+		}
+	}
+
+	// Add current user message
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	return messages
 }

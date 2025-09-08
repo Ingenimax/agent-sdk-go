@@ -905,3 +905,117 @@ func TestGenerateWithTools(t *testing.T) {
 		t.Errorf("Expected 2 requests, got %d", requestCount)
 	}
 }
+
+// mockMemory is a simple in-memory implementation for testing
+type mockMemory struct {
+	messages []interfaces.Message
+}
+
+func (m *mockMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
+	m.messages = append(m.messages, message)
+	return nil
+}
+
+func (m *mockMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
+	return m.messages, nil
+}
+
+func (m *mockMemory) Clear(ctx context.Context) error {
+	m.messages = nil
+	return nil
+}
+
+func TestBuildContentsWithMemory(t *testing.T) {
+	tests := []struct {
+		name     string
+		history  []interfaces.Message
+		prompt   string
+		expected int // expected number of contents
+	}{
+		{
+			name:     "empty memory",
+			history:  []interfaces.Message{},
+			prompt:   "Hello",
+			expected: 1, // Just the current user message
+		},
+		{
+			name: "conversation with system message",
+			history: []interfaces.Message{
+				{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
+				{Role: interfaces.MessageRoleUser, Content: "Hi"},
+				{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+			},
+			prompt:   "How are you?",
+			expected: 4, // system + user + assistant + current user
+		},
+		{
+			name: "conversation with tool call",
+			history: []interfaces.Message{
+				{Role: interfaces.MessageRoleUser, Content: "Check status"},
+				{Role: interfaces.MessageRoleAssistant, Content: "Checking..."},
+				{
+					Role:       interfaces.MessageRoleTool,
+					Content:    "All good",
+					ToolCallID: "call_123",
+					Metadata:   map[string]interface{}{"tool_name": "status_check"},
+				},
+			},
+			prompt:   "Thanks",
+			expected: 4, // user + assistant + tool + current user
+		},
+		{
+			name: "system messages come first",
+			history: []interfaces.Message{
+				{Role: interfaces.MessageRoleUser, Content: "First question"},
+				{Role: interfaces.MessageRoleSystem, Content: "System instruction"},
+				{Role: interfaces.MessageRoleAssistant, Content: "Response"},
+			},
+			prompt:   "Second question",
+			expected: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a client
+			client, err := NewClient(context.Background(),
+				WithAPIKey("test-key"),
+				WithLogger(logging.New()))
+			if err != nil {
+				t.Fatalf("Failed to create Gemini client: %v", err)
+			}
+
+			memory := &mockMemory{messages: tt.history}
+			params := &interfaces.GenerateOptions{
+				Memory: memory,
+			}
+
+			// Test the buildContentsWithMemory function
+			contents := client.buildContentsWithMemory(context.Background(), tt.prompt, params)
+
+			if len(contents) != tt.expected {
+				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
+			}
+
+			// Verify system messages come first if any exist
+			if len(tt.history) > 0 {
+				hasSystemMessage := false
+				for _, msg := range tt.history {
+					if msg.Role == interfaces.MessageRoleSystem {
+						hasSystemMessage = true
+						break
+					}
+				}
+
+				if hasSystemMessage && len(contents) > 1 {
+					// In Gemini, system messages don't appear in contents but as systemInstruction
+					// So we just verify the structure is reasonable
+					lastContent := contents[len(contents)-1]
+					if lastContent.Role != "user" {
+						t.Errorf("Expected last content to be user message, got role: %s", lastContent.Role)
+					}
+				}
+			}
+		})
+	}
+}
