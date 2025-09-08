@@ -1,6 +1,6 @@
 module github.com/Ingenimax/agent-sdk-go
 
-go 1.24
+go 1.24.0
 
 require (
 	cloud.google.com/go/vertexai v0.15.0
@@ -27,7 +27,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.37.0
 	go.opentelemetry.io/otel/trace v1.37.0
 	golang.org/x/oauth2 v0.30.0
-	google.golang.org/api v0.248.0
+	google.golang.org/api v0.249.0
 	google.golang.org/genai v1.21.0
 	google.golang.org/grpc v1.75.0
 	google.golang.org/protobuf v1.36.8
