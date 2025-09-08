@@ -934,7 +934,7 @@ func TestBuildContentsWithMemory(t *testing.T) {
 	}{
 		{
 			name:     "empty memory",
-			history:  []interfaces.Message{},
+			history:  nil, // No memory provided
 			prompt:   "Hello",
 			expected: 1, // Just the current user message
 		},
@@ -944,9 +944,10 @@ func TestBuildContentsWithMemory(t *testing.T) {
 				{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
 				{Role: interfaces.MessageRoleUser, Content: "Hi"},
 				{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+				{Role: interfaces.MessageRoleUser, Content: "How are you?"}, // Current prompt should be in memory
 			},
 			prompt:   "How are you?",
-			expected: 4, // system + user + assistant + current user
+			expected: 4, // system + user + assistant + current user (from memory)
 		},
 		{
 			name: "conversation with tool call",
@@ -959,9 +960,10 @@ func TestBuildContentsWithMemory(t *testing.T) {
 					ToolCallID: "call_123",
 					Metadata:   map[string]interface{}{"tool_name": "status_check"},
 				},
+				{Role: interfaces.MessageRoleUser, Content: "Thanks"}, // Current prompt should be in memory
 			},
 			prompt:   "Thanks",
-			expected: 4, // user + assistant + tool + current user
+			expected: 4, // user + assistant + tool + current user (from memory)
 		},
 		{
 			name: "system messages come first",
@@ -969,9 +971,10 @@ func TestBuildContentsWithMemory(t *testing.T) {
 				{Role: interfaces.MessageRoleUser, Content: "First question"},
 				{Role: interfaces.MessageRoleSystem, Content: "System instruction"},
 				{Role: interfaces.MessageRoleAssistant, Content: "Response"},
+				{Role: interfaces.MessageRoleUser, Content: "Second question"}, // Current prompt should be in memory
 			},
 			prompt:   "Second question",
-			expected: 4,
+			expected: 4, // user + system + assistant + current user (from memory)
 		},
 	}
 
@@ -985,7 +988,10 @@ func TestBuildContentsWithMemory(t *testing.T) {
 				t.Fatalf("Failed to create Gemini client: %v", err)
 			}
 
-			memory := &mockMemory{messages: tt.history}
+			var memory interfaces.Memory
+			if tt.history != nil {
+				memory = &mockMemory{messages: tt.history}
+			}
 			params := &interfaces.GenerateOptions{
 				Memory: memory,
 			}
@@ -994,7 +1000,11 @@ func TestBuildContentsWithMemory(t *testing.T) {
 			contents := client.buildContentsWithMemory(context.Background(), tt.prompt, params)
 
 			if len(contents) != tt.expected {
-				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
+				t.Errorf("Expected %d contents, got %d (memory is nil: %v)", tt.expected, len(contents), params.Memory == nil)
+				// Debug: print the contents
+				for i, content := range contents {
+					t.Logf("Content %d: Role=%s, Text=%s", i, content.Role, content.Parts[0].Text)
+				}
 			}
 
 			// Verify system messages come first if any exist

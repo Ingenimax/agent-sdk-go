@@ -1900,7 +1900,38 @@ func (c *AnthropicClient) buildMessagesWithMemory(ctx context.Context, prompt st
 						Content: msg.Content,
 					})
 				case interfaces.MessageRoleAssistant:
-					if msg.Content != "" {
+					if len(msg.ToolCalls) > 0 {
+						// Assistant message with tool calls
+						var contentParts []string
+
+						// Add text content if present
+						if msg.Content != "" {
+							contentParts = append(contentParts, msg.Content)
+						}
+
+						// Add tool use information
+						for _, toolCall := range msg.ToolCalls {
+							// Parse arguments from JSON string
+							var args map[string]interface{}
+							if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+								c.logger.Warn(ctx, "Failed to parse tool call arguments", map[string]interface{}{
+									"error":     err.Error(),
+									"arguments": toolCall.Arguments,
+								})
+								args = map[string]interface{}{}
+							}
+
+							// Format tool call for Anthropic
+							argsJSON, _ := json.Marshal(args)
+							contentParts = append(contentParts, fmt.Sprintf("Tool call: %s(%s)", toolCall.Name, string(argsJSON)))
+						}
+
+						otherMessages = append(otherMessages, Message{
+							Role:    "assistant",
+							Content: strings.Join(contentParts, "\n"),
+						})
+					} else if msg.Content != "" {
+						// Regular assistant message
 						otherMessages = append(otherMessages, Message{
 							Role:    "assistant",
 							Content: msg.Content,
@@ -1908,18 +1939,16 @@ func (c *AnthropicClient) buildMessagesWithMemory(ctx context.Context, prompt st
 					}
 				case interfaces.MessageRoleTool:
 					// Tool messages in Anthropic are handled as user messages with tool results
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
+					toolName := "unknown"
+					if msg.Metadata != nil {
+						if name, ok := msg.Metadata["tool_name"].(string); ok {
+							toolName = name
 						}
-						otherMessages = append(otherMessages, Message{
-							Role:    "user",
-							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
-						})
 					}
+					otherMessages = append(otherMessages, Message{
+						Role:    "user",
+						Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
+					})
 				case interfaces.MessageRoleSystem:
 					// System messages in Anthropic are handled separately in the request
 					// We collect them here but they won't be added to messages array
@@ -1938,11 +1967,14 @@ func (c *AnthropicClient) buildMessagesWithMemory(ctx context.Context, prompt st
 		}
 	}
 
-	// Add current user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: prompt,
-	})
+	// Add current user message only if no memory is provided
+	// If memory is provided, the current prompt should already be in memory
+	if params.Memory == nil {
+		messages = append(messages, Message{
+			Role:    "user",
+			Content: prompt,
+		})
+	}
 
 	return messages
 }

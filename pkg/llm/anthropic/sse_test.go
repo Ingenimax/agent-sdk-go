@@ -289,9 +289,13 @@ func TestGenerateWithMemory(t *testing.T) {
 			t.Fatalf("Expected messages array in request")
 		}
 
-		// We expect 4 messages: system (in system field), user, assistant, current user
-		if len(messages) != 3 { // system goes to separate field in Anthropic
-			t.Errorf("Expected 3 messages in request, got %d", len(messages))
+		// We expect 4 messages: user, assistant, current user (system goes to separate field in Anthropic)
+		if len(messages) != 3 { // System is skipped
+			t.Errorf("Expected 4 messages in request, got %d", len(messages))
+			// Debug: print the messages
+			for i, msg := range messages {
+				t.Logf("Message %d: %+v", i, msg)
+			}
 		}
 
 		// Verify system message is separate
@@ -328,6 +332,7 @@ func TestGenerateWithMemory(t *testing.T) {
 			{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
 			{Role: interfaces.MessageRoleUser, Content: "Hi"},
 			{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+			{Role: interfaces.MessageRoleUser, Content: "How are you?"}, // Current prompt should be in memory
 		},
 	}
 

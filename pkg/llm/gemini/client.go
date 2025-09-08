@@ -1087,7 +1087,41 @@ func (c *GeminiClient) buildContentsWithMemory(ctx context.Context, prompt strin
 						Parts: []*genai.Part{{Text: msg.Content}},
 					})
 				case interfaces.MessageRoleAssistant:
-					if msg.Content != "" {
+					if len(msg.ToolCalls) > 0 {
+						// Assistant message with tool calls
+						var parts []*genai.Part
+
+						// Add text content if present
+						if msg.Content != "" {
+							parts = append(parts, &genai.Part{Text: msg.Content})
+						}
+
+						// Add function calls
+						for _, toolCall := range msg.ToolCalls {
+							// Parse arguments from JSON string
+							var args map[string]interface{}
+							if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+								c.logger.Warn(ctx, "Failed to parse tool call arguments", map[string]interface{}{
+									"error":     err.Error(),
+									"arguments": toolCall.Arguments,
+								})
+								args = map[string]interface{}{}
+							}
+
+							parts = append(parts, &genai.Part{
+								FunctionCall: &genai.FunctionCall{
+									Name: toolCall.Name,
+									Args: args,
+								},
+							})
+						}
+
+						otherContents = append(otherContents, &genai.Content{
+							Role:  "model",
+							Parts: parts,
+						})
+					} else if msg.Content != "" {
+						// Regular assistant message
 						otherContents = append(otherContents, &genai.Content{
 							Role:  "model",
 							Parts: []*genai.Part{{Text: msg.Content}},
@@ -1095,27 +1129,25 @@ func (c *GeminiClient) buildContentsWithMemory(ctx context.Context, prompt strin
 					}
 				case interfaces.MessageRoleTool:
 					// Tool messages in Gemini are handled as function responses
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
+					toolName := "unknown"
+					if msg.Metadata != nil {
+						if name, ok := msg.Metadata["tool_name"].(string); ok {
+							toolName = name
 						}
-						otherContents = append(otherContents, &genai.Content{
-							Role: "user",
-							Parts: []*genai.Part{
-								{
-									FunctionResponse: &genai.FunctionResponse{
-										Name: toolName,
-										Response: map[string]any{
-											"result": msg.Content,
-										},
+					}
+					otherContents = append(otherContents, &genai.Content{
+						Role: "user",
+						Parts: []*genai.Part{
+							{
+								FunctionResponse: &genai.FunctionResponse{
+									Name: toolName,
+									Response: map[string]any{
+										"result": msg.Content,
 									},
 								},
 							},
-						})
-					}
+						},
+					})
 				case interfaces.MessageRoleSystem:
 					// System messages in Gemini are handled separately as systemInstruction
 					// We collect them here but they won't be added to contents
@@ -1131,11 +1163,14 @@ func (c *GeminiClient) buildContentsWithMemory(ctx context.Context, prompt strin
 		}
 	}
 
-	// Add current user message
-	contents = append(contents, &genai.Content{
-		Role:  "user",
-		Parts: []*genai.Part{{Text: prompt}},
-	})
+	// Add current user message only if no memory is provided
+	// If memory is provided, the current prompt should already be in memory
+	if params.Memory == nil {
+		contents = append(contents, &genai.Content{
+			Role:  "user",
+			Parts: []*genai.Part{{Text: prompt}},
+		})
+	}
 
 	return contents
 }

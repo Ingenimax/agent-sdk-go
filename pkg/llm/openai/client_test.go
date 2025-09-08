@@ -550,7 +550,7 @@ func TestGenerateWithMemory(t *testing.T) {
 	}{
 		{
 			name:     "empty memory",
-			history:  []interfaces.Message{},
+			history:  nil, // No memory provided
 			prompt:   "Hello",
 			expected: 1, // Just the current user message
 		},
@@ -560,9 +560,10 @@ func TestGenerateWithMemory(t *testing.T) {
 				{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
 				{Role: interfaces.MessageRoleUser, Content: "Hi"},
 				{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+				{Role: interfaces.MessageRoleUser, Content: "How are you?"}, // Current prompt should be in memory
 			},
 			prompt:   "How are you?",
-			expected: 4, // system + user + assistant + current user
+			expected: 4, // system + user + assistant + current user (from memory)
 		},
 		{
 			name: "conversation with tool call",
@@ -575,9 +576,10 @@ func TestGenerateWithMemory(t *testing.T) {
 					ToolCallID: "call_123",
 					Metadata:   map[string]interface{}{"tool_name": "status_check"},
 				},
+				{Role: interfaces.MessageRoleUser, Content: "Thanks"}, // Current prompt should be in memory
 			},
 			prompt:   "Thanks",
-			expected: 4, // user + assistant + tool + current user
+			expected: 4, // user + assistant + tool + current user (from memory)
 		},
 	}
 
@@ -642,7 +644,10 @@ func TestGenerateWithMemory(t *testing.T) {
 				openai_client.WithBaseURL(server.URL),
 				openai_client.WithLogger(logging.New()))
 
-			memory := &mockMemory{messages: tt.history}
+			var memory interfaces.Memory
+			if tt.history != nil {
+				memory = &mockMemory{messages: tt.history}
+			}
 
 			// Test Generate with memory
 			_, err := client.Generate(context.Background(), tt.prompt,

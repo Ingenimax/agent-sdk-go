@@ -1037,15 +1037,38 @@ func (c *OpenAIClient) buildMessagesWithMemory(ctx context.Context, prompt strin
 				case interfaces.MessageRoleUser:
 					otherMessages = append(otherMessages, openai.UserMessage(msg.Content))
 				case interfaces.MessageRoleAssistant:
-					// For now, treat assistant messages with tool calls as regular assistant messages
-					// The tool results will be added separately as tool messages
-					if msg.Content != "" {
+					if len(msg.ToolCalls) > 0 {
+						// Assistant message with tool calls - create a temporary message and convert it
+						var toolCalls []openai.ChatCompletionMessageToolCallUnion
+
+						for _, toolCall := range msg.ToolCalls {
+							toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnion{
+								ID: toolCall.ID,
+								Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+									Name:      toolCall.Name,
+									Arguments: toolCall.Arguments,
+								},
+							})
+						}
+
+						// Create a temporary ChatCompletionMessage and convert it to param
+						tempMessage := openai.ChatCompletionMessage{
+							Role:      "assistant",
+							Content:   msg.Content,
+							ToolCalls: toolCalls,
+						}
+						otherMessages = append(otherMessages, tempMessage.ToParam())
+					} else if msg.Content != "" {
+						// Regular assistant message
 						otherMessages = append(otherMessages, openai.AssistantMessage(msg.Content))
 					}
 				case interfaces.MessageRoleTool:
-					if msg.ToolCallID != "" {
-						otherMessages = append(otherMessages, openai.ToolMessage(msg.Content, msg.ToolCallID))
+					// Always add tool messages, use ToolCallID if available, otherwise generate one
+					toolCallID := msg.ToolCallID
+					if toolCallID == "" {
+						toolCallID = "call_" + fmt.Sprintf("%d", len(otherMessages))
 					}
+					otherMessages = append(otherMessages, openai.ToolMessage(msg.Content, toolCallID))
 				case interfaces.MessageRoleSystem:
 					// Only add system messages if not reasoning model
 					if !isReasoningModel(c.Model) {
@@ -1060,8 +1083,11 @@ func (c *OpenAIClient) buildMessagesWithMemory(ctx context.Context, prompt strin
 		}
 	}
 
-	// Add current user message
-	messages = append(messages, openai.UserMessage(prompt))
+	// Add current user message only if no memory is provided
+	// If memory is provided, the current prompt should already be in memory
+	if params.Memory == nil {
+		messages = append(messages, openai.UserMessage(prompt))
+	}
 
 	return messages
 }
