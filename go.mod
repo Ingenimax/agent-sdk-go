@@ -12,7 +12,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v0.3.1
 	github.com/openai/openai-go v1.12.0
-	github.com/openai/openai-go/v2 v2.1.1
+	github.com/openai/openai-go/v2 v2.4.3
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.0
 	github.com/supabase-community/postgrest-go v0.0.11
