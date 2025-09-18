@@ -127,14 +127,18 @@ func TestAgentRunWithCustomFunction(t *testing.T) {
 
 		// Add to memory if available
 		if mem != nil {
-			mem.AddMessage(ctx, interfaces.Message{
+			if err := mem.AddMessage(ctx, interfaces.Message{
 				Role:    "user",
 				Content: input,
-			})
-			mem.AddMessage(ctx, interfaces.Message{
+			}); err != nil {
+				return "", fmt.Errorf("failed to add user message to memory: %w", err)
+			}
+			if err := mem.AddMessage(ctx, interfaces.Message{
 				Role:    "assistant",
 				Content: result,
-			})
+			}); err != nil {
+				return "", fmt.Errorf("failed to add assistant message to memory: %w", err)
+			}
 		}
 
 		return result, nil

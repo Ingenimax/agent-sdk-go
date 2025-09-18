@@ -26,10 +26,12 @@ func customDataProcessor(ctx context.Context, input string, agent *agent.Agent) 
 	mem := agent.GetMemory()
 	if mem != nil {
 		// Store the input in memory
-		mem.AddMessage(ctx, interfaces.Message{
+		if err := mem.AddMessage(ctx, interfaces.Message{
 			Role:    "user",
 			Content: input,
-		})
+		}); err != nil {
+			return "", fmt.Errorf("failed to add message to memory: %w", err)
+		}
 	}
 
 	// Custom processing logic - convert to uppercase and add timestamp
