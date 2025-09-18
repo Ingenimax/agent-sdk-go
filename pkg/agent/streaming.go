@@ -13,6 +13,11 @@ import (
 
 // RunStream executes the agent with streaming response
 func (a *Agent) RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
+	// If custom stream function is set, use it instead
+	if a.customRunStreamFunc != nil {
+		return a.customRunStreamFunc(ctx, input, a)
+	}
+
 	// If this is a remote agent, delegate to remote execution
 	if a.isRemote {
 		return a.runRemoteStream(ctx, input)

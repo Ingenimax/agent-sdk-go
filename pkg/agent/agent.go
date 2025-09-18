@@ -36,6 +36,12 @@ type LazyMCPToolConfig struct {
 	Schema      interface{}
 }
 
+// CustomRunFunction represents a custom function that can replace the default Run behavior
+type CustomRunFunction func(ctx context.Context, input string, agent *Agent) (string, error)
+
+// CustomRunStreamFunction represents a custom function that can replace the default RunStream behavior
+type CustomRunStreamFunction func(ctx context.Context, input string, agent *Agent) (<-chan interfaces.AgentStreamEvent, error)
+
 // Agent represents an AI agent
 type Agent struct {
 	llm                  interfaces.LLM
@@ -62,10 +68,14 @@ type Agent struct {
 	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
 
 	// Remote agent fields
-	isRemote      bool                      // Whether this is a remote agent
-	remoteURL     string                    // URL of the remote agent service
-	remoteTimeout time.Duration             // Timeout for remote agent operations
-	remoteClient  *client.RemoteAgentClient // gRPC client for remote communication
+	isRemote        bool                     // Whether this is a remote agent
+	remoteURL       string                   // URL of the remote agent service
+	remoteTimeout   time.Duration            // Timeout for remote agent operations
+	remoteClient    *client.RemoteAgentClient // gRPC client for remote communication
+
+	// Custom function fields
+	customRunFunc       CustomRunFunction       // Custom run function to replace default behavior
+	customRunStreamFunc CustomRunStreamFunction // Custom stream function to replace default streaming behavior
 }
 
 // Option represents an option for configuring an agent
@@ -229,6 +239,20 @@ func WithAgents(subAgents ...*Agent) Option {
 	}
 }
 
+// WithCustomRunFunction sets a custom run function that replaces the default Run behavior
+func WithCustomRunFunction(fn CustomRunFunction) Option {
+	return func(a *Agent) {
+		a.customRunFunc = fn
+	}
+}
+
+// WithCustomRunStreamFunction sets a custom streaming run function that replaces the default RunStream behavior
+func WithCustomRunStreamFunction(fn CustomRunStreamFunction) Option {
+	return func(a *Agent) {
+		a.customRunStreamFunc = fn
+	}
+}
+
 // NewAgent creates a new agent with the given options
 func NewAgent(options ...Option) (*Agent, error) {
 	agent := &Agent{
@@ -388,6 +412,11 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 
 // Run runs the agent with the given input
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+	// If custom run function is set, use it instead
+	if a.customRunFunc != nil {
+		return a.customRunFunc(ctx, input, a)
+	}
+
 	// If this is a remote agent, delegate to remote execution
 	if a.isRemote {
 		return a.runRemote(ctx, input)
@@ -1037,6 +1066,36 @@ func (a *Agent) GetCapabilities() string {
 	}
 
 	return "A general-purpose AI agent"
+}
+
+// GetLLM returns the LLM instance (for use in custom functions)
+func (a *Agent) GetLLM() interfaces.LLM {
+	return a.llm
+}
+
+// GetMemory returns the memory instance (for use in custom functions)
+func (a *Agent) GetMemory() interfaces.Memory {
+	return a.memory
+}
+
+// GetTools returns the tools slice (for use in custom functions)
+func (a *Agent) GetTools() []interfaces.Tool {
+	return a.tools
+}
+
+// GetLogger returns the logger instance (for use in custom functions)
+func (a *Agent) GetLogger() logging.Logger {
+	return a.logger
+}
+
+// GetTracer returns the tracer instance (for use in custom functions)
+func (a *Agent) GetTracer() interfaces.Tracer {
+	return a.tracer
+}
+
+// GetSystemPrompt returns the system prompt (for use in custom functions)
+func (a *Agent) GetSystemPrompt() string {
+	return a.systemPrompt
 }
 
 // configureSubAgentTools configures sub-agent tools with logger and tracer from parent agent
