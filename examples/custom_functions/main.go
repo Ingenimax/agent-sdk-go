@@ -39,10 +39,12 @@ func customDataProcessor(ctx context.Context, input string, agent *agent.Agent) 
 
 	// Store the result in memory
 	if mem != nil {
-		mem.AddMessage(ctx, interfaces.Message{
+		if err := mem.AddMessage(ctx, interfaces.Message{
 			Role:    "assistant",
 			Content: processed,
-		})
+		}); err != nil {
+			return "", fmt.Errorf("failed to add assistant message to memory: %w", err)
+		}
 	}
 
 	logger.Info(ctx, "Custom processing completed", map[string]interface{}{
@@ -100,14 +102,18 @@ func aiEnhancedProcessor(ctx context.Context, input string, agent *agent.Agent) 
 
 	// Store in memory if available
 	if mem != nil {
-		mem.AddMessage(ctx, interfaces.Message{
+		if err := mem.AddMessage(ctx, interfaces.Message{
 			Role:    "user",
 			Content: input,
-		})
-		mem.AddMessage(ctx, interfaces.Message{
+		}); err != nil {
+			return "", fmt.Errorf("failed to add user message to memory: %w", err)
+		}
+		if err := mem.AddMessage(ctx, interfaces.Message{
 			Role:    "assistant",
 			Content: result,
-		})
+		}); err != nil {
+			return "", fmt.Errorf("failed to add assistant message to memory: %w", err)
+		}
 	}
 
 	return result, nil
