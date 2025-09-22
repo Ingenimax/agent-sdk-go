@@ -157,6 +157,12 @@ func SupportsThinking(model string) bool {
 		"claude-sonnet-4-20250514",
 		"claude-opus-4-20250514",
 		"claude-opus-4-1-20250805",
+		// Vertex AI format models
+		"claude-sonnet-4@20250514",
+		"claude-sonnet-4-v1@20250514",
+		"claude-opus-4@20250514",
+		"claude-opus-4-v1@20250514",
+		"claude-opus-4-1@20250805",
 	}
 
 	for _, supportedModel := range supportedModels {
