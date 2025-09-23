@@ -72,9 +72,29 @@ func (c *OpenAIClient) GenerateStream(
 					case "user":
 						messages = append(messages, openai.UserMessage(msg.Content))
 					case "assistant":
-						// For now, treat assistant messages with tool calls as regular assistant messages
-						// The tool results will be added separately as tool messages
-						if msg.Content != "" {
+						// Handle assistant messages with tool calls properly
+						if len(msg.ToolCalls) > 0 {
+							// Create assistant message with tool calls
+							assistantMsg := openai.ChatCompletionMessage{
+								Role:    "assistant",
+								Content: msg.Content,
+							}
+
+							// Convert tool calls to OpenAI format
+							for _, tc := range msg.ToolCalls {
+								assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, openai.ChatCompletionMessageToolCallUnion{
+									ID:   tc.ID,
+									Type: "function",
+									Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+										Name:      tc.Name,
+										Arguments: tc.Arguments,
+									},
+								})
+							}
+
+							messages = append(messages, assistantMsg.ToParam())
+						} else if msg.Content != "" {
+							// Regular assistant message without tool calls
 							messages = append(messages, openai.AssistantMessage(msg.Content))
 						}
 					case "tool":
@@ -385,9 +405,29 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					case "user":
 						messages = append(messages, openai.UserMessage(msg.Content))
 					case "assistant":
-						// For now, treat assistant messages with tool calls as regular assistant messages
-						// The tool results will be added separately as tool messages
-						if msg.Content != "" {
+						// Handle assistant messages with tool calls properly
+						if len(msg.ToolCalls) > 0 {
+							// Create assistant message with tool calls
+							assistantMsg := openai.ChatCompletionMessage{
+								Role:    "assistant",
+								Content: msg.Content,
+							}
+
+							// Convert tool calls to OpenAI format
+							for _, tc := range msg.ToolCalls {
+								assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, openai.ChatCompletionMessageToolCallUnion{
+									ID:   tc.ID,
+									Type: "function",
+									Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+										Name:      tc.Name,
+										Arguments: tc.Arguments,
+									},
+								})
+							}
+
+							messages = append(messages, assistantMsg.ToParam())
+						} else if msg.Content != "" {
+							// Regular assistant message without tool calls
 							messages = append(messages, openai.AssistantMessage(msg.Content))
 						}
 					case "tool":
