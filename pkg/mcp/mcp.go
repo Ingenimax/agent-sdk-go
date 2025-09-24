@@ -223,9 +223,9 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 			Endpoint: config.BaseURL,
 		}
 	default:
-		// Default to Streamable if type is not recognized
-		logger.Warn(ctx, "Server protocol type is not set, defaulting to Streamable", map[string]interface{}{})
-		transport = &mcp.StreamableClientTransport{
+		// Default to SSE if type is not recognized
+		logger.Warn(ctx, "Server protocol type is not set, defaulting to SSE", map[string]interface{}{})
+		transport = &mcp.SSEClientTransport{
 			Endpoint: config.BaseURL,
 		}
 	}
