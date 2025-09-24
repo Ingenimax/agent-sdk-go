@@ -182,17 +182,19 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 
 // HTTPServerConfig holds configuration for an HTTP MCP server
 type HTTPServerConfig struct {
-	BaseURL string
-	Path    string
-	Token   string
-	Type    HTTPServerType
+	BaseURL      string
+	Path         string
+	Token        string
+	ProtocolType ServerProtocolType
 }
 
-type HTTPServerType string
+// ServerProtocolType defines the protocol type for the MCP server communication
+// Supported types are "streamable" and "sse"
+type ServerProtocolType string
 
 const (
-	StreamableServer HTTPServerType = "streamable"
-	SSEServer        HTTPServerType = "sse"
+	StreamableHTTP ServerProtocolType = "streamable"
+	SSE            ServerProtocolType = "sse"
 )
 
 // NewHTTPServer creates a new MCPServer that communicates over HTTP using the official SDK
@@ -208,23 +210,21 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 
 	var transport mcp.Transport
 
-	switch config.Type {
-	case SSEServer:
+	switch config.ProtocolType {
+	case SSE:
 		// Create SSE client transport for HTTP communication
 		// It is legacy but still supported by some MCP servers
 		transport = &mcp.SSEClientTransport{
 			Endpoint: config.BaseURL,
 		}
-	case StreamableServer:
+	case StreamableHTTP:
 		// Create StreamableHTTP client transport for HTTP communication
 		transport = &mcp.StreamableClientTransport{
 			Endpoint: config.BaseURL,
 		}
 	default:
 		// Default to Streamable if type is not recognized
-		logger.Warn(ctx, "Unrecognized HTTP server type, defaulting to Streamable", map[string]interface{}{
-			"type": config.Type,
-		})
+		logger.Warn(ctx, "Server protocol type is not set, defaulting to Streamable", map[string]interface{}{})
 		transport = &mcp.StreamableClientTransport{
 			Endpoint: config.BaseURL,
 		}
