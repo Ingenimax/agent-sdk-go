@@ -473,7 +473,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 		}
 
 		// Determine if we should filter intermediate content (for backward compatibility)
-		filterIntermediateContent := !(params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages)
+		filterIntermediateContent := params.StreamConfig == nil || !params.StreamConfig.IncludeIntermediateMessages
 
 		// Track captured content for final iteration replay if filtering is enabled
 		var capturedContentEvents []interfaces.StreamEvent

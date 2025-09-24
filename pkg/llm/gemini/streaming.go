@@ -444,7 +444,7 @@ func (c *GeminiClient) GenerateWithToolsStream(ctx context.Context, prompt strin
 // generateWithToolsAndStream executes tool calling with real-time streaming events
 func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt string, tools []interfaces.Tool, params *interfaces.GenerateOptions, maxIterations int, eventCh chan interfaces.StreamEvent) (string, error) {
 	// Determine if we should filter intermediate content (for backward compatibility)
-	filterIntermediateContent := !(params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages)
+	filterIntermediateContent := params.StreamConfig == nil || !params.StreamConfig.IncludeIntermediateMessages
 
 	// Track captured content for final iteration replay if filtering is enabled
 	var capturedContentEvents []interfaces.StreamEvent
