@@ -93,13 +93,24 @@ type StreamConfig struct {
 
 	// IncludeToolProgress whether to include tool execution progress
 	IncludeToolProgress bool
+
+	// IncludeIntermediateMessages whether to include intermediate messages between tool iterations
+	IncludeIntermediateMessages bool
 }
 
 // DefaultStreamConfig returns default streaming configuration
 func DefaultStreamConfig() StreamConfig {
 	return StreamConfig{
-		BufferSize:          100,
-		IncludeThinking:     true,
-		IncludeToolProgress: true,
+		BufferSize:                  100,
+		IncludeThinking:             true,
+		IncludeToolProgress:         true,
+		IncludeIntermediateMessages: false,
+	}
+}
+
+// WithIncludeIntermediateMessages returns a StreamConfig option to include intermediate messages
+func WithIncludeIntermediateMessages(include bool) func(*StreamConfig) {
+	return func(cfg *StreamConfig) {
+		cfg.IncludeIntermediateMessages = include
 	}
 }

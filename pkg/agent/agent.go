@@ -66,6 +66,7 @@ type Agent struct {
 	mcpServers           []interfaces.MCPServer // MCP servers for the agent
 	lazyMCPConfigs       []LazyMCPConfig        // Lazy MCP server configurations
 	maxIterations        int                    // Maximum number of tool-calling iterations (default: 2)
+	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
 
 	// Remote agent fields
 	isRemote        bool                     // Whether this is a remote agent
@@ -204,6 +205,13 @@ func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 func WithMaxIterations(maxIterations int) Option {
 	return func(a *Agent) {
 		a.maxIterations = maxIterations
+	}
+}
+
+// WithStreamConfig sets the streaming configuration for the agent
+func WithStreamConfig(config *interfaces.StreamConfig) Option {
+	return func(a *Agent) {
+		a.streamConfig = config
 	}
 }
 

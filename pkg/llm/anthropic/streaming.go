@@ -591,7 +591,11 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			"hasTools":      len(anthropicTools) > 0,
 		})
 		// First pass: Filter content deltas for internal iterations - only stream thinking and tool events
+		// Check if we should include intermediate messages (default is false for backward compatibility)
 		filterContentDeltas := true
+		if params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages {
+			filterContentDeltas = false
+		}
 		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas)
 		if err != nil {
 			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] LLM call failed", map[string]interface{}{

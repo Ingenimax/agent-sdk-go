@@ -443,6 +443,14 @@ func (c *GeminiClient) GenerateWithToolsStream(ctx context.Context, prompt strin
 
 // generateWithToolsAndStream executes tool calling with real-time streaming events
 func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt string, tools []interfaces.Tool, params *interfaces.GenerateOptions, maxIterations int, eventCh chan interfaces.StreamEvent) (string, error) {
+	// Determine if we should filter intermediate content (for backward compatibility)
+	filterIntermediateContent := true // Default to filter for backward compatibility
+	if params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages {
+		filterIntermediateContent = false
+	}
+
+	// Track captured content for final iteration replay if filtering is enabled
+	var capturedContentEvents []interfaces.StreamEvent
 	// Build tool map for quick lookup
 	toolMap := make(map[string]interfaces.Tool)
 	for _, tool := range tools {
@@ -643,9 +651,16 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		})
 
 		// Execute streaming request and collect tool calls
-		toolCalls, _, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh)
+		shouldFilter := filterIntermediateContent && len(tools) > 0 && iteration < maxIterations-1
+		var iterationContentEvents []interfaces.StreamEvent
+		toolCalls, hasContent, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh, shouldFilter, &iterationContentEvents)
 		if err != nil {
 			return "", err
+		}
+
+		// If we had content during this iteration and tools were called, capture it for final replay
+		if shouldFilter && hasContent && len(toolCalls) > 0 {
+			capturedContentEvents = append(capturedContentEvents, iterationContentEvents...)
 		}
 
 		// If no tool calls, we're done with the iteration loop
@@ -825,6 +840,20 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		// Continue to next iteration with updated conversation
 	}
 
+	// Replay captured content events if we filtered them during iterations
+	if filterIntermediateContent && len(capturedContentEvents) > 0 {
+		c.logger.Debug(ctx, "Replaying captured content events from tool iterations", map[string]interface{}{
+			"eventsCount": len(capturedContentEvents),
+		})
+		for _, contentEvent := range capturedContentEvents {
+			select {
+			case eventCh <- contentEvent:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+	}
+
 	// After all tool iterations, make a final call without tools to get the synthesized answer
 	// This ensures the LLM provides a final response after processing all tool results
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
@@ -875,8 +904,8 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 	}
 
-	// Execute final request to get synthesized answer using streaming
-	_, _, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh)
+	// Execute final request to get synthesized answer using streaming (no filtering for final call)
+	_, _, err := c.executeStreamingRequestWithToolCapture(ctx, contents, config, eventCh, false, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create final content: %w", err)
 	}
@@ -921,13 +950,16 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 	contents []*genai.Content,
 	config *genai.GenerateContentConfig,
 	eventCh chan<- interfaces.StreamEvent,
+	filterContent bool,
+	capturedEvents *[]interfaces.StreamEvent,
 ) ([]interfaces.ToolCall, bool, error) {
 
 	var toolCalls []interfaces.ToolCall
 	var hasContent bool
 
 	c.logger.Debug(ctx, "Executing Gemini streaming request with tool capture", map[string]interface{}{
-		"model": c.model,
+		"model":         c.model,
+		"filterContent": filterContent,
 	})
 
 	// Generate content with tools
@@ -968,16 +1000,24 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 				return nil, false, ctx.Err()
 			}
 		} else if part.Text != "" {
-			// This is content - stream it immediately
+			// This is content
 			hasContent = true
-			select {
-			case eventCh <- interfaces.StreamEvent{
+			contentEvent := interfaces.StreamEvent{
 				Type:      interfaces.StreamEventContentDelta,
 				Content:   part.Text,
 				Timestamp: time.Now(),
-			}:
-			case <-ctx.Done():
-				return nil, false, ctx.Err()
+			}
+
+			if filterContent && capturedEvents != nil {
+				// Capture content for potential replay later
+				*capturedEvents = append(*capturedEvents, contentEvent)
+			} else {
+				// Stream content immediately
+				select {
+				case eventCh <- contentEvent:
+				case <-ctx.Done():
+					return nil, false, ctx.Err()
+				}
 			}
 		}
 	}

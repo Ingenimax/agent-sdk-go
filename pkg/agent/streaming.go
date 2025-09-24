@@ -236,6 +236,11 @@ func (a *Agent) runStreamingGeneration(
 		options = append(options, interfaces.WithMemory(a.memory))
 	}
 
+	// Add stream config if available
+	if a.streamConfig != nil {
+		options = append(options, interfaces.WithStreamConfig(*a.streamConfig))
+	}
+
 	// Start LLM streaming
 	var llmEventChan <-chan interfaces.StreamEvent
 	var err error

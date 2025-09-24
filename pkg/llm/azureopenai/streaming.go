@@ -439,8 +439,19 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 			},
 		}
 
+		// Determine if we should filter intermediate content (for backward compatibility)
+		filterIntermediateContent := true // Default to filter for backward compatibility
+		if params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages {
+			filterIntermediateContent = false
+		}
+
+		// Track captured content for final iteration replay if filtering is enabled
+		var capturedContentEvents []interfaces.StreamEvent
+
 		// Iterative tool calling loop
 		for iteration := 0; iteration < maxIterations; iteration++ {
+			iterationHasContent := false
+			var iterationContentEvents []interfaces.StreamEvent
 			// Create stream request - use deployment name as model for Azure OpenAI
 			streamParams := openai.ChatCompletionNewParams{
 				Model:      openai.ChatModel(c.deployment),
@@ -541,8 +552,10 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 					// Handle content
 					if choice.Delta.Content != "" {
 						hasContent = true
+						iterationHasContent = true
 						assistantResponse.Content += choice.Delta.Content
-						eventChan <- interfaces.StreamEvent{
+
+						contentEvent := interfaces.StreamEvent{
 							Type:      interfaces.StreamEventContentDelta,
 							Content:   choice.Delta.Content,
 							Timestamp: time.Now(),
@@ -550,6 +563,14 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 								"choice_index": choice.Index,
 								"iteration":    iteration + 1,
 							},
+						}
+
+						if filterIntermediateContent && len(openaiTools) > 0 && iteration < maxIterations-1 {
+							// Capture content for potential replay later
+							iterationContentEvents = append(iterationContentEvents, contentEvent)
+						} else {
+							// Stream content immediately
+							eventChan <- contentEvent
 						}
 					}
 
@@ -789,6 +810,21 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 					"message_type": "tool",
 				})
 				messages = append(messages, toolMessage)
+			}
+
+			// If we had content during this iteration and tools were called, capture it for final replay
+			if filterIntermediateContent && iterationHasContent && len(assistantResponse.ToolCalls) > 0 {
+				capturedContentEvents = append(capturedContentEvents, iterationContentEvents...)
+			}
+		}
+
+		// Replay captured content events if we filtered them during iterations
+		if filterIntermediateContent && len(capturedContentEvents) > 0 {
+			c.logger.Debug(ctx, "Replaying captured content events from tool iterations", map[string]interface{}{
+				"eventsCount": len(capturedContentEvents),
+			})
+			for _, contentEvent := range capturedContentEvents {
+				eventChan <- contentEvent
 			}
 		}
 
