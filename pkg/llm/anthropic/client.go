@@ -232,6 +232,10 @@ type ContentBlock struct {
 	Type    string   `json:"type"`
 	Text    string   `json:"text,omitempty"`
 	ToolUse *ToolUse `json:"tool_use,omitempty"`
+	// Vertex AI direct fields for tool_use blocks
+	ID    string                 `json:"id,omitempty"`
+	Name  string                 `json:"name,omitempty"`
+	Input map[string]interface{} `json:"input,omitempty"`
 }
 
 // CompletionResponse represents a response from Anthropic API
@@ -301,6 +305,47 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		},
 	}
 
+	// Handle structured output if requested
+	if params.ResponseFormat != nil {
+		// Convert the schema to a string representation for the prompt
+		schemaJSON, err := json.MarshalIndent(params.ResponseFormat.Schema, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal response format schema: %w", err)
+		}
+
+		// Create an example JSON structure based on the schema
+		exampleJSON := createExampleFromSchema(params.ResponseFormat.Schema)
+		exampleStr, _ := json.MarshalIndent(exampleJSON, "", "  ")
+
+		// Enhance the user prompt with schema information and example
+		// Using best practices from Claude documentation for consistency
+		messages[0].Content = fmt.Sprintf(`%s
+
+You must respond with a valid JSON object that exactly follows this schema:
+%s
+
+Here is an example of the expected JSON structure:
+%s
+
+Important instructions:
+- Output ONLY valid JSON, no additional text before or after
+- Follow the exact structure shown in the schema
+- Use the field names exactly as specified
+- Ensure all required fields are present
+- The JSON must be directly parsable`, prompt, string(schemaJSON), string(exampleStr))
+
+		// Add assistant message prefill to enforce JSON output
+		// This helps Claude start the response correctly as JSON
+		messages = append(messages, Message{
+			Role:    "assistant",
+			Content: "{",
+		})
+
+		c.logger.Debug(ctx, "Using structured output format with prefill", map[string]interface{}{
+			"schema_name": params.ResponseFormat.Name,
+		})
+	}
+
 	// Create request
 	req := CompletionRequest{
 		Model:       c.Model,
@@ -312,8 +357,17 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 
 	// Add system message if available
 	if params.SystemMessage != "" {
-		req.System = params.SystemMessage
-		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
+		// If structured output is requested, enhance the system message
+		if params.ResponseFormat != nil {
+			req.System = params.SystemMessage + "\n\nYou must respond with valid JSON that matches the specified schema."
+		} else {
+			req.System = params.SystemMessage
+		}
+		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": req.System})
+	} else if params.ResponseFormat != nil {
+		// If no system message but structured output is requested, add a system message for JSON
+		req.System = "You must respond with valid JSON that matches the specified schema."
+		c.logger.Debug(ctx, "Added system message for structured output", nil)
 	}
 
 	// Add reasoning parameter if available
@@ -455,11 +509,19 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		return "", fmt.Errorf("no text content in response")
 	}
 
+	response := strings.Join(contentText, "\n")
+
+	// For structured output, prepend the opening brace that was used as prefill
+	if params.ResponseFormat != nil {
+		response = "{" + response
+	}
+
 	c.logger.Debug(ctx, "Successfully received response from Anthropic", map[string]interface{}{
-		"model": c.Model,
+		"model":             c.Model,
+		"structured_output": params.ResponseFormat != nil,
 	})
 
-	return strings.Join(contentText, "\n"), nil
+	return response, nil
 }
 
 // Chat uses the messages API to have a conversation with a model
@@ -502,10 +564,10 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 		}
 	}
 
-	// Filter out any nil messages (from system messages being skipped)
+	// Filter out any nil messages (from system messages being skipped) and messages with empty content
 	var filteredMessages []Message
 	for _, msg := range anthropicMessages {
-		if msg.Role != "" {
+		if msg.Role != "" && strings.TrimSpace(msg.Content) != "" {
 			filteredMessages = append(filteredMessages, msg)
 		}
 	}
@@ -615,9 +677,36 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 			return fmt.Errorf("error from Anthropic API: %s", string(respBody))
 		}
 
+		// Log raw response before unmarshaling for debugging
+		c.logger.Debug(ctx, "Raw streaming response before unmarshaling", map[string]interface{}{
+			"response_length": len(respBody),
+			"response_prefix": func() string {
+				if len(respBody) > 100 {
+					return string(respBody[:100])
+				}
+				return string(respBody)
+			}(),
+			"first_char": func() string {
+				if len(respBody) > 0 {
+					return fmt.Sprintf("'%c' (0x%02x)", respBody[0], respBody[0])
+				}
+				return "empty"
+			}(),
+		})
+
 		// Unmarshal response
 		err = json.Unmarshal(respBody, &resp)
 		if err != nil {
+			c.logger.Error(ctx, "Failed to unmarshal streaming response", map[string]interface{}{
+				"error":           err.Error(),
+				"response_length": len(respBody),
+				"response_sample": func() string {
+					if len(respBody) > 200 {
+						return string(respBody[:200])
+					}
+					return string(respBody)
+				}(),
+			})
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
 
@@ -767,8 +856,17 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 		// Add system message if available
 		if params.SystemMessage != "" {
-			req.System = params.SystemMessage
+			// If structured output is requested, enhance the system message to ensure raw JSON
+			if params.ResponseFormat != nil {
+				req.System = params.SystemMessage + "\n\nIMPORTANT: You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text."
+			} else {
+				req.System = params.SystemMessage
+			}
 			c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
+		} else if params.ResponseFormat != nil {
+			// If no system message but structured output is requested, add a system message for JSON
+			req.System = "You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text."
+			c.logger.Debug(ctx, "Added system message for structured output", nil)
 		}
 
 		// Add reasoning parameter if available
@@ -829,10 +927,39 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			return "", fmt.Errorf("error from Anthropic API (iteration %d): %s", iteration+1, string(respBody))
 		}
 
+		// Log raw response before unmarshaling for debugging
+		c.logger.Debug(ctx, "Raw response before unmarshaling", map[string]interface{}{
+			"response_length": len(respBody),
+			"response_prefix": func() string {
+				if len(respBody) > 100 {
+					return string(respBody[:100])
+				}
+				return string(respBody)
+			}(),
+			"first_char": func() string {
+				if len(respBody) > 0 {
+					return fmt.Sprintf("'%c' (0x%02x)", respBody[0], respBody[0])
+				}
+				return "empty"
+			}(),
+			"iteration": iteration + 1,
+		})
+
 		// Unmarshal response
 		var resp CompletionResponse
 		err = json.Unmarshal(respBody, &resp)
 		if err != nil {
+			c.logger.Error(ctx, "Failed to unmarshal response", map[string]interface{}{
+				"error":           err.Error(),
+				"response_length": len(respBody),
+				"response_sample": func() string {
+					if len(respBody) > 200 {
+						return string(respBody[:200])
+					}
+					return string(respBody)
+				}(),
+				"iteration": iteration + 1,
+			})
 			return "", fmt.Errorf("failed to unmarshal response (iteration %d): %w", iteration+1, err)
 		}
 
@@ -879,9 +1006,20 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		})
 
 		for _, contentBlock := range resp.Content {
-			if contentBlock.Type == "tool_use" && contentBlock.ToolUse != nil {
+			if contentBlock.Type == "tool_use" {
 				hasToolUse = true
-				toolCalls = append(toolCalls, *contentBlock.ToolUse)
+				// Handle both nested ToolUse (direct API) and direct fields (Vertex AI)
+				if contentBlock.ToolUse != nil {
+					toolCalls = append(toolCalls, *contentBlock.ToolUse)
+				} else if contentBlock.ID != "" && contentBlock.Name != "" {
+					// Create ToolUse from direct fields (Vertex AI format)
+					toolUse := ToolUse{
+						ID:    contentBlock.ID,
+						Name:  contentBlock.Name,
+						Input: contentBlock.Input,
+					}
+					toolCalls = append(toolCalls, toolUse)
+				}
 			} else if contentBlock.Type == "text" {
 				textContent = append(textContent, contentBlock.Text)
 			}
@@ -898,7 +1036,32 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			if len(textContent) == 0 {
 				return "", fmt.Errorf("no text content in response (iteration %d)", iteration+1)
 			}
-			return strings.Join(textContent, "\n"), nil
+
+			// Join the text content
+			response := strings.Join(textContent, "\n")
+
+			// If we have a ResponseFormat and the model returned markdown code blocks, strip them
+			if params.ResponseFormat != nil {
+				// Check if the response is wrapped in markdown code blocks
+				if strings.HasPrefix(response, "```json") && strings.HasSuffix(response, "```") {
+					// Remove the markdown code block wrapper
+					response = strings.TrimPrefix(response, "```json")
+					response = strings.TrimSuffix(response, "```")
+					response = strings.TrimSpace(response)
+					c.logger.Debug(ctx, "Stripped markdown code blocks from JSON response", nil)
+				} else if strings.HasPrefix(response, "```") && strings.HasSuffix(response, "```") {
+					// Handle generic code blocks
+					lines := strings.Split(response, "\n")
+					if len(lines) > 2 {
+						// Remove first and last lines (``` markers)
+						response = strings.Join(lines[1:len(lines)-1], "\n")
+						response = strings.TrimSpace(response)
+						c.logger.Debug(ctx, "Stripped generic markdown code blocks from response", nil)
+					}
+				}
+			}
+
+			return response, nil
 		}
 
 		// The model wants to use tools
@@ -907,11 +1070,15 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			"iteration": iteration + 1,
 		})
 
-		// Add the assistant response to messages
-		messages = append(messages, Message{
-			Role: "assistant",
-			// We don't need the content here as we'll be adding tool results
-		})
+		// Add the assistant response to messages only if there's text content
+		// (Tool-only responses will have empty text content)
+		assistantContent := strings.Join(textContent, "\n")
+		if strings.TrimSpace(assistantContent) != "" {
+			messages = append(messages, Message{
+				Role:    "assistant",
+				Content: assistantContent,
+			})
+		}
 
 		// Process each tool call
 		var toolResults []ToolResult
@@ -1182,10 +1349,37 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		return "", fmt.Errorf("error from Anthropic API in final call: %s", string(finalRespBody))
 	}
 
+	// Log raw final response before unmarshaling for debugging
+	c.logger.Debug(ctx, "Raw final response before unmarshaling", map[string]interface{}{
+		"response_length": len(finalRespBody),
+		"response_prefix": func() string {
+			if len(finalRespBody) > 100 {
+				return string(finalRespBody[:100])
+			}
+			return string(finalRespBody)
+		}(),
+		"first_char": func() string {
+			if len(finalRespBody) > 0 {
+				return fmt.Sprintf("'%c' (0x%02x)", finalRespBody[0], finalRespBody[0])
+			}
+			return "empty"
+		}(),
+	})
+
 	// Unmarshal final response
 	var finalResp CompletionResponse
 	err = json.Unmarshal(finalRespBody, &finalResp)
 	if err != nil {
+		c.logger.Error(ctx, "Failed to unmarshal final response", map[string]interface{}{
+			"error":           err.Error(),
+			"response_length": len(finalRespBody),
+			"response_sample": func() string {
+				if len(finalRespBody) > 200 {
+					return string(finalRespBody[:200])
+				}
+				return string(finalRespBody)
+			}(),
+		})
 		return "", fmt.Errorf("failed to unmarshal final response: %w", err)
 	}
 
@@ -1336,5 +1530,69 @@ func WithSystemMessage(systemMessage string) interfaces.GenerateOption {
 func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
 		options.ResponseFormat = &format
+	}
+}
+
+// createExampleFromSchema creates an example JSON structure based on the schema
+func createExampleFromSchema(schema map[string]interface{}) map[string]interface{} {
+	example := make(map[string]interface{})
+
+	// Check if schema has properties
+	if properties, ok := schema["properties"].(map[string]interface{}); ok {
+		for key, value := range properties {
+			if prop, ok := value.(map[string]interface{}); ok {
+				example[key] = getExampleValue(prop)
+			}
+		}
+	}
+
+	return example
+}
+
+// getExampleValue returns an example value based on the property type
+func getExampleValue(prop map[string]interface{}) interface{} {
+	propType, _ := prop["type"].(string)
+	description, _ := prop["description"].(string)
+
+	switch propType {
+	case "string":
+		if description != "" {
+			return "example_" + strings.ToLower(strings.ReplaceAll(description, " ", "_"))[:20]
+		}
+		return "example_string"
+	case "number":
+		return 42.5
+	case "integer":
+		return 42
+	case "boolean":
+		return true
+	case "array":
+		itemType := "string"
+		if items, ok := prop["items"].(map[string]interface{}); ok {
+			if t, ok := items["type"].(string); ok {
+				itemType = t
+			}
+		}
+		switch itemType {
+		case "string":
+			return []string{"example_item_1", "example_item_2"}
+		case "number", "integer":
+			return []int{1, 2, 3}
+		default:
+			return []interface{}{"item1", "item2"}
+		}
+	case "object":
+		if properties, ok := prop["properties"].(map[string]interface{}); ok {
+			obj := make(map[string]interface{})
+			for k, v := range properties {
+				if subProp, ok := v.(map[string]interface{}); ok {
+					obj[k] = getExampleValue(subProp)
+				}
+			}
+			return obj
+		}
+		return map[string]interface{}{"key": "value"}
+	default:
+		return "example_value"
 	}
 }
