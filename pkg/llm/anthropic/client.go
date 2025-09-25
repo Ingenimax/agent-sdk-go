@@ -1006,7 +1006,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		})
 
 		for _, contentBlock := range resp.Content {
-			if contentBlock.Type == "tool_use" {
+			switch contentBlock.Type {
+			case "tool_use":
 				hasToolUse = true
 				// Handle both nested ToolUse (direct API) and direct fields (Vertex AI)
 				if contentBlock.ToolUse != nil {
@@ -1020,7 +1021,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 					}
 					toolCalls = append(toolCalls, toolUse)
 				}
-			} else if contentBlock.Type == "text" {
+			case "text":
 				textContent = append(textContent, contentBlock.Text)
 			}
 		}
