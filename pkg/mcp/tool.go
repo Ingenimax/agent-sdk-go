@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // MCPTool implements interfaces.Tool for MCP tools
@@ -77,10 +79,13 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 	// This is a simplified implementation; in a real implementation,
 	// we would parse the JSON schema to extract parameter information
 	params := make(map[string]interfaces.ParameterSpec)
-
-	// Try to convert the schema to a map
-	if schemaMap, ok := t.schema.(map[string]interface{}); ok {
-		if properties, ok := schemaMap["properties"].(map[string]interface{}); ok {
+	switch toolSchema := t.schema.(type) {
+	// For backward compatibility
+	//TODO remove in future releases
+	case map[string]interface{}:
+		// If the schema is a string, try to parse it as JSON
+		// Try to convert the schema to a map
+		if properties, ok := toolSchema["properties"].(map[string]interface{}); ok {
 			for name, prop := range properties {
 				if propMap, ok := prop.(map[string]interface{}); ok {
 					paramSpec := interfaces.ParameterSpec{
@@ -89,7 +94,7 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 					}
 
 					// Check if the parameter is required
-					if required, ok := schemaMap["required"].([]interface{}); ok {
+					if required, ok := toolSchema["required"].([]interface{}); ok {
 						for _, req := range required {
 							if req == name {
 								paramSpec.Required = true
@@ -102,8 +107,19 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 				}
 			}
 		}
-	}
+	case *jsonschema.Schema:
+		for name, prop := range toolSchema.Properties {
+			paramSpec := interfaces.ParameterSpec{
+				Type:        prop.Type,
+				Description: prop.Description,
+			}
 
+			if slices.Contains(toolSchema.Required, name) {
+				paramSpec.Required = true
+			}
+			params[name] = paramSpec
+		}
+	}
 	return params
 }
 
