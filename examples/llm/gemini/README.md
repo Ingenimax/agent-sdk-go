@@ -15,11 +15,23 @@ Before running these examples, you need one of the following:
 
 ### Option 2: Vertex AI (For Google Cloud Platform users)
 1. **GCP Project ID**: Your Google Cloud Platform project ID
-2. **Environment Variable**: Set your project ID as an environment variable:
+2. **Environment Variables**: Set your project configuration:
    ```bash
    export GEMINI_VERTEX_PROJECT_ID="your-gcp-project-id"
+   export GEMINI_VERTEX_REGION="us-central1"  # Optional, defaults to us-central1
    ```
-3. **Authentication**: Ensure you have authenticated with GCP CLI (`gcloud auth application-default login`)
+3. **Authentication Options** (choose one):
+   - **Application Default Credentials**: Run `gcloud auth application-default login`
+   - **Service Account JSON File**:
+     ```bash
+     export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+     ```
+   - **Service Account JSON (Base64)**:
+     ```bash
+     export GOOGLE_APPLICATION_CREDENTIALS_JSON="<base64-encoded-service-account-json>"
+     ```
+   
+   **Note**: If both file and JSON credentials are provided, JSON takes precedence and a warning will be logged.
 
 ## Available Examples
 
@@ -144,12 +156,42 @@ response, err := client.Generate(ctx, prompt, gemini.WithReasoning("none"))
 
 The Gemini client supports various configuration options:
 
+### Gemini API Configuration
 ```go
-client, err := gemini.NewClient(apiKey,
-    gemini.WithModel(gemini.ModelGemini25Pro),
+client, err := gemini.NewClient(ctx,
+    gemini.WithAPIKey("your-api-key"),
+    gemini.WithBackend(genai.BackendGeminiAPI),
+    gemini.WithModel(gemini.ModelGemini25Flash),
     gemini.WithLogger(logger),
     gemini.WithRetry(retry.WithMaxRetries(3)),
-    gemini.WithBaseURL("https://custom-api.example.com"),
+)
+```
+
+### Vertex AI Configuration
+```go
+client, err := gemini.NewClient(ctx,
+    gemini.WithBackend(genai.BackendVertexAI),
+    gemini.WithProjectID("your-gcp-project"),
+    gemini.WithLocation("us-central1"),
+    gemini.WithCredentialsJSON(credentialsBytes), // Takes precedence over file
+    gemini.WithCredentialsFile("/path/to/service-account.json"),
+    gemini.WithModel(gemini.ModelGemini25Flash),
+)
+```
+
+### Credential Precedence (Vertex AI only)
+When using Vertex AI, you can provide credentials in multiple ways. If both are provided:
+- **JSON credentials take precedence** over file credentials
+- A warning will be logged when both are provided
+- The file path will be ignored in favor of JSON
+
+```go
+// This configuration will use JSON credentials and log a warning
+client, err := gemini.NewClient(ctx,
+    gemini.WithBackend(genai.BackendVertexAI),
+    gemini.WithProjectID("project-id"),
+    gemini.WithCredentialsFile("/ignored/file.json"),     // Ignored
+    gemini.WithCredentialsJSON(jsonCredentials),          // Used
 )
 ```
 

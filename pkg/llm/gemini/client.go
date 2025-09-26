@@ -52,6 +52,7 @@ type GeminiClient struct {
 	projectID       string
 	location        string
 	credentialsFile string
+	credentialsJSON []byte
 	logger          logging.Logger
 	retryExecutor   *retry.Executor
 	thinkingConfig  *ThinkingConfig
@@ -124,9 +125,21 @@ func WithLocation(location string) Option {
 	}
 }
 
+// WithCredentialsFile sets the path to a service account key file for Vertex AI authentication.
+// If both WithCredentialsFile and WithCredentialsJSON are provided, JSON credentials take precedence.
+// The file should contain a valid Google Cloud service account key in JSON format.
 func WithCredentialsFile(credentialsFile string) Option {
 	return func(c *GeminiClient) {
 		c.credentialsFile = credentialsFile
+	}
+}
+
+// WithCredentialsJSON sets the service account key JSON bytes for Vertex AI authentication.
+// If both WithCredentialsFile and WithCredentialsJSON are provided, JSON credentials take precedence.
+// The bytes should contain a valid Google Cloud service account key in JSON format.
+func WithCredentialsJSON(credentialsJSON []byte) Option {
+	return func(c *GeminiClient) {
+		c.credentialsJSON = credentialsJSON
 	}
 }
 
@@ -145,6 +158,15 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 	// Apply options
 	for _, option := range options {
 		option(client)
+	}
+
+	// If both credential options are provided, prefer JSON over file
+	if client.credentialsFile != "" && len(client.credentialsJSON) > 0 {
+		client.logger.Warn(context.Background(), "Both credentials file and JSON provided - preferring JSON credentials", map[string]interface{}{
+			"credentials_file_ignored": client.credentialsFile,
+		})
+		// Clear the file path to ensure JSON takes precedence
+		client.credentialsFile = ""
 	}
 
 	// If an existing client was injected, use it
@@ -166,9 +188,12 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 			}
 			config.APIKey = client.apiKey
 		case genai.BackendVertexAI:
-			if client.projectID == "" && client.credentialsFile == "" && client.apiKey == "" {
-				return nil, fmt.Errorf("project ID, credentials file or API key are required for Vertex AI backend")
+			// Validate that at least one authentication method is provided
+			if client.projectID == "" && client.credentialsFile == "" && len(client.credentialsJSON) == 0 && client.apiKey == "" {
+				return nil, fmt.Errorf("project ID, credentials file, credentials JSON, or API key are required for Vertex AI backend")
 			}
+
+			// Handle service account credentials (file or JSON)
 			if client.credentialsFile != "" {
 				creds, err := credentials.DetectDefault(&credentials.DetectOptions{
 					CredentialsFile: client.credentialsFile,
@@ -177,11 +202,23 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 					return nil, fmt.Errorf("failed to load credentials from file: %w", err)
 				}
 				config.Credentials = creds
+			} else if len(client.credentialsJSON) > 0 {
+				creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+					CredentialsJSON: client.credentialsJSON,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("failed to load credentials from JSON: %w", err)
+				}
+				config.Credentials = creds
 			}
+
+			// Set project and location if provided
 			if client.projectID != "" {
 				config.Project = client.projectID
 				config.Location = client.location
 			}
+
+			// Set API key if provided (alternative authentication method)
 			if client.apiKey != "" {
 				config.APIKey = client.apiKey
 			}

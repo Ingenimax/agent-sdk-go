@@ -93,7 +93,7 @@ func TestNewClient(t *testing.T) {
 		{
 			name:      "Vertex AI backend with project ID and API key",
 			options:   []Option{WithBackend(genai.BackendVertexAI), WithProjectID("test-project"), WithAPIKey("test-api-key")},
-			wantError: true, // mutually exclusive options
+			wantError: true, // mutually exclusive in genai library
 			checkFunc: nil,
 		},
 		{
@@ -101,6 +101,17 @@ func TestNewClient(t *testing.T) {
 			options:   []Option{WithBackend(genai.BackendVertexAI)},
 			wantError: true,
 			checkFunc: nil,
+		},
+		{
+			name:      "Credentials precedence test - JSON takes precedence over file",
+			options:   []Option{WithAPIKey("test-api-key"), WithCredentialsFile("/path/to/file.json"), WithCredentialsJSON([]byte(`{"test": "json"}`))},
+			wantError: false,
+			checkFunc: func(t *testing.T, client *GeminiClient) {
+				// Verify that credentials file was cleared in favor of JSON
+				assert.Empty(t, client.credentialsFile, "Credentials file should be cleared when JSON is also provided")
+				assert.Equal(t, []byte(`{"test": "json"}`), client.credentialsJSON, "JSON credentials should be preserved")
+				assert.Equal(t, "test-api-key", client.apiKey, "API key should be preserved")
+			},
 		},
 	}
 
