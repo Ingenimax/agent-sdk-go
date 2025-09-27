@@ -2,11 +2,21 @@ package logging
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 
 	"github.com/rs/zerolog"
 )
+
+// Global logger configuration
+var (
+	zeroLogJsonEnable bool = false
+)
+
+func SetZeroLogJsonEnabled() {
+	zeroLogJsonEnable = true
+}
 
 // Logger is an interface for logging
 type Logger interface {
@@ -23,7 +33,15 @@ type ZeroLogger struct {
 
 // New creates a new ZeroLogger
 func New() *ZeroLogger {
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	var output io.Writer = os.Stdout
+
+	if !zeroLogJsonEnable {
+		output = zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			TimeFormat: time.RFC3339,
+		}
+	}
+
 	logger := zerolog.New(output).With().Timestamp().Logger()
 	return &ZeroLogger{logger: logger}
 }
