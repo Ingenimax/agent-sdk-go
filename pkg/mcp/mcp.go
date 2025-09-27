@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -197,6 +198,28 @@ const (
 	SSE            ServerProtocolType = "sse"
 )
 
+// Wrap an http.RoundTripper to add the Authorization header
+type customRoundTripper struct {
+	delegate http.RoundTripper
+	token    string
+}
+
+// RoundTrip implements the http.RoundTripper interface
+func (rt *customRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+rt.token)
+	return rt.delegate.RoundTrip(req)
+}
+
+// customHTTPClient creates an HTTP client that adds the Authorization header to each request
+func customHTTPClient(token string) *http.Client {
+	return &http.Client{
+		Transport: &customRoundTripper{
+			delegate: http.DefaultTransport,
+			token:    token,
+		},
+	}
+}
+
 // NewHTTPServer creates a new MCPServer that communicates over HTTP using the official SDK
 func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCPServer, error) {
 	// Create logger
@@ -208,25 +231,33 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 		Version: "0.0.0",
 	}, nil)
 
-	var transport mcp.Transport
+	httpClient := http.DefaultClient
+	if config.Token != "" {
+		// Create a custom HTTP client that adds the Authorization header
+		httpClient = customHTTPClient(config.Token)
+	}
 
+	var transport mcp.Transport
 	switch config.ProtocolType {
 	case SSE:
 		// Create SSE client transport for HTTP communication
 		// It is legacy but still supported by some MCP servers
 		transport = &mcp.SSEClientTransport{
-			Endpoint: config.BaseURL,
+			Endpoint:   config.BaseURL,
+			HTTPClient: httpClient,
 		}
 	case StreamableHTTP:
 		// Create StreamableHTTP client transport for HTTP communication
 		transport = &mcp.StreamableClientTransport{
-			Endpoint: config.BaseURL,
+			Endpoint:   config.BaseURL,
+			HTTPClient: httpClient,
 		}
 	default:
 		// Default to SSE if type is not recognized
 		logger.Warn(ctx, "Server protocol type is not set, defaulting to SSE", map[string]interface{}{})
 		transport = &mcp.SSEClientTransport{
-			Endpoint: config.BaseURL,
+			Endpoint:   config.BaseURL,
+			HTTPClient: httpClient,
 		}
 	}
 
