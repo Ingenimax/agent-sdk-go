@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -18,9 +21,13 @@ type VertexConfig struct {
 	Enabled     bool
 	ProjectID   string
 	Region      string
-	AccessToken string             // Optional: explicit token
-	TokenSource oauth2.TokenSource // For automatic token refresh
+	AccessToken string
+	TokenSource oauth2.TokenSource
 	Credentials *google.Credentials
+
+	regions            []string
+	currentRegionIndex int
+	mu                 sync.Mutex
 }
 
 // NewVertexConfig creates a new VertexConfig using Application Default Credentials
@@ -38,13 +45,15 @@ func NewVertexConfig(ctx context.Context, region, projectID string) (*VertexConf
 		return nil, fmt.Errorf("failed to find default credentials: %w", err)
 	}
 
-	return &VertexConfig{
+	config := &VertexConfig{
 		Enabled:     true,
 		ProjectID:   projectID,
 		Region:      region,
 		TokenSource: credentials.TokenSource,
 		Credentials: credentials,
-	}, nil
+	}
+	config.parseRegions()
+	return config, nil
 }
 
 // NewVertexConfigWithCredentials creates a new VertexConfig with explicit credentials file
@@ -78,13 +87,56 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 		return nil, fmt.Errorf("failed to load credentials from %s: %w", credentialsPath, err)
 	}
 
-	return &VertexConfig{
+	config := &VertexConfig{
 		Enabled:     true,
 		ProjectID:   projectID,
 		Region:      region,
 		TokenSource: credentials.TokenSource,
 		Credentials: credentials,
-	}, nil
+	}
+	config.parseRegions()
+	return config, nil
+}
+
+// parseRegions splits the Region field by comma and stores as a list
+func (vc *VertexConfig) parseRegions() {
+	if vc.Region == "" {
+		vc.regions = []string{}
+		return
+	}
+
+	parts := strings.Split(vc.Region, ",")
+	vc.regions = make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			vc.regions = append(vc.regions, trimmed)
+		}
+	}
+	vc.currentRegionIndex = 0
+}
+
+// GetCurrentRegion returns the current region for round-robin rotation
+func (vc *VertexConfig) GetCurrentRegion() string {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+
+	if len(vc.regions) == 0 {
+		return vc.Region
+	}
+	return vc.regions[vc.currentRegionIndex]
+}
+
+// RotateRegion moves to the next region in round-robin fashion
+func (vc *VertexConfig) RotateRegion() {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+
+	if len(vc.regions) <= 1 {
+		return
+	}
+
+	vc.currentRegionIndex = (vc.currentRegionIndex + 1) % len(vc.regions)
 }
 
 // GetBaseURL returns the Vertex AI base URL for the configured region
@@ -92,7 +144,7 @@ func (vc *VertexConfig) GetBaseURL() string {
 	if !vc.Enabled {
 		return ""
 	}
-	return fmt.Sprintf("https://%s-aiplatform.googleapis.com", vc.Region)
+	return fmt.Sprintf("https://%s-aiplatform.googleapis.com", vc.GetCurrentRegion())
 }
 
 // GetAuthHeaders returns the authentication headers for Vertex AI requests
@@ -162,7 +214,7 @@ func (vc *VertexConfig) TransformRequest(req *CompletionRequest, method, path st
 		"%s/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s",
 		vc.GetBaseURL(),
 		vc.ProjectID,
-		vc.Region,
+		vc.GetCurrentRegion(),
 		model,
 		endpoint,
 	)
@@ -313,4 +365,103 @@ func IsRegionSupported(region string) bool {
 		}
 	}
 	return false
+}
+
+// Policy represents the retry policy (imported from pkg/retry)
+type Policy struct {
+	InitialInterval    time.Duration
+	BackoffCoefficient float64
+	MaximumInterval    time.Duration
+	MaximumAttempts    int32
+}
+
+// VertexRetryExecutor wraps retry execution with region rotation for Vertex AI
+type VertexRetryExecutor struct {
+	vertexConfig *VertexConfig
+	policy       *Policy
+	logger       logging.Logger
+}
+
+// NewVertexRetryExecutor creates a new retry executor for Vertex AI with region rotation
+func NewVertexRetryExecutor(vertexConfig *VertexConfig, policy *Policy) *VertexRetryExecutor {
+	return &VertexRetryExecutor{
+		vertexConfig: vertexConfig,
+		policy:       policy,
+		logger:       logging.New(),
+	}
+}
+
+// Execute executes the operation with retries and region rotation
+func (e *VertexRetryExecutor) Execute(ctx context.Context, operation func() error) error {
+	var lastErr error
+	attempt := int32(0)
+	currentInterval := e.policy.InitialInterval
+
+	for attempt < e.policy.MaximumAttempts {
+		select {
+		case <-ctx.Done():
+			e.logger.Debug(ctx, "Context cancelled during retry", map[string]interface{}{
+				"attempt": attempt,
+				"error":   ctx.Err(),
+			})
+			return ctx.Err()
+		default:
+			currentRegion := e.vertexConfig.GetCurrentRegion()
+			e.logger.Debug(ctx, "Attempting operation", map[string]interface{}{
+				"attempt":      attempt + 1,
+				"max_attempts": e.policy.MaximumAttempts,
+				"region":       currentRegion,
+			})
+
+			if err := operation(); err == nil {
+				e.logger.Debug(ctx, "Operation succeeded", map[string]interface{}{
+					"attempt": attempt + 1,
+					"region":  currentRegion,
+				})
+				return nil
+			} else {
+				lastErr = err
+				attempt++
+
+				if attempt >= e.policy.MaximumAttempts {
+					e.logger.Debug(ctx, "Maximum attempts reached", map[string]interface{}{
+						"attempt": attempt,
+						"error":   err.Error(),
+						"region":  currentRegion,
+					})
+					break
+				}
+
+				e.vertexConfig.RotateRegion()
+				nextRegion := e.vertexConfig.GetCurrentRegion()
+
+				nextInterval := time.Duration(float64(currentInterval) * e.policy.BackoffCoefficient)
+				if nextInterval > e.policy.MaximumInterval {
+					nextInterval = e.policy.MaximumInterval
+				}
+
+				e.logger.Debug(ctx, "Operation failed, rotating region and scheduling retry", map[string]interface{}{
+					"attempt":          attempt,
+					"error":            err.Error(),
+					"current_region":   currentRegion,
+					"next_region":      nextRegion,
+					"current_interval": currentInterval,
+					"next_interval":    nextInterval,
+				})
+
+				select {
+				case <-ctx.Done():
+					e.logger.Debug(ctx, "Context cancelled during retry delay", map[string]interface{}{
+						"attempt": attempt,
+						"error":   ctx.Err(),
+					})
+					return ctx.Err()
+				case <-time.After(currentInterval):
+					currentInterval = nextInterval
+				}
+			}
+		}
+	}
+
+	return lastErr
 }

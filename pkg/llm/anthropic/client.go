@@ -19,13 +19,14 @@ import (
 
 // AnthropicClient implements the LLM interface for Anthropic
 type AnthropicClient struct {
-	APIKey        string
-	Model         string
-	BaseURL       string
-	HTTPClient    *http.Client
-	logger        logging.Logger
-	retryExecutor *retry.Executor
-	VertexConfig  *VertexConfig // Vertex AI configuration
+	APIKey              string
+	Model               string
+	BaseURL             string
+	HTTPClient          *http.Client
+	logger              logging.Logger
+	retryExecutor       *retry.Executor
+	vertexRetryExecutor *VertexRetryExecutor
+	VertexConfig        *VertexConfig
 }
 
 // Option represents an option for configuring the Anthropic client
@@ -48,7 +49,39 @@ func WithLogger(logger logging.Logger) Option {
 // WithRetry configures retry policy for the client
 func WithRetry(opts ...retry.Option) Option {
 	return func(c *AnthropicClient) {
-		c.retryExecutor = retry.NewExecutor(retry.NewPolicy(opts...))
+		ctx := context.Background()
+		policy := retry.NewPolicy(opts...)
+
+		c.logger.Debug(ctx, "Configuring retry", map[string]interface{}{
+			"vertex_config_enabled": c.VertexConfig != nil && c.VertexConfig.Enabled,
+			"vertex_config_region": func() string {
+				if c.VertexConfig != nil {
+					return c.VertexConfig.Region
+				}
+				return ""
+			}(),
+			"max_attempts": policy.MaximumAttempts,
+		})
+
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			vertexPolicy := &Policy{
+				InitialInterval:    policy.InitialInterval,
+				BackoffCoefficient: policy.BackoffCoefficient,
+				MaximumInterval:    policy.MaximumInterval,
+				MaximumAttempts:    policy.MaximumAttempts,
+			}
+			c.vertexRetryExecutor = NewVertexRetryExecutor(c.VertexConfig, vertexPolicy)
+			c.logger.Info(ctx, "Created vertex retry executor with multi-region support", map[string]interface{}{
+				"region":       c.VertexConfig.Region,
+				"max_attempts": policy.MaximumAttempts,
+			})
+		} else {
+			c.retryExecutor = retry.NewExecutor(policy)
+			c.logger.Info(ctx, "Created standard retry executor", map[string]interface{}{
+				"max_attempts":   policy.MaximumAttempts,
+				"vertex_enabled": false,
+			})
+		}
 	}
 }
 
@@ -70,6 +103,13 @@ func WithHTTPClient(httpClient *http.Client) Option {
 func WithVertexAI(region, projectID string) Option {
 	return func(c *AnthropicClient) {
 		ctx := context.Background()
+
+		c.logger.Debug(ctx, "Configuring Vertex AI", map[string]interface{}{
+			"region":                region,
+			"projectID":             projectID,
+			"retry_executor_exists": c.retryExecutor != nil,
+		})
+
 		vertexConfig, err := NewVertexConfig(ctx, region, projectID)
 		if err != nil {
 			c.logger.Error(ctx, "Failed to configure Vertex AI", map[string]interface{}{
@@ -81,10 +121,33 @@ func WithVertexAI(region, projectID string) Option {
 		}
 		c.VertexConfig = vertexConfig
 		c.BaseURL = vertexConfig.GetBaseURL()
+
+		// If retry executor already exists, create vertex retry executor now
+		if c.retryExecutor != nil {
+			c.logger.Debug(ctx, "Creating vertex retry executor (retry executor exists)", map[string]interface{}{
+				"region": region,
+			})
+			// Note: We need to extract the retry policy from the existing executor
+			// For now, we'll create a default policy - this should be improved
+			policy := &Policy{
+				InitialInterval:    time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumInterval:    time.Second * 30,
+				MaximumAttempts:    3,
+			}
+			c.vertexRetryExecutor = NewVertexRetryExecutor(c.VertexConfig, policy)
+			c.logger.Info(ctx, "Created vertex retry executor with multi-region support", map[string]interface{}{
+				"region": region,
+			})
+		} else {
+			c.logger.Debug(ctx, "Retry executor not yet configured, vertex retry executor will be created when retry is configured", nil)
+		}
+
 		c.logger.Info(ctx, "Configured client for Vertex AI", map[string]interface{}{
-			"region":    region,
-			"projectID": projectID,
-			"baseURL":   c.BaseURL,
+			"region":                        region,
+			"projectID":                     projectID,
+			"baseURL":                       c.BaseURL,
+			"vertex_retry_executor_created": c.vertexRetryExecutor != nil,
 		})
 	}
 }
@@ -128,6 +191,34 @@ func NewClient(apiKey string, options ...Option) *AnthropicClient {
 	// Apply options
 	for _, option := range options {
 		option(client)
+	}
+
+	// After all options are applied, log the client configuration for debugging
+	client.logger.Info(context.TODO(), "🔧 MULTI-REGION DEBUG VERSION - Anthropic client initialization complete", map[string]interface{}{
+		"vertex_config_enabled": client.VertexConfig != nil && client.VertexConfig.Enabled,
+		"vertex_config_region": func() string {
+			if client.VertexConfig != nil {
+				return client.VertexConfig.Region
+			} else {
+				return ""
+			}
+		}(),
+		"retry_executor_exists":        client.retryExecutor != nil,
+		"vertex_retry_executor_exists": client.vertexRetryExecutor != nil,
+		"debug_version":                "multi-region-retry-v1",
+	})
+
+	// After all options are applied, if we have both VertexConfig and retry policy but no vertex executor,
+	// create the vertex retry executor now
+	if client.VertexConfig != nil && client.VertexConfig.Enabled && client.retryExecutor != nil && client.vertexRetryExecutor == nil {
+		// Extract policy from the regular executor (this is a workaround)
+		// Since we can't access the policy directly, we'll need to recreate it
+		// For now, we'll just log this situation
+		client.logger.Error(context.TODO(), "Vertex AI configured with retry but vertex executor not created. This indicates option ordering issue - WithRetry should come after WithVertexAI.", map[string]interface{}{
+			"vertex_config_enabled":        true,
+			"retry_executor_exists":        true,
+			"vertex_retry_executor_exists": false,
+		})
 	}
 
 	// Log warning if model is not specified
@@ -327,12 +418,14 @@ You must respond with a valid JSON object that exactly follows this schema:
 Here is an example of the expected JSON structure:
 %s
 
-Important instructions:
+CRITICAL INSTRUCTIONS:
 - Output ONLY valid JSON, no additional text before or after
-- Follow the exact structure shown in the schema
+- Follow the EXACT structure shown in the schema and example
 - Use the field names exactly as specified
 - Ensure all required fields are present
-- The JSON must be directly parsable`, prompt, string(schemaJSON), string(exampleStr))
+- Pay special attention to array fields - they must be arrays of objects, not simple objects
+- If a field is defined as an array in the schema, it MUST be an array in your response
+- The JSON must be directly parsable and match the schema precisely`, prompt, string(schemaJSON), string(exampleStr))
 
 		// Add assistant message prefill to enforce JSON output
 		// This helps Claude start the response correctly as JSON
@@ -484,12 +577,22 @@ Important instructions:
 		return nil
 	}
 
-	if c.retryExecutor != nil {
-		c.logger.Debug(ctx, "Using retry mechanism for Anthropic request", map[string]interface{}{
-			"model": c.Model,
+	if c.vertexRetryExecutor != nil {
+		c.logger.Info(ctx, "Using Vertex retry mechanism with region rotation", map[string]interface{}{
+			"model":          c.Model,
+			"current_region": c.VertexConfig.GetCurrentRegion(),
+		})
+		err = c.vertexRetryExecutor.Execute(ctx, operation)
+	} else if c.retryExecutor != nil {
+		c.logger.Info(ctx, "Using standard retry mechanism for Anthropic request", map[string]interface{}{
+			"model":                   c.Model,
+			"vertex_config_available": c.VertexConfig != nil,
 		})
 		err = c.retryExecutor.Execute(ctx, operation)
 	} else {
+		c.logger.Debug(ctx, "No retry mechanism configured", map[string]interface{}{
+			"model": c.Model,
+		})
 		err = operation()
 	}
 
@@ -519,6 +622,11 @@ Important instructions:
 	c.logger.Debug(ctx, "Successfully received response from Anthropic", map[string]interface{}{
 		"model":             c.Model,
 		"structured_output": params.ResponseFormat != nil,
+		"response_length":   len(response),
+		"response_preview": func() string {
+
+			return response
+		}(),
 	})
 
 	return response, nil
@@ -713,12 +821,22 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 		return nil
 	}
 
-	if c.retryExecutor != nil {
-		c.logger.Debug(ctx, "Using retry mechanism for Anthropic Chat request", map[string]interface{}{
-			"model": c.Model,
+	if c.vertexRetryExecutor != nil {
+		c.logger.Info(ctx, "Using Vertex retry mechanism with region rotation for Chat", map[string]interface{}{
+			"model":          c.Model,
+			"current_region": c.VertexConfig.GetCurrentRegion(),
+		})
+		err = c.vertexRetryExecutor.Execute(ctx, operation)
+	} else if c.retryExecutor != nil {
+		c.logger.Info(ctx, "Using standard retry mechanism for Anthropic Chat request", map[string]interface{}{
+			"model":                   c.Model,
+			"vertex_config_available": c.VertexConfig != nil,
 		})
 		err = c.retryExecutor.Execute(ctx, operation)
 	} else {
+		c.logger.Debug(ctx, "No retry mechanism configured for Chat request", map[string]interface{}{
+			"model": c.Model,
+		})
 		err = operation()
 	}
 
@@ -738,11 +856,18 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 		return "", fmt.Errorf("no text content in response")
 	}
 
+	response := strings.Join(contentText, "\n")
+
 	c.logger.Debug(ctx, "Successfully received chat response from Anthropic", map[string]interface{}{
-		"model": c.Model,
+		"model":           c.Model,
+		"response_length": len(response),
+		"response_preview": func() string {
+
+			return response
+		}(),
 	})
 
-	return strings.Join(contentText, "\n"), nil
+	return response, nil
 }
 
 // GenerateWithTools implements interfaces.LLM.GenerateWithTools
@@ -858,14 +983,14 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		if params.SystemMessage != "" {
 			// If structured output is requested, enhance the system message to ensure raw JSON
 			if params.ResponseFormat != nil {
-				req.System = params.SystemMessage + "\n\nIMPORTANT: You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text."
+				req.System = params.SystemMessage + "\n\nIMPORTANT: You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
 			} else {
 				req.System = params.SystemMessage
 			}
 			c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 		} else if params.ResponseFormat != nil {
 			// If no system message but structured output is requested, add a system message for JSON
-			req.System = "You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text."
+			req.System = "You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
 			c.logger.Debug(ctx, "Added system message for structured output", nil)
 		}
 
@@ -886,88 +1011,105 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			"maxIterations": maxIterations,
 		})
 
-		// Create HTTP request (supports both Vertex AI and standard Anthropic API)
-		httpReq, err := c.createHTTPRequest(ctx, &req, "/v1/messages")
-		if err != nil {
-			return "", fmt.Errorf("failed to create request (iteration %d): %w", iteration+1, err)
-		}
-
-		// Send request
-		httpResp, err := c.HTTPClient.Do(httpReq)
-		if err != nil {
-			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-				"error":     err.Error(),
-				"model":     c.Model,
-				"iteration": iteration + 1,
-			})
-			return "", fmt.Errorf("failed to send request (iteration %d): %w", iteration+1, err)
-		}
-		defer func() {
-			if closeErr := httpResp.Body.Close(); closeErr != nil {
-				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
-					"error": closeErr.Error(),
-				})
-			}
-		}()
-
-		// Read response body
-		respBody, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read response body (iteration %d): %w", iteration+1, err)
-		}
-
-		// Check for error response
-		if httpResp.StatusCode != http.StatusOK {
-			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-				"status_code": httpResp.StatusCode,
-				"response":    string(respBody),
-				"model":       c.Model,
-				"iteration":   iteration + 1,
-			})
-			return "", fmt.Errorf("error from Anthropic API (iteration %d): %s", iteration+1, string(respBody))
-		}
-
-		// Log raw response before unmarshaling for debugging
-		c.logger.Debug(ctx, "Raw response before unmarshaling", map[string]interface{}{
-			"response_length": len(respBody),
-			"response_prefix": func() string {
-				if len(respBody) > 100 {
-					return string(respBody[:100])
-				}
-				return string(respBody)
-			}(),
-			"first_char": func() string {
-				if len(respBody) > 0 {
-					return fmt.Sprintf("'%c' (0x%02x)", respBody[0], respBody[0])
-				}
-				return "empty"
-			}(),
-			"iteration": iteration + 1,
-		})
-
-		// Unmarshal response
 		var resp CompletionResponse
-		err = json.Unmarshal(respBody, &resp)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to unmarshal response", map[string]interface{}{
-				"error":           err.Error(),
+		var err error
+
+		// Define operation for retry mechanism
+		operation := func() error {
+			// Create HTTP request (supports both Vertex AI and standard Anthropic API)
+			httpReq, err := c.createHTTPRequest(ctx, &req, "/v1/messages")
+			if err != nil {
+				return fmt.Errorf("failed to create request (iteration %d): %w", iteration+1, err)
+			}
+
+			// Send request
+			httpResp, err := c.HTTPClient.Do(httpReq)
+			if err != nil {
+				c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
+					"error":     err.Error(),
+					"model":     c.Model,
+					"iteration": iteration + 1,
+				})
+				return fmt.Errorf("failed to send request (iteration %d): %w", iteration+1, err)
+			}
+			defer func() {
+				if closeErr := httpResp.Body.Close(); closeErr != nil {
+					c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
+						"error": closeErr.Error(),
+					})
+				}
+			}()
+
+			// Read response body
+			respBody, err := io.ReadAll(httpResp.Body)
+			if err != nil {
+				return fmt.Errorf("failed to read response body (iteration %d): %w", iteration+1, err)
+			}
+
+			// Check for error response
+			if httpResp.StatusCode != http.StatusOK {
+				c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
+					"status_code": httpResp.StatusCode,
+					"response":    string(respBody),
+					"model":       c.Model,
+					"iteration":   iteration + 1,
+				})
+				return fmt.Errorf("error from Anthropic API (iteration %d): %s", iteration+1, string(respBody))
+			}
+
+			// Log raw response before unmarshaling for debugging
+			c.logger.Debug(ctx, "Raw response before unmarshaling", map[string]interface{}{
 				"response_length": len(respBody),
-				"response_sample": func() string {
-					if len(respBody) > 200 {
-						return string(respBody[:200])
+				"response_prefix": func() string {
+					if len(respBody) > 100 {
+						return string(respBody[:100])
 					}
 					return string(respBody)
 				}(),
+				"first_char": func() string {
+					if len(respBody) > 0 {
+						return fmt.Sprintf("'%c' (0x%02x)", respBody[0], respBody[0])
+					}
+					return "empty"
+				}(),
 				"iteration": iteration + 1,
 			})
-			return "", fmt.Errorf("failed to unmarshal response (iteration %d): %w", iteration+1, err)
+
+			// Unmarshal response
+			err = json.Unmarshal(respBody, &resp)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal response (iteration %d): %w", iteration+1, err)
+			}
+
+			return nil
 		}
 
-		// Log the raw response for debugging
-		c.logger.Debug(ctx, "Raw response from Anthropic", map[string]interface{}{
-			"response":  string(respBody),
-			"iteration": iteration + 1,
-		})
+		// Execute operation with retry mechanism
+		if c.vertexRetryExecutor != nil {
+			c.logger.Info(ctx, "Using Vertex retry mechanism with region rotation for GenerateWithTools", map[string]interface{}{
+				"model":          c.Model,
+				"current_region": c.VertexConfig.GetCurrentRegion(),
+				"iteration":      iteration + 1,
+			})
+			err = c.vertexRetryExecutor.Execute(ctx, operation)
+		} else if c.retryExecutor != nil {
+			c.logger.Info(ctx, "Using standard retry mechanism for GenerateWithTools", map[string]interface{}{
+				"model":                   c.Model,
+				"vertex_config_available": c.VertexConfig != nil,
+				"iteration":               iteration + 1,
+			})
+			err = c.retryExecutor.Execute(ctx, operation)
+		} else {
+			c.logger.Debug(ctx, "No retry mechanism configured for GenerateWithTools", map[string]interface{}{
+				"model":     c.Model,
+				"iteration": iteration + 1,
+			})
+			err = operation()
+		}
+
+		if err != nil {
+			return "", err
+		}
 
 		// Make sure content is not nil
 		if resp.Content == nil {
@@ -1041,26 +1183,26 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			// Join the text content
 			response := strings.Join(textContent, "\n")
 
-			// If we have a ResponseFormat and the model returned markdown code blocks, strip them
+			// If we have a ResponseFormat, extract JSON from the response
 			if params.ResponseFormat != nil {
-				// Check if the response is wrapped in markdown code blocks
-				if strings.HasPrefix(response, "```json") && strings.HasSuffix(response, "```") {
-					// Remove the markdown code block wrapper
-					response = strings.TrimPrefix(response, "```json")
-					response = strings.TrimSuffix(response, "```")
-					response = strings.TrimSpace(response)
-					c.logger.Debug(ctx, "Stripped markdown code blocks from JSON response", nil)
-				} else if strings.HasPrefix(response, "```") && strings.HasSuffix(response, "```") {
-					// Handle generic code blocks
-					lines := strings.Split(response, "\n")
-					if len(lines) > 2 {
-						// Remove first and last lines (``` markers)
-						response = strings.Join(lines[1:len(lines)-1], "\n")
-						response = strings.TrimSpace(response)
-						c.logger.Debug(ctx, "Stripped generic markdown code blocks from response", nil)
-					}
+				extractedJSON := extractJSONFromResponse(response)
+				if extractedJSON != response {
+					c.logger.Debug(ctx, "Extracted JSON from response", map[string]interface{}{
+						"original_length":  len(response),
+						"extracted_length": len(extractedJSON),
+					})
+					response = extractedJSON
 				}
 			}
+
+			c.logger.Debug(ctx, "Returning final response (no tool use)", map[string]interface{}{
+				"response_length": len(response),
+				"response_preview": func() string {
+
+					return response
+				}(),
+				"iteration": iteration + 1,
+			})
 
 			return response, nil
 		}
@@ -1299,16 +1441,64 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		Tools:       nil, // No tools for final call
 	}
 
-	// Add system message if available
+	// Add system message if available and enhance for structured output
 	if params.SystemMessage != "" {
-		finalReq.System = params.SystemMessage
+		if params.ResponseFormat != nil {
+			finalReq.System = params.SystemMessage + "\n\nIMPORTANT: You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
+		} else {
+			finalReq.System = params.SystemMessage
+		}
+	} else if params.ResponseFormat != nil {
+		// If no system message but structured output is requested, add a system message for JSON
+		finalReq.System = "You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
 	}
 
 	// Add a user message to encourage conclusion
+	finalUserMessage := "Please provide your final response based on the information available. Do not request any additional tools."
+
+	// If structured output is requested, enhance the final message with schema and examples
+	if params.ResponseFormat != nil {
+		// Convert the schema to a string representation for the prompt
+		schemaJSON, err := json.MarshalIndent(params.ResponseFormat.Schema, "", "  ")
+		if err == nil {
+			// Create an example JSON structure based on the schema
+			exampleJSON := createExampleFromSchema(params.ResponseFormat.Schema)
+			exampleStr, _ := json.MarshalIndent(exampleJSON, "", "  ")
+
+			// Enhance the final user message with schema information and example
+			finalUserMessage = fmt.Sprintf(`%s
+
+You must respond with a valid JSON object that exactly follows this schema:
+%s
+
+Here is an example of the expected JSON structure:
+%s
+
+CRITICAL INSTRUCTIONS:
+- Output ONLY valid JSON, no additional text before or after
+- Follow the EXACT structure shown in the schema and example
+- Use the field names exactly as specified
+- Ensure all required fields are present
+- Pay special attention to array fields - they must be arrays of objects, not simple objects
+- If a field is defined as an array in the schema, it MUST be an array in your response
+- The JSON must be directly parsable and match the schema precisely`, finalUserMessage, string(schemaJSON), string(exampleStr))
+		}
+	}
+
 	messages = append(messages, Message{
 		Role:    "user",
-		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
+		Content: finalUserMessage,
 	})
+
+	// Add assistant message prefill for structured output to enforce JSON output
+	if params.ResponseFormat != nil {
+		messages = append(messages, Message{
+			Role:    "assistant",
+			Content: "{",
+		})
+		c.logger.Debug(ctx, "Added prefill for structured output in final call", nil)
+	}
+
 	finalReq.Messages = messages
 
 	c.logger.Debug(ctx, "Making final request without tools", map[string]interface{}{
@@ -1400,8 +1590,34 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		return "", fmt.Errorf("no text content in final response")
 	}
 
-	c.logger.Info(ctx, "Successfully received final response without tools", nil)
-	return strings.Join(finalTextContent, "\n"), nil
+	response := strings.Join(finalTextContent, "\n")
+
+	// For structured output, prepend the opening brace that was used as prefill
+	if params.ResponseFormat != nil {
+		response = "{" + response
+	}
+
+	// If we have a ResponseFormat, extract JSON from the response
+	if params.ResponseFormat != nil {
+		extractedJSON := extractJSONFromResponse(response)
+		if extractedJSON != response {
+			c.logger.Debug(ctx, "Extracted JSON from final response", map[string]interface{}{
+				"original_length":  len(response),
+				"extracted_length": len(extractedJSON),
+			})
+			response = extractedJSON
+		}
+	}
+
+	c.logger.Info(ctx, "Successfully received final response without tools", map[string]interface{}{
+		"response_length": len(response),
+		"response_preview": func() string {
+
+			return response
+		}(),
+	})
+
+	return response, nil
 }
 
 // createHTTPRequest creates an HTTP request for either Vertex AI or standard Anthropic API
@@ -1568,20 +1784,22 @@ func getExampleValue(prop map[string]interface{}) interface{} {
 	case "boolean":
 		return true
 	case "array":
-		itemType := "string"
 		if items, ok := prop["items"].(map[string]interface{}); ok {
-			if t, ok := items["type"].(string); ok {
-				itemType = t
+			if itemType, ok := items["type"].(string); ok {
+				switch itemType {
+				case "string":
+					return []string{"example_item_1", "example_item_2"}
+				case "number", "integer":
+					return []int{1, 2, 3}
+				case "object":
+					// Handle array of objects by creating example objects
+					exampleObj := getExampleValue(items)
+					return []interface{}{exampleObj, exampleObj}
+				}
 			}
 		}
-		switch itemType {
-		case "string":
-			return []string{"example_item_1", "example_item_2"}
-		case "number", "integer":
-			return []int{1, 2, 3}
-		default:
-			return []interface{}{"item1", "item2"}
-		}
+		// Fallback for arrays without proper items definition
+		return []interface{}{"item1", "item2"}
 	case "object":
 		if properties, ok := prop["properties"].(map[string]interface{}); ok {
 			obj := make(map[string]interface{})
@@ -1596,4 +1814,87 @@ func getExampleValue(prop map[string]interface{}) interface{} {
 	default:
 		return "example_value"
 	}
+}
+
+// extractJSONFromResponse extracts JSON content from a response that may contain markdown or explanatory text
+func extractJSONFromResponse(response string) string {
+	// First, try to find JSON within markdown code blocks
+	jsonStart := strings.Index(response, "```json")
+	if jsonStart >= 0 {
+		jsonStart += len("```json")
+		jsonEnd := strings.Index(response[jsonStart:], "```")
+		if jsonEnd > 0 {
+			return strings.TrimSpace(response[jsonStart : jsonStart+jsonEnd])
+		}
+	}
+
+	// Try generic code blocks
+	jsonStart = strings.Index(response, "```")
+	if jsonStart >= 0 {
+		jsonStart += len("```")
+		contentAfterMarker := response[jsonStart:]
+		newlineIdx := strings.Index(contentAfterMarker, "\n")
+		if newlineIdx >= 0 {
+			contentAfterMarker = contentAfterMarker[newlineIdx+1:]
+		}
+		jsonEnd := strings.Index(contentAfterMarker, "```")
+		if jsonEnd > 0 {
+			extracted := strings.TrimSpace(contentAfterMarker[:jsonEnd])
+			if isValidJSONStart(extracted) {
+				return extracted
+			}
+		}
+	}
+
+	// Try to find JSON object by looking for { and matching }
+	jsonStart = strings.Index(response, "{")
+	if jsonStart >= 0 {
+		// Find the matching closing brace
+		braceCount := 0
+		inString := false
+		escapeNext := false
+
+		for i := jsonStart; i < len(response); i++ {
+			char := response[i]
+
+			if escapeNext {
+				escapeNext = false
+				continue
+			}
+
+			if char == '\\' {
+				escapeNext = true
+				continue
+			}
+
+			if char == '"' {
+				inString = !inString
+				continue
+			}
+
+			if !inString {
+				if char == '{' {
+					braceCount++
+				} else if char == '}' {
+					braceCount--
+					if braceCount == 0 {
+						extracted := strings.TrimSpace(response[jsonStart : i+1])
+						if isValidJSONStart(extracted) {
+							return extracted
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// If no JSON found, return original response
+	return response
+}
+
+// isValidJSONStart checks if a string starts with valid JSON
+func isValidJSONStart(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
 }

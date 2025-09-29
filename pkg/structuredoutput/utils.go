@@ -95,7 +95,7 @@ func getJSONSchema(t reflect.Type) map[string]any {
 				},
 			}
 		} else {
-			properties[jsonTag] = map[string]string{
+			properties[jsonTag] = map[string]interface{}{
 				"type":        getJSONType(fieldType),
 				"description": field.Tag.Get("description"),
 			}
