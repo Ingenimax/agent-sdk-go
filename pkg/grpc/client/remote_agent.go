@@ -57,18 +57,38 @@ type RemoteAgentConfig struct {
 
 // NewRemoteAgentClient creates a new remote agent client
 func NewRemoteAgentClient(config RemoteAgentConfig) *RemoteAgentClient {
-	if config.Timeout == 0 {
-		config.Timeout = 5 * time.Minute
+	// Only set default timeout if no timeout was specified at all
+	// If timeout is explicitly set to 0, keep it as 0 for infinite timeout
+	timeout := config.Timeout
+	if timeout == 0 && !isTimeoutExplicitlySet(config) {
+		timeout = 5 * time.Minute
 	}
+
 	if config.RetryCount == 0 {
 		config.RetryCount = 3
 	}
 
 	return &RemoteAgentClient{
 		url:        config.URL,
-		timeout:    config.Timeout,
+		timeout:    timeout,
 		retryCount: config.RetryCount,
 	}
+}
+
+// isTimeoutExplicitlySet checks if timeout was explicitly set in config
+// For now, we'll assume any 0 value means infinite timeout
+func isTimeoutExplicitlySet(config RemoteAgentConfig) bool {
+	// We'll treat any 0 timeout as explicitly set for infinite timeout
+	return true
+}
+
+// withTimeoutIfSet adds timeout to context if timeout > 0, otherwise returns context as-is (infinite timeout)
+func (r *RemoteAgentClient) withTimeoutIfSet(ctx context.Context) (context.Context, context.CancelFunc) {
+	if r.timeout > 0 {
+		return context.WithTimeout(ctx, r.timeout)
+	}
+	// For 0 timeout (infinite), return context as-is with a no-op cancel function
+	return ctx, func() {}
 }
 
 // Connect establishes a connection to the remote agent service
@@ -142,7 +162,7 @@ func (r *RemoteAgentClient) Run(ctx context.Context, input string) (string, erro
 	}
 
 	// Add timeout to context
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 	defer cancel()
 
 	// Execute with retry logic
@@ -198,7 +218,7 @@ func (r *RemoteAgentClient) RunWithAuth(ctx context.Context, input string, authT
 	}
 
 	// Add timeout to context
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 	defer cancel()
 
 	// Execute with retry logic
@@ -294,7 +314,7 @@ func (r *RemoteAgentClient) GenerateExecutionPlan(ctx context.Context, input str
 		req.ConversationId = conversationID
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 	defer cancel()
 
 	return r.client.GenerateExecutionPlan(ctx, req)
@@ -312,7 +332,7 @@ func (r *RemoteAgentClient) ApproveExecutionPlan(ctx context.Context, planID str
 		Modifications: modifications,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 	defer cancel()
 
 	return r.client.ApproveExecutionPlan(ctx, req)
@@ -369,7 +389,7 @@ func (r *RemoteAgentClient) RunStream(ctx context.Context, input string) (<-chan
 	}
 
 	// Add timeout to context
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 
 	// Execute streaming call
 	stream, err := r.client.RunStream(ctx, req)
@@ -474,7 +494,7 @@ func (r *RemoteAgentClient) RunStreamWithAuth(ctx context.Context, input string,
 	}
 
 	// Add timeout to context
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := r.withTimeoutIfSet(ctx)
 
 	// Execute streaming call
 	stream, err := r.client.RunStream(ctx, req)

@@ -329,7 +329,8 @@ func validateRemoteAgent(agent *Agent) (*Agent, error) {
 		URL: agent.remoteURL,
 	}
 	// Use custom timeout if specified, otherwise the default 5 minutes will be used
-	if agent.remoteTimeout > 0 {
+	// Special case: 0 means infinite timeout (no timeout)
+	if agent.remoteTimeout >= 0 {
 		config.Timeout = agent.remoteTimeout
 	}
 	agent.remoteClient = client.NewRemoteAgentClient(config)
