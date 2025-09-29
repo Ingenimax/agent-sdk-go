@@ -193,21 +193,6 @@ func NewClient(apiKey string, options ...Option) *AnthropicClient {
 		option(client)
 	}
 
-	// After all options are applied, log the client configuration for debugging
-	client.logger.Info(context.TODO(), "🔧 MULTI-REGION DEBUG VERSION - Anthropic client initialization complete", map[string]interface{}{
-		"vertex_config_enabled": client.VertexConfig != nil && client.VertexConfig.Enabled,
-		"vertex_config_region": func() string {
-			if client.VertexConfig != nil {
-				return client.VertexConfig.Region
-			} else {
-				return ""
-			}
-		}(),
-		"retry_executor_exists":        client.retryExecutor != nil,
-		"vertex_retry_executor_exists": client.vertexRetryExecutor != nil,
-		"debug_version":                "multi-region-retry-v1",
-	})
-
 	// After all options are applied, if we have both VertexConfig and retry policy but no vertex executor,
 	// create the vertex retry executor now
 	if client.VertexConfig != nil && client.VertexConfig.Enabled && client.retryExecutor != nil && client.vertexRetryExecutor == nil {
