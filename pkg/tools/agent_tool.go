@@ -75,12 +75,22 @@ func (at *AgentTool) Name() string {
 	return at.name
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (at *AgentTool) DisplayName() string {
+	return fmt.Sprintf("%s Agent", at.agent.GetName())
+}
+
 // Description returns the description of what the tool does
 func (at *AgentTool) Description() string {
 	if at.description != "" {
 		return at.description
 	}
 	return fmt.Sprintf("Delegate task to %s agent for specialized handling", at.agent.GetName())
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (at *AgentTool) Internal() bool {
+	return false
 }
 
 // Parameters returns the parameters that the tool accepts

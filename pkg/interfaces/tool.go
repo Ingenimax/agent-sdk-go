@@ -20,6 +20,21 @@ type Tool interface {
 	Execute(ctx context.Context, args string) (string, error)
 }
 
+// ToolWithDisplayName is an optional interface that tools can implement
+// to provide a human-friendly display name
+type ToolWithDisplayName interface {
+	// DisplayName returns a human-friendly name for the tool
+	DisplayName() string
+}
+
+// InternalTool is an optional interface that tools can implement
+// to indicate they should be hidden from users
+type InternalTool interface {
+	// Internal returns true if this tool's usage should be hidden from users
+	// This can be used to filter tool calls in OnToolCall or other display contexts
+	Internal() bool
+}
+
 // ParameterSpec defines the specification for a tool parameter
 type ParameterSpec struct {
 	// Type is the data type of the parameter (string, number, boolean, etc.)

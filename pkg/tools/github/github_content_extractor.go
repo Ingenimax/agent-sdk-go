@@ -41,9 +41,19 @@ func (gct *GitHubContentExtractorTool) Name() string {
 	return "github_content_extractor"
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (gct *GitHubContentExtractorTool) DisplayName() string {
+	return "GitHub Content Extractor"
+}
+
 // Description returns the description of the tool
 func (gct *GitHubContentExtractorTool) Description() string {
 	return "Extracts content from GitHub repositories based on file patterns"
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (gct *GitHubContentExtractorTool) Internal() bool {
+	return false
 }
 
 // Parameters returns the parameters that the tool accepts

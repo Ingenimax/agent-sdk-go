@@ -76,11 +76,13 @@ const (
 
 // ToolCallEvent represents a tool call in streaming context
 type ToolCallEvent struct {
-	ID        string `json:"id,omitempty"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments,omitempty"`
-	Result    string `json:"result,omitempty"`
-	Status    string `json:"status"` // "starting", "executing", "completed", "error"
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Internal    bool   `json:"internal,omitempty"`
+	Arguments   string `json:"arguments,omitempty"`
+	Result      string `json:"result,omitempty"`
+	Status      string `json:"status"` // "starting", "executing", "completed", "error"
 }
 
 // StreamConfig contains configuration for streaming behavior

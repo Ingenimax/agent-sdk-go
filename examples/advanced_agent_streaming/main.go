@@ -27,8 +27,16 @@ func (t *MockDataTool) Name() string {
 	return "market_data_lookup"
 }
 
+func (t *MockDataTool) DisplayName() string {
+	return "Market Data Lookup"
+}
+
 func (t *MockDataTool) Description() string {
 	return "Lookup specific market data and statistics for analysis"
+}
+
+func (t *MockDataTool) Internal() bool {
+	return false
 }
 
 func (t *MockDataTool) Parameters() map[string]interfaces.ParameterSpec {
@@ -82,8 +90,17 @@ func (t *TrendAnalysisTool) Name() string {
 	return "trend_analysis"
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (t *TrendAnalysisTool) DisplayName() string {
+	return "Trend Analysis"
+}
+
 func (t *TrendAnalysisTool) Description() string {
 	return "Analyze market trends and provide forecasting insights"
+}
+
+func (t *TrendAnalysisTool) Internal() bool {
+	return false
 }
 
 func (t *TrendAnalysisTool) Parameters() map[string]interfaces.ParameterSpec {

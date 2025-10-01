@@ -55,10 +55,25 @@ func (m *MockLLMWithTools) GenerateWithTools(ctx context.Context, prompt string,
 	if params.Memory != nil && len(tools) > 0 {
 		// Simulate calling the first tool
 		tool := tools[0]
+		// Get display name and internal flag using type assertions
+		var displayName string
+		var internal bool
+		if toolWithDisplayName, ok := tool.(interfaces.ToolWithDisplayName); ok {
+			displayName = toolWithDisplayName.DisplayName()
+		}
+		if displayName == "" {
+			displayName = tool.Name()
+		}
+		if internalTool, ok := tool.(interfaces.InternalTool); ok {
+			internal = internalTool.Internal()
+		}
+
 		toolCall := interfaces.ToolCall{
-			ID:        "test-tool-call-1",
-			Name:      tool.Name(),
-			Arguments: `{"test": "value"}`,
+			ID:          "test-tool-call-1",
+			Name:        tool.Name(),
+			DisplayName: displayName,
+			Internal:    internal,
+			Arguments:   `{"test": "value"}`,
 		}
 
 		// Store assistant message with tool call
@@ -113,8 +128,16 @@ func (m *MockTool) Name() string {
 	return m.name
 }
 
+func (m *MockTool) DisplayName() string {
+	return m.name
+}
+
 func (m *MockTool) Description() string {
 	return m.description
+}
+
+func (m *MockTool) Internal() bool {
+	return false
 }
 
 func (m *MockTool) Parameters() map[string]interfaces.ParameterSpec {

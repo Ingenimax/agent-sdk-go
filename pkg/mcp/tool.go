@@ -33,9 +33,21 @@ func (t *MCPTool) Name() string {
 	return t.name
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (t *MCPTool) DisplayName() string {
+	// MCP tools can use the name as display name
+	return t.name
+}
+
 // Description returns a description of what the tool does
 func (t *MCPTool) Description() string {
 	return t.description
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (t *MCPTool) Internal() bool {
+	// MCP tools are typically visible to users
+	return false
 }
 
 // Run executes the tool with the given input

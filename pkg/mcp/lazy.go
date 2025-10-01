@@ -158,9 +158,19 @@ func (t *LazyMCPTool) Name() string {
 	return t.name
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (t *LazyMCPTool) DisplayName() string {
+	return t.name
+}
+
 // Description returns a description of what the tool does
 func (t *LazyMCPTool) Description() string {
 	return t.description
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (t *LazyMCPTool) Internal() bool {
+	return false
 }
 
 // getServer gets the MCP server, initializing it if necessary

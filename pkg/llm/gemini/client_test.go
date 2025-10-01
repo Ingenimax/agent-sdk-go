@@ -26,8 +26,16 @@ func (t *MockTool) Name() string {
 	return t.name
 }
 
+func (t *MockTool) DisplayName() string {
+	return t.name
+}
+
 func (t *MockTool) Description() string {
 	return t.description
+}
+
+func (t *MockTool) Internal() bool {
+	return false
 }
 
 func (t *MockTool) Parameters() map[string]interfaces.ParameterSpec {

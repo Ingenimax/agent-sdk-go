@@ -710,22 +710,26 @@ func convertPbToStreamEvent(resp *pb.RunStreamResponse) interfaces.AgentStreamEv
 		event.Type = interfaces.AgentEventToolCall
 		if resp.ToolCall != nil {
 			event.ToolCall = &interfaces.ToolCallEvent{
-				ID:        resp.ToolCall.Id,
-				Name:      resp.ToolCall.Name,
-				Arguments: resp.ToolCall.Arguments,
-				Result:    resp.ToolCall.Result,
-				Status:    resp.ToolCall.Status,
+				ID:          resp.ToolCall.Id,
+				Name:        resp.ToolCall.Name,
+				DisplayName: resp.ToolCall.DisplayName,
+				Internal:    resp.ToolCall.Internal,
+				Arguments:   resp.ToolCall.Arguments,
+				Result:      resp.ToolCall.Result,
+				Status:      resp.ToolCall.Status,
 			}
 		}
 	case pb.EventType_EVENT_TYPE_TOOL_RESULT:
 		event.Type = interfaces.AgentEventToolResult
 		if resp.ToolCall != nil {
 			event.ToolCall = &interfaces.ToolCallEvent{
-				ID:        resp.ToolCall.Id,
-				Name:      resp.ToolCall.Name,
-				Arguments: resp.ToolCall.Arguments,
-				Result:    resp.ToolCall.Result,
-				Status:    resp.ToolCall.Status,
+				ID:          resp.ToolCall.Id,
+				Name:        resp.ToolCall.Name,
+				DisplayName: resp.ToolCall.DisplayName,
+				Internal:    resp.ToolCall.Internal,
+				Arguments:   resp.ToolCall.Arguments,
+				Result:      resp.ToolCall.Result,
+				Status:      resp.ToolCall.Status,
 			}
 		}
 	case pb.EventType_EVENT_TYPE_ERROR:

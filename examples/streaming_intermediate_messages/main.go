@@ -59,8 +59,16 @@ func (c *CalculatorTool) Name() string {
 	return "calculator"
 }
 
+func (c *CalculatorTool) DisplayName() string {
+	return "Calculator"
+}
+
 func (c *CalculatorTool) Description() string {
 	return "Performs basic arithmetic operations"
+}
+
+func (c *CalculatorTool) Internal() bool {
+	return false
 }
 
 func (c *CalculatorTool) Parameters() map[string]interfaces.ParameterSpec {

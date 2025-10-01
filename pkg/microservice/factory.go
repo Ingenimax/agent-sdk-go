@@ -416,11 +416,13 @@ func convertGRPCResponseToAgentEvent(response *pb.RunStreamResponse) interfaces.
 
 		if response.ToolCall != nil {
 			event.ToolCall = &interfaces.ToolCallEvent{
-				ID:        response.ToolCall.Id,
-				Name:      response.ToolCall.Name,
-				Arguments: response.ToolCall.Arguments,
-				Result:    response.ToolCall.Result,
-				Status:    response.ToolCall.Status,
+				ID:          response.ToolCall.Id,
+				Name:        response.ToolCall.Name,
+				DisplayName: response.ToolCall.DisplayName,
+				Internal:    response.ToolCall.Internal,
+				Arguments:   response.ToolCall.Arguments,
+				Result:      response.ToolCall.Result,
+				Status:      response.ToolCall.Status,
 			}
 		}
 

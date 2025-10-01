@@ -63,8 +63,16 @@ func (t *ExampleTool) Name() string {
 	return "get_weather"
 }
 
+func (t *ExampleTool) DisplayName() string {
+	return "Weather Tool"
+}
+
 func (t *ExampleTool) Description() string {
 	return "Get current weather information for a location"
+}
+
+func (t *ExampleTool) Internal() bool {
+	return false
 }
 
 func (t *ExampleTool) Parameters() map[string]interfaces.ParameterSpec {

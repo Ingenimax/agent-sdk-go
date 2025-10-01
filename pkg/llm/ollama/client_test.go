@@ -316,8 +316,16 @@ func (t *mockTool) Name() string {
 	return t.name
 }
 
+func (t *mockTool) DisplayName() string {
+	return t.name
+}
+
 func (t *mockTool) Description() string {
 	return t.description
+}
+
+func (t *mockTool) Internal() bool {
+	return false
 }
 
 func (t *mockTool) Run(ctx context.Context, input string) (string, error) {

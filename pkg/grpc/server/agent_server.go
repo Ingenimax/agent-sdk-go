@@ -183,11 +183,13 @@ func (s *AgentServer) RunStream(req *pb.RunRequest, stream pb.AgentService_RunSt
 		// Add tool call info if present
 		if event.ToolCall != nil {
 			response.ToolCall = &pb.ToolCall{
-				Id:        event.ToolCall.ID,
-				Name:      event.ToolCall.Name,
-				Arguments: event.ToolCall.Arguments,
-				Result:    event.ToolCall.Result,
-				Status:    event.ToolCall.Status,
+				Id:          event.ToolCall.ID,
+				Name:        event.ToolCall.Name,
+				DisplayName: event.ToolCall.DisplayName,
+				Internal:    event.ToolCall.Internal,
+				Arguments:   event.ToolCall.Arguments,
+				Result:      event.ToolCall.Result,
+				Status:      event.ToolCall.Status,
 			}
 		}
 

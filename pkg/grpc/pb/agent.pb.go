@@ -7,12 +7,11 @@
 package pb
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -387,9 +386,11 @@ type ToolCall struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments     string                 `protobuf:"bytes,3,opt,name=arguments,proto3" json:"arguments,omitempty"`
-	Result        string                 `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
-	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"` // "received", "executing", "completed", "error"
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Internal      bool                   `protobuf:"varint,4,opt,name=internal,proto3" json:"internal,omitempty"`
+	Arguments     string                 `protobuf:"bytes,5,opt,name=arguments,proto3" json:"arguments,omitempty"`
+	Result        string                 `protobuf:"bytes,6,opt,name=result,proto3" json:"result,omitempty"`
+	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"` // "received", "executing", "completed", "error"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -436,6 +437,20 @@ func (x *ToolCall) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *ToolCall) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *ToolCall) GetInternal() bool {
+	if x != nil {
+		return x.Internal
+	}
+	return false
 }
 
 func (x *ToolCall) GetArguments() string {
@@ -1222,13 +1237,15 @@ const file_agent_proto_rawDesc = "" +
 	"\ttimestamp\x18\b \x01(\x03R\ttimestamp\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbb\x01\n" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
-	"\targuments\x18\x03 \x01(\tR\targuments\x12\x16\n" +
-	"\x06result\x18\x04 \x01(\tR\x06result\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"\x11\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x1a\n" +
+	"\binternal\x18\x04 \x01(\bR\binternal\x12\x1c\n" +
+	"\targuments\x18\x05 \x01(\tR\targuments\x12\x16\n" +
+	"\x06result\x18\x06 \x01(\tR\x06result\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\"\x11\n" +
 	"\x0fMetadataRequest\"\x99\x02\n" +
 	"\x10MetadataResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
@@ -1319,7 +1336,7 @@ var (
 
 func file_agent_proto_rawDescGZIP() []byte {
 	file_agent_proto_rawDescOnce.Do(func() {
-		file_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc))) // #nosec G103
+		file_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)))
 	})
 	return file_agent_proto_rawDescData
 }
@@ -1396,7 +1413,7 @@ func file_agent_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)), // #nosec G103
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   23,
 			NumExtensions: 0,

@@ -38,9 +38,19 @@ func (a *MCPToolAdapter) Name() string {
 	return a.toolName
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (a *MCPToolAdapter) DisplayName() string {
+	return a.toolName
+}
+
 // Description returns the description of the tool
 func (a *MCPToolAdapter) Description() string {
 	return a.toolDesc
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (a *MCPToolAdapter) Internal() bool {
+	return false
 }
 
 // Run executes the tool with the given input

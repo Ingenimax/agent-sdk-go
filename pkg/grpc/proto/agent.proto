@@ -78,9 +78,11 @@ enum EventType {
 message ToolCall {
     string id = 1;
     string name = 2;
-    string arguments = 3;
-    string result = 4;
-    string status = 5; // "received", "executing", "completed", "error"
+    string display_name = 3;
+    bool internal = 4;
+    string arguments = 5;
+    string result = 6;
+    string status = 7; // "received", "executing", "completed", "error"
 }
 
 // MetadataRequest for getting agent metadata

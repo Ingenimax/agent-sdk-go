@@ -12,7 +12,7 @@ import (
 )
 
 // Calculator implements a simple calculator tool
-type Calculator struct{}
+type Calculator struct {}
 
 // Input represents the input for the calculator tool
 type Input struct {
@@ -29,9 +29,19 @@ func (c *Calculator) Name() string {
 	return "calculator"
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (c *Calculator) DisplayName() string {
+	return "Calculator"
+}
+
 // Description implements interfaces.Tool.Description
 func (c *Calculator) Description() string {
 	return "Perform mathematical calculations (add, subtract, multiply, divide, exponents)"
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (c *Calculator) Internal() bool {
+	return false
 }
 
 // Parameters implements interfaces.Tool.Parameters

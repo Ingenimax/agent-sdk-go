@@ -378,19 +378,7 @@ func (a *Agent) handleToolCallStreaming(
 	tools []interfaces.Tool,
 	eventChan chan<- interfaces.AgentStreamEvent,
 ) {
-	// Send tool execution start event
-	eventChan <- interfaces.AgentStreamEvent{
-		Type: interfaces.AgentEventToolCall,
-		ToolCall: &interfaces.ToolCallEvent{
-			ID:        toolCall.ID,
-			Name:      toolCall.Name,
-			Arguments: toolCall.Arguments,
-			Status:    "executing",
-		},
-		Timestamp: time.Now(),
-	}
-
-	// Find the requested tool
+	// Find the requested tool first to get its display name and internal flag
 	var selectedTool interfaces.Tool
 	for _, tool := range tools {
 		if tool.Name() == toolCall.Name {
@@ -399,17 +387,55 @@ func (a *Agent) handleToolCallStreaming(
 		}
 	}
 
+	// Prepare tool call event with display name and internal flag
+	var displayName string
+	var internal bool
+	if selectedTool != nil {
+		// Use type assertion to check if tool implements DisplayName
+		if toolWithDisplayName, ok := selectedTool.(interfaces.ToolWithDisplayName); ok {
+			displayName = toolWithDisplayName.DisplayName()
+		}
+		// Fallback to tool name if DisplayName is empty or not implemented
+		if displayName == "" {
+			displayName = selectedTool.Name()
+		}
+
+		// Use type assertion to check if tool implements Internal
+		if internalTool, ok := selectedTool.(interfaces.InternalTool); ok {
+			internal = internalTool.Internal()
+		}
+		// Default is false if Internal() is not implemented
+	} else {
+		displayName = toolCall.Name
+	}
+
+	// Send tool execution start event
+	eventChan <- interfaces.AgentStreamEvent{
+		Type: interfaces.AgentEventToolCall,
+		ToolCall: &interfaces.ToolCallEvent{
+			ID:          toolCall.ID,
+			Name:        toolCall.Name,
+			DisplayName: displayName,
+			Internal:    internal,
+			Arguments:   toolCall.Arguments,
+			Status:      "executing",
+		},
+		Timestamp: time.Now(),
+	}
+
 	if selectedTool == nil {
 		// Send tool result event with error instead of error event
 		errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
 		eventChan <- interfaces.AgentStreamEvent{
 			Type: interfaces.AgentEventToolResult,
 			ToolCall: &interfaces.ToolCallEvent{
-				ID:        toolCall.ID,
-				Name:      toolCall.Name,
-				Arguments: toolCall.Arguments,
-				Result:    errorMessage,
-				Status:    "error",
+				ID:          toolCall.ID,
+				Name:        toolCall.Name,
+				DisplayName: displayName,
+				Internal:    internal,
+				Arguments:   toolCall.Arguments,
+				Result:      errorMessage,
+				Status:      "error",
 			},
 			Error:     fmt.Errorf("tool not found: %s", toolCall.Name),
 			Timestamp: time.Now(),
@@ -424,10 +450,12 @@ func (a *Agent) handleToolCallStreaming(
 	resultEvent := interfaces.AgentStreamEvent{
 		Type: interfaces.AgentEventToolResult,
 		ToolCall: &interfaces.ToolCallEvent{
-			ID:        toolCall.ID,
-			Name:      toolCall.Name,
-			Arguments: toolCall.Arguments,
-			Result:    toolResult,
+			ID:          toolCall.ID,
+			Name:        toolCall.Name,
+			DisplayName: displayName,
+			Internal:    internal,
+			Arguments:   toolCall.Arguments,
+			Result:      toolResult,
 		},
 		Timestamp: time.Now(),
 	}

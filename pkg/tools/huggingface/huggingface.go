@@ -70,9 +70,19 @@ func (t *Tool) Name() string {
 	return "huggingface_search"
 }
 
+// DisplayName implements interfaces.ToolWithDisplayName.DisplayName
+func (t *Tool) DisplayName() string {
+	return "Hugging Face Search"
+}
+
 // Description returns a description of what the tool does
 func (t *Tool) Description() string {
 	return "Search Hugging Face for AI models matching the given query"
+}
+
+// Internal implements interfaces.InternalTool.Internal
+func (t *Tool) Internal() bool {
+	return false
 }
 
 // Parameters returns the parameters that the tool accepts
