@@ -18,20 +18,39 @@ Before running these examples, you need one of the following:
 2. **Environment Variables**: Set your project configuration:
    ```bash
    export GEMINI_VERTEX_PROJECT_ID="your-gcp-project-id"
-   export GEMINI_VERTEX_REGION="us-central1"  # Optional, defaults to us-central1
+   export GEMINI_VERTEX_REGION="us-central1"  # Optional, defaults to us-central1 if not set
    ```
-3. **Authentication Options** (choose one):
-   - **Application Default Credentials**: Run `gcloud auth application-default login`
+   
+   **Supported Regions**: Common Vertex AI regions include:
+   - `us-central1` (Iowa) - Default
+   - `us-east4` (Virginia)
+   - `us-west1` (Oregon)
+   - `europe-west1` (Belgium)
+   - `europe-west4` (Netherlands)
+   - `asia-northeast1` (Tokyo)
+   - `asia-southeast1` (Singapore)
+
+3. **Authentication Options** (choose one, in order of precedence):
+   - **Service Account JSON (Raw or Base64)** - Highest precedence:
+     ```bash
+     # Option A: Base64-encoded service account JSON
+     export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat service-account.json | base64)"
+     
+     # Option B: Raw JSON string (will be auto-detected)
+     export GOOGLE_APPLICATION_CREDENTIALS_JSON='{"type":"service_account",...}'
+     ```
    - **Service Account JSON File**:
      ```bash
      export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
      ```
-   - **Service Account JSON (Base64)**:
-     ```bash
-     export GOOGLE_APPLICATION_CREDENTIALS_JSON="<base64-encoded-service-account-json>"
-     ```
+   - **Application Default Credentials (ADC)**: Run `gcloud auth application-default login`
    
-   **Note**: If both file and JSON credentials are provided, JSON takes precedence and a warning will be logged.
+   **Credential Priority**: 
+   1. `GOOGLE_APPLICATION_CREDENTIALS_JSON` (base64 or raw JSON) - takes highest precedence
+   2. `GOOGLE_APPLICATION_CREDENTIALS` (file path)
+   3. Application Default Credentials (ADC)
+   
+   The example will automatically detect whether the JSON is base64-encoded or raw JSON and handle it accordingly.
 
 ## Available Examples
 
@@ -169,15 +188,18 @@ client, err := gemini.NewClient(ctx,
 
 ### Vertex AI Configuration
 ```go
+// Using Vertex AI with explicit region configuration
 client, err := gemini.NewClient(ctx,
     gemini.WithBackend(genai.BackendVertexAI),
     gemini.WithProjectID("your-gcp-project"),
-    gemini.WithLocation("us-central1"),
+    gemini.WithLocation("us-central1"),  // Specify the GCP region
     gemini.WithCredentialsJSON(credentialsBytes), // Takes precedence over file
     gemini.WithCredentialsFile("/path/to/service-account.json"),
     gemini.WithModel(gemini.ModelGemini25Flash),
 )
 ```
+
+**Region Configuration**: The `WithLocation()` option sets the GCP region for Vertex AI. If not specified, it defaults to `us-central1`. You can set this via the `GEMINI_VERTEX_REGION` environment variable in the examples.
 
 ### Credential Precedence (Vertex AI only)
 When using Vertex AI, you can provide credentials in multiple ways. If both are provided:

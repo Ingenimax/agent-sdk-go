@@ -160,13 +160,17 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 		option(client)
 	}
 
-	// If both credential options are provided, prefer JSON over file
-	if client.credentialsFile != "" && len(client.credentialsJSON) > 0 {
-		client.logger.Warn(context.Background(), "Both credentials file and JSON provided - preferring JSON credentials", map[string]interface{}{
-			"credentials_file_ignored": client.credentialsFile,
-		})
-		// Clear the file path to ensure JSON takes precedence
-		client.credentialsFile = ""
+	// Validate that only one credential type is provided
+	credentialTypesProvided := 0
+	if client.credentialsFile != "" {
+		credentialTypesProvided++
+	}
+	if len(client.credentialsJSON) > 0 {
+		credentialTypesProvided++
+	}
+
+	if credentialTypesProvided > 1 {
+		return nil, fmt.Errorf("only one credential type can be provided: choose between WithCredentialsFile or WithCredentialsJSON")
 	}
 
 	// If an existing client was injected, use it
@@ -193,18 +197,26 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 				return nil, fmt.Errorf("project ID, credentials file, credentials JSON, or API key are required for Vertex AI backend")
 			}
 
-			// Handle service account credentials (file or JSON)
+			// Handle service account credentials
 			if client.credentialsFile != "" {
+				// Handle service account credentials from file
 				creds, err := credentials.DetectDefault(&credentials.DetectOptions{
 					CredentialsFile: client.credentialsFile,
+					Scopes: []string{
+						"https://www.googleapis.com/auth/cloud-platform",
+					},
 				})
 				if err != nil {
 					return nil, fmt.Errorf("failed to load credentials from file: %w", err)
 				}
 				config.Credentials = creds
 			} else if len(client.credentialsJSON) > 0 {
+				// Handle service account credentials from JSON
 				creds, err := credentials.DetectDefault(&credentials.DetectOptions{
 					CredentialsJSON: client.credentialsJSON,
+					Scopes: []string{
+						"https://www.googleapis.com/auth/cloud-platform",
+					},
 				})
 				if err != nil {
 					return nil, fmt.Errorf("failed to load credentials from JSON: %w", err)

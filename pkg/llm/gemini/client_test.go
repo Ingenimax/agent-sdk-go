@@ -103,15 +103,10 @@ func TestNewClient(t *testing.T) {
 			checkFunc: nil,
 		},
 		{
-			name:      "Credentials precedence test - JSON takes precedence over file",
+			name:      "Both credentials file and JSON provided should error",
 			options:   []Option{WithAPIKey("test-api-key"), WithCredentialsFile("/path/to/file.json"), WithCredentialsJSON([]byte(`{"test": "json"}`))},
-			wantError: false,
-			checkFunc: func(t *testing.T, client *GeminiClient) {
-				// Verify that credentials file was cleared in favor of JSON
-				assert.Empty(t, client.credentialsFile, "Credentials file should be cleared when JSON is also provided")
-				assert.Equal(t, []byte(`{"test": "json"}`), client.credentialsJSON, "JSON credentials should be preserved")
-				assert.Equal(t, "test-api-key", client.apiKey, "API key should be preserved")
-			},
+			wantError: true,
+			checkFunc: nil,
 		},
 	}
 

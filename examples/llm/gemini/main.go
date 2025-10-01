@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -99,31 +100,78 @@ func main() {
 	fmt.Println("=================================")
 	fmt.Println()
 
+	// Environment variables for configuration:
+	//
+	// For Gemini API (free tier):
+	//   GEMINI_API_KEY - API key from https://aistudio.google.com/app/apikey
+	//
+	// For Vertex AI:
+	//   GEMINI_VERTEX_PROJECT_ID - GCP project ID
+	//   GEMINI_VERTEX_REGION - GCP region (default: us-central1)
+	//
+	// Vertex AI Authentication (priority order):
+	//   1. Service Account:
+	//      GOOGLE_APPLICATION_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS
+	//   2. Application Default Credentials (ADC)
+
 	// Get API key from environment
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	vertexProjectID := os.Getenv("GEMINI_VERTEX_PROJECT_ID")
+	vertexRegion := os.Getenv("GEMINI_VERTEX_REGION")
+	if vertexRegion == "" {
+		vertexRegion = "us-central1" // Default region
+	}
+
+	// Get credentials from environment (for Vertex AI)
+	credentialsJSON := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
 	if apiKey == "" && vertexProjectID == "" {
 		log.Fatal("GEMINI_API_KEY or GEMINI_VERTEX_PROJECT_ID environment variable is required. Get your API key from https://aistudio.google.com/app/apikey")
 	}
-	authOption := gemini.WithAPIKey(apiKey)
-	backendOption := gemini.WithBackend(genai.BackendGeminiAPI)
+
+	// Configure authentication and backend options
+	var authOptions []gemini.Option
 	if apiKey != "" {
-		authOption = gemini.WithAPIKey(apiKey)
-		backendOption = gemini.WithBackend(genai.BackendGeminiAPI)
-	}
-	if vertexProjectID != "" {
-		authOption = gemini.WithProjectID(vertexProjectID)
-		backendOption = gemini.WithBackend(genai.BackendVertexAI)
+		authOptions = []gemini.Option{
+			gemini.WithAPIKey(apiKey),
+			gemini.WithBackend(genai.BackendGeminiAPI),
+		}
+	} else if vertexProjectID != "" {
+		authOptions = []gemini.Option{
+			gemini.WithProjectID(vertexProjectID),
+			gemini.WithLocation(vertexRegion),
+			gemini.WithBackend(genai.BackendVertexAI),
+		}
+
+		// Add credentials based on what's available (priority: JSON > file > default)
+		if credentialsJSON != "" {
+			// Service account credentials from JSON
+			// Try to decode as base64 first, if that fails, use as raw JSON
+			decodedCreds, err := base64.StdEncoding.DecodeString(credentialsJSON)
+			if err != nil {
+				// Not base64, treat as raw JSON
+				authOptions = append(authOptions, gemini.WithCredentialsJSON([]byte(credentialsJSON)))
+				log.Println("Using raw JSON credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON")
+			} else {
+				authOptions = append(authOptions, gemini.WithCredentialsJSON(decodedCreds))
+				log.Println("Using base64-decoded credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON")
+			}
+		} else if credentialsFile != "" {
+			// Service account credentials from file
+			authOptions = append(authOptions, gemini.WithCredentialsFile(credentialsFile))
+			log.Printf("Using credentials file from GOOGLE_APPLICATION_CREDENTIALS: %s\n", credentialsFile)
+		} else {
+			// Fall back to Application Default Credentials (ADC)
+			log.Println("No explicit credentials provided, will try default credentials (ADC)")
+		}
 	}
 
 	ctx := context.Background()
 
-	// Create Gemini client
-	client, err := gemini.NewClient(
-		ctx,
-		authOption, backendOption,
-		gemini.WithModel(gemini.ModelGemini20Flash),
-	)
+	// Create Gemini client with authentication options
+	clientOptions := append(authOptions, gemini.WithModel(gemini.ModelGemini20Flash))
+	client, err := gemini.NewClient(ctx, clientOptions...)
 	if err != nil {
 		log.Fatalf("Failed to create Gemini client: %v", err)
 	}
@@ -157,13 +205,12 @@ func main() {
 	fmt.Println("=== Example 2b: Native Thinking Tokens ===")
 
 	// Create a new client with thinking enabled using a thinking-capable model
-	thinkingClient, err := gemini.NewClient(
-		ctx,
-		authOption, backendOption,
+	thinkingOptions := append(authOptions,
 		gemini.WithModel(gemini.ModelGemini25Flash),
 		gemini.WithThinking(true),
 		gemini.WithThinkingBudget(1000), // 1K thinking tokens
 	)
+	thinkingClient, err := gemini.NewClient(ctx, thinkingOptions...)
 	if err != nil {
 		log.Fatalf("Failed to create thinking client: %v", err)
 	}
@@ -311,12 +358,11 @@ func main() {
 		fmt.Println("=== Example 5b: Streaming with Native Thinking ===")
 
 		// Create thinking-enabled client for streaming
-		thinkingClient, err := gemini.NewClient(
-			ctx,
-			authOption, backendOption,
+		streamThinkingOptions := append(authOptions,
 			gemini.WithModel(gemini.ModelGemini25Flash),
 			gemini.WithDynamicThinking(), // Enable dynamic thinking
 		)
+		thinkingClient, err := gemini.NewClient(ctx, streamThinkingOptions...)
 		if err != nil {
 			log.Fatalf("Failed to create thinking client: %v", err)
 		}
