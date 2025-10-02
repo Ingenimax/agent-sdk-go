@@ -13,6 +13,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/retry"
 )
 
@@ -160,10 +161,13 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string, options ...i
 		option(params)
 	}
 
+	// Build prompt with memory context
+	finalPrompt := c.buildPromptWithMemory(ctx, prompt, params)
+
 	// Create request
 	req := GenerateRequest{
 		Model:  c.Model,
-		Prompt: prompt,
+		Prompt: finalPrompt,
 		Stream: false,
 		Options: &Options{
 			Temperature: params.LLMConfig.Temperature,
@@ -413,4 +417,9 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 	return func(options *interfaces.GenerateOptions) {
 		options.ResponseFormat = &format
 	}
+}
+
+// buildPromptWithMemory builds a prompt with memory context for prompt-based models
+func (c *OllamaClient) buildPromptWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) string {
+	return memory.BuildInlineHistoryPrompt(ctx, prompt, params.Memory, c.logger)
 }

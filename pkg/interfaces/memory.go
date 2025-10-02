@@ -4,10 +4,24 @@ import (
 	"context"
 )
 
+// MessageRole represents the role of a message sender
+type MessageRole string
+
+const (
+	// MessageRoleUser represents a user message
+	MessageRoleUser MessageRole = "user"
+	// MessageRoleAssistant represents an assistant message
+	MessageRoleAssistant MessageRole = "assistant"
+	// MessageRoleSystem represents a system message
+	MessageRoleSystem MessageRole = "system"
+	// MessageRoleTool represents a tool response message
+	MessageRoleTool MessageRole = "tool"
+)
+
 // Message represents a message in a conversation
 type Message struct {
-	// Role is the role of the message sender (e.g., "user", "assistant", "system", "tool")
-	Role string
+	// Role is the role of the message sender
+	Role MessageRole
 
 	// Content is the content of the message
 	Content string

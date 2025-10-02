@@ -49,7 +49,7 @@ func TestGenerate(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "test-model", req.Model)
-		assert.Equal(t, "test prompt", req.Prompt)
+		assert.Equal(t, "User: test prompt", req.Prompt)
 		assert.False(t, req.Stream)
 		assert.Equal(t, 0.8, req.Options.Temperature)
 
