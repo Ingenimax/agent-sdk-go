@@ -175,3 +175,33 @@ func (m *LLMMiddleware) Name() string {
 func (m *LLMMiddleware) SupportsStreaming() bool {
 	return m.llm.SupportsStreaming()
 }
+
+// GenerateStream implements interfaces.StreamingLLM.GenerateStream
+func (m *LLMMiddleware) GenerateStream(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (<-chan interfaces.StreamEvent, error) {
+	if !m.tracer.enabled || m.tracer.otelTracer == nil {
+		// If tracing is disabled, call the underlying LLM if it supports streaming
+		if streamingLLM, ok := m.llm.(interfaces.StreamingLLM); ok {
+			return streamingLLM.GenerateStream(ctx, prompt, options...)
+		}
+		return nil, fmt.Errorf("underlying LLM does not support streaming")
+	}
+
+	// Use the OTEL-based LLM middleware for streaming
+	otelMiddleware := NewOTELLLMMiddleware(m.llm, m.tracer.otelTracer)
+	return otelMiddleware.GenerateStream(ctx, prompt, options...)
+}
+
+// GenerateWithToolsStream implements interfaces.StreamingLLM.GenerateWithToolsStream
+func (m *LLMMiddleware) GenerateWithToolsStream(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (<-chan interfaces.StreamEvent, error) {
+	if !m.tracer.enabled || m.tracer.otelTracer == nil {
+		// If tracing is disabled, call the underlying LLM if it supports streaming
+		if streamingLLM, ok := m.llm.(interfaces.StreamingLLM); ok {
+			return streamingLLM.GenerateWithToolsStream(ctx, prompt, tools, options...)
+		}
+		return nil, fmt.Errorf("underlying LLM does not support streaming")
+	}
+
+	// Use the OTEL-based LLM middleware for streaming
+	otelMiddleware := NewOTELLLMMiddleware(m.llm, m.tracer.otelTracer)
+	return otelMiddleware.GenerateWithToolsStream(ctx, prompt, tools, options...)
+}
