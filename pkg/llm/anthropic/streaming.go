@@ -310,15 +310,25 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 		return nil
 	}
 
-	// Use retry executor if available
-	if c.retryExecutor != nil {
-		c.logger.Debug(ctx, "Using retry mechanism for Anthropic streaming request", map[string]interface{}{
-			"model": c.Model,
+	// Use vertex retry executor with multi-region support if available
+	if c.vertexRetryExecutor != nil {
+		c.logger.Info(ctx, "Using Vertex retry mechanism with region rotation for streaming", map[string]interface{}{
+			"model":          c.Model,
+			"current_region": c.VertexConfig.GetCurrentRegion(),
+		})
+		return c.vertexRetryExecutor.Execute(ctx, operation)
+	} else if c.retryExecutor != nil {
+		c.logger.Info(ctx, "Using standard retry mechanism for Anthropic streaming request", map[string]interface{}{
+			"model":                   c.Model,
+			"vertex_config_available": c.VertexConfig != nil,
 		})
 		return c.retryExecutor.Execute(ctx, operation)
+	} else {
+		c.logger.Debug(ctx, "No retry mechanism configured for streaming", map[string]interface{}{
+			"model": c.Model,
+		})
+		return operation()
 	}
-
-	return operation()
 }
 
 // GenerateWithToolsStream implements interfaces.StreamingLLM.GenerateWithToolsStream
