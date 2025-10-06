@@ -1,9 +1,9 @@
 module github.com/Ingenimax/agent-sdk-go
 
-go 1.24
+go 1.24.0
 
 require (
-	cloud.google.com/go/auth v0.16.3
+	cloud.google.com/go/auth v0.17.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-redis/redis/v8 v8.11.5
@@ -35,7 +35,7 @@ require (
 
 require (
 	cloud.google.com/go v0.121.2 // indirect
-	cloud.google.com/go/compute/metadata v0.7.0 // indirect
+	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
