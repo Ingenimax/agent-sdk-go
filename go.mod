@@ -8,10 +8,10 @@ require (
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/go-github/v45 v45.2.0
-	github.com/google/jsonschema-go v0.2.1-0.20250825175020-748c325cec76
+	github.com/google/jsonschema-go v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/modelcontextprotocol/go-sdk v0.3.1
+	github.com/modelcontextprotocol/go-sdk v1.0.0
 	github.com/openai/openai-go v1.12.0
 	github.com/openai/openai-go/v2 v2.7.0
 	github.com/rs/zerolog v1.34.0
