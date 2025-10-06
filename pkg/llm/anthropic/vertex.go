@@ -144,6 +144,11 @@ func (vc *VertexConfig) GetBaseURL() string {
 	if !vc.Enabled {
 		return ""
 	}
+
+	if vc.GetCurrentRegion() == "global" {
+		return "https://aiplatform.googleapis.com"
+	}
+
 	return fmt.Sprintf("https://%s-aiplatform.googleapis.com", vc.GetCurrentRegion())
 }
 
