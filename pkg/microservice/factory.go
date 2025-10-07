@@ -446,8 +446,8 @@ func convertGRPCResponseToAgentEvent(response *pb.RunStreamResponse) interfaces.
 
 // testGRPCHealth tests the gRPC health endpoint
 func (m *AgentMicroservice) testGRPCHealth() error {
-	// Create a gRPC connection with a short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// Create a gRPC connection with a longer timeout for complex agent initialization
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Create gRPC client for health check

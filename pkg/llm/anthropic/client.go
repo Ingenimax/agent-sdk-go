@@ -184,7 +184,7 @@ func NewClient(apiKey string, options ...Option) *AnthropicClient {
 		APIKey:     apiKey,
 		Model:      Claude37Sonnet,
 		BaseURL:    "https://api.anthropic.com",
-		HTTPClient: &http.Client{Timeout: 60 * time.Second},
+		HTTPClient: &http.Client{Timeout: 30 * time.Minute}, // 30 minutes for long-running streaming operations with retries
 		logger:     logging.New(),
 	}
 

@@ -47,8 +47,8 @@ func NewAgentTool(agent SubAgent) *AgentTool {
 		agent:       agent,
 		name:        fmt.Sprintf("%s_agent", agent.GetName()),
 		description: agent.GetDescription(),
-		timeout:     600 * time.Second, // Default timeout
-		logger:      logging.New(),     // Default logger
+		timeout:     12 * time.Minute, // 12 minutes - shorter than HTTP client timeout
+		logger:      logging.New(),    // Default logger
 	}
 }
 
