@@ -395,15 +395,26 @@ func (c *AnthropicClient) parseSSEStreamAndCapture(ctx context.Context, scanner 
 
 	// Check for scanner error
 	if err := scanner.Err(); err != nil {
-		// Log the error with more context
-		c.logger.Error(ctx, "Scanner error during SSE parsing", map[string]interface{}{
-			"error":           err.Error(),
-			"lines_processed": lineCount,
-		})
-		eventChan <- interfaces.StreamEvent{
-			Type:      interfaces.StreamEventError,
-			Error:     fmt.Errorf("scanner error after %d lines: %w", lineCount, err),
-			Timestamp: time.Now(),
+		// Check if the error is due to context cancellation
+		if ctx.Err() != nil {
+			// Context was cancelled - this is expected during retries
+			c.logger.Warn(ctx, "Scanner stopped due to context cancellation", map[string]interface{}{
+				"error":           err.Error(),
+				"context_error":   ctx.Err().Error(),
+				"lines_processed": lineCount,
+			})
+			// Don't send error event for context cancellation - it's expected
+		} else {
+			// Real scanner error
+			c.logger.Error(ctx, "Scanner error during SSE parsing", map[string]interface{}{
+				"error":           err.Error(),
+				"lines_processed": lineCount,
+			})
+			eventChan <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventError,
+				Error:     fmt.Errorf("scanner error after %d lines: %w", lineCount, err),
+				Timestamp: time.Now(),
+			}
 		}
 	}
 

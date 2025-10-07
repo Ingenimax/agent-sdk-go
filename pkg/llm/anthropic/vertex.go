@@ -401,69 +401,80 @@ func (e *VertexRetryExecutor) Execute(ctx context.Context, operation func() erro
 	var lastErr error
 	attempt := int32(0)
 	currentInterval := e.policy.InitialInterval
+	contextCancelled := false
 
 	for attempt < e.policy.MaximumAttempts {
+		// Check context but don't immediately return - just log it
 		select {
 		case <-ctx.Done():
-			e.logger.Debug(ctx, "Context cancelled during retry", map[string]interface{}{
-				"attempt": attempt,
-				"error":   ctx.Err(),
-			})
-			return ctx.Err()
+			if !contextCancelled {
+				contextCancelled = true
+				e.logger.Warn(ctx, "Context cancelled but continuing with retry attempts", map[string]interface{}{
+					"attempt": attempt,
+					"error":   ctx.Err(),
+				})
+			}
 		default:
-			currentRegion := e.vertexConfig.GetCurrentRegion()
-			e.logger.Debug(ctx, "Attempting operation", map[string]interface{}{
-				"attempt":      attempt + 1,
-				"max_attempts": e.policy.MaximumAttempts,
-				"region":       currentRegion,
-			})
+		}
 
-			if err := operation(); err == nil {
-				e.logger.Debug(ctx, "Operation succeeded", map[string]interface{}{
-					"attempt": attempt + 1,
+		currentRegion := e.vertexConfig.GetCurrentRegion()
+		e.logger.Debug(ctx, "Attempting operation", map[string]interface{}{
+			"attempt":      attempt + 1,
+			"max_attempts": e.policy.MaximumAttempts,
+			"region":       currentRegion,
+		})
+
+		if err := operation(); err == nil {
+			e.logger.Debug(ctx, "Operation succeeded", map[string]interface{}{
+				"attempt": attempt + 1,
+				"region":  currentRegion,
+			})
+			return nil
+		} else {
+			lastErr = err
+			attempt++
+
+			if attempt >= e.policy.MaximumAttempts {
+				e.logger.Debug(ctx, "Maximum attempts reached", map[string]interface{}{
+					"attempt": attempt,
+					"error":   err.Error(),
 					"region":  currentRegion,
 				})
-				return nil
-			} else {
-				lastErr = err
-				attempt++
+				break
+			}
 
-				if attempt >= e.policy.MaximumAttempts {
-					e.logger.Debug(ctx, "Maximum attempts reached", map[string]interface{}{
-						"attempt": attempt,
-						"error":   err.Error(),
-						"region":  currentRegion,
-					})
-					break
-				}
+			e.vertexConfig.RotateRegion()
+			nextRegion := e.vertexConfig.GetCurrentRegion()
 
-				e.vertexConfig.RotateRegion()
-				nextRegion := e.vertexConfig.GetCurrentRegion()
+			nextInterval := time.Duration(float64(currentInterval) * e.policy.BackoffCoefficient)
+			if nextInterval > e.policy.MaximumInterval {
+				nextInterval = e.policy.MaximumInterval
+			}
 
-				nextInterval := time.Duration(float64(currentInterval) * e.policy.BackoffCoefficient)
-				if nextInterval > e.policy.MaximumInterval {
-					nextInterval = e.policy.MaximumInterval
-				}
+			e.logger.Debug(ctx, "Operation failed, rotating region and scheduling retry", map[string]interface{}{
+				"attempt":          attempt,
+				"error":            err.Error(),
+				"current_region":   currentRegion,
+				"next_region":      nextRegion,
+				"current_interval": currentInterval,
+				"next_interval":    nextInterval,
+			})
 
-				e.logger.Debug(ctx, "Operation failed, rotating region and scheduling retry", map[string]interface{}{
-					"attempt":          attempt,
-					"error":            err.Error(),
-					"current_region":   currentRegion,
-					"next_region":      nextRegion,
-					"current_interval": currentInterval,
-					"next_interval":    nextInterval,
-				})
-
-				select {
-				case <-ctx.Done():
-					e.logger.Debug(ctx, "Context cancelled during retry delay", map[string]interface{}{
+			// Wait for retry interval, but don't fail on context cancellation
+			select {
+			case <-time.After(currentInterval):
+				currentInterval = nextInterval
+			case <-ctx.Done():
+				if !contextCancelled {
+					contextCancelled = true
+					e.logger.Warn(ctx, "Context cancelled during retry delay, but continuing", map[string]interface{}{
 						"attempt": attempt,
 						"error":   ctx.Err(),
 					})
-					return ctx.Err()
-				case <-time.After(currentInterval):
-					currentInterval = nextInterval
 				}
+				// Still wait a bit before retry even if context cancelled
+				time.Sleep(currentInterval)
+				currentInterval = nextInterval
 			}
 		}
 	}
