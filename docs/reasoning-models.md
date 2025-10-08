@@ -45,6 +45,27 @@ agent, err := agent.NewAgent(
 )
 ```
 
+### Reasoning Effort Control
+
+Reasoning models support the `reasoning_effort` parameter to control computational effort. Valid values: `"minimal"`, `"low"`, `"medium"`, `"high"`.
+
+```go
+// SDK automatically sets reasoning_effort for reasoning models
+if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+    req.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+}
+```
+
+**Example:**
+```go
+agent, err := agent.NewAgent(
+    agent.WithLLM(client),
+    agent.WithLLMConfig(interfaces.LLMConfig{
+        Reasoning: "low", // minimal, low, medium, or high
+    }),
+)
+```
+
 ### Parallel Tool Calls Auto-Configuration
 
 Reasoning models don't support parallel tool calls. The SDK automatically omits this parameter:
@@ -173,6 +194,7 @@ func isReasoningModel(model string) bool {
 3. **System Message Handling**: System messages handled appropriately for model type
 4. **Tool Configuration**: Sequential tool execution for reasoning models
 5. **Streaming Setup**: Appropriate streaming configuration for model capabilities
+6. **Reasoning Effort**: `reasoning_effort` parameter set for reasoning models (minimal/low/medium/high)
 
 ## Error Prevention
 
@@ -220,15 +242,16 @@ POST "https://api.openai.com/v1/chat/completions": 400 Bad Request {
     model=o4-mini
     temperature=1
     parallel_tools=false
+    reasoning_effort=low
 ```
 
 ## Best Practices
 
 1. **Let SDK Handle Parameters**: Don't try to manually configure reasoning model parameters
-2. **Enable Reasoning**: Use `EnableReasoning: true` for reasoning token support (when available)
+2. **Control Reasoning Effort**: Use `Reasoning: "low"` or `"medium"` to balance speed vs. quality
 3. **Sequential Tools**: Design tool workflows for sequential execution with reasoning models
 4. **Test Thoroughly**: Reasoning models may behave differently than standard models
-5. **Monitor Usage**: Reasoning models may have different pricing/usage patterns
+5. **Monitor Usage**: Higher reasoning effort will increase token usage and latency
 
 ## Future Reasoning Token Support
 
