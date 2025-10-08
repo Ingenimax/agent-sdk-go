@@ -509,7 +509,7 @@ func TestReasoningEffort(t *testing.T) {
 
 		// Send response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(openai.ChatCompletion{
+		_ = json.NewEncoder(w).Encode(openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{
 				{Message: openai.ChatCompletionMessage{Content: "test", Role: "assistant"}},
 			},
