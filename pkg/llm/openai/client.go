@@ -150,46 +150,8 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 
 	// Add system message if available
 	if params.SystemMessage != "" {
-		// If reasoning is enabled, enhance the system message
-		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			switch params.LLMConfig.Reasoning {
-			case "minimal":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
-			case "comprehensive":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
-			case "none":
-				params.SystemMessage = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-			default:
-				c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-			}
-		}
-
 		messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
-	} else if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		// If no system message but reasoning is enabled, create a system message just for reasoning
-		var systemMessage string
-		switch params.LLMConfig.Reasoning {
-		case "minimal":
-			systemMessage = "When responding, briefly explain your thought process."
-			c.logger.Debug(ctx, "Using minimal reasoning mode with default system message", nil)
-		case "comprehensive":
-			systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
-			c.logger.Debug(ctx, "Using comprehensive reasoning mode with default system message", nil)
-		case "none":
-			systemMessage = "Provide direct, concise answers without explaining your reasoning or showing calculations."
-			c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-		default:
-			c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-		}
-
-		if systemMessage != "" {
-			messages = append(messages, openai.SystemMessage(systemMessage))
-			c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
-		}
 	}
 
 	// Add user message
@@ -211,6 +173,11 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
 		if len(params.LLMConfig.StopSequences) > 0 {
 			req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
+		}
+		// Set reasoning effort for reasoning models
+		if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+			req.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+			c.logger.Debug(ctx, "Setting reasoning effort", map[string]interface{}{"reasoning_effort": params.LLMConfig.Reasoning})
 		}
 	}
 
@@ -240,11 +207,11 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 	var err error
 
 	operation := func() error {
-		var reasoningMode string
+		var reasoningEffort string
 		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			reasoningMode = params.LLMConfig.Reasoning
+			reasoningEffort = params.LLMConfig.Reasoning
 		} else {
-			reasoningMode = "none"
+			reasoningEffort = "none"
 		}
 
 		c.logger.Debug(ctx, "Executing OpenAI API request", map[string]interface{}{
@@ -256,7 +223,7 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 			"stop_sequences":    req.Stop,
 			"messages":          len(req.Messages),
 			"response_format":   params.ResponseFormat != nil,
-			"reasoning":         reasoningMode,
+			"reasoning_effort":  reasoningEffort,
 		})
 
 		resp, err = c.ChatService.Completions.New(ctx, req)
@@ -300,61 +267,6 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		params = llm.DefaultGenerateParams()
 	}
 
-	// Handle reasoning if specified
-	var systemMessage string
-	var hasSystemMessage bool
-
-	// Check for existing system message and apply reasoning if needed
-	for i, msg := range messages {
-		if msg.Role == "system" {
-			hasSystemMessage = true
-
-			// Apply reasoning to the system message if specified
-			if params.Reasoning != "" {
-				switch params.Reasoning {
-				case "minimal":
-					messages[i].Content = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", msg.Content)
-					c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
-				case "comprehensive":
-					messages[i].Content = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", msg.Content)
-					c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
-				case "none":
-					messages[i].Content = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", msg.Content)
-					c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-				default:
-					c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{
-						"reasoning": params.Reasoning,
-					})
-				}
-			}
-			break
-		}
-	}
-
-	// If no system message exists but reasoning is specified, create one
-	if !hasSystemMessage && params.Reasoning != "" {
-		switch params.Reasoning {
-		case "minimal":
-			systemMessage = "When responding, briefly explain your thought process."
-			c.logger.Debug(ctx, "Using minimal reasoning mode with default system message", nil)
-		case "comprehensive":
-			systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
-			c.logger.Debug(ctx, "Using comprehensive reasoning mode with default system message", nil)
-		case "none":
-			systemMessage = "Provide direct, concise answers without explaining your reasoning or showing calculations."
-			c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-		default:
-			c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{
-				"reasoning": params.Reasoning,
-			})
-		}
-
-		// Add system message if one was created
-		if systemMessage != "" {
-			messages = append([]llm.Message{{Role: "system", Content: systemMessage}}, messages...)
-		}
-	}
-
 	// Convert messages to the OpenAI Chat format
 	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
@@ -393,6 +305,12 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.StopSequences}
 	}
 
+	// Set reasoning effort for reasoning models
+	if isReasoningModel(c.Model) && params.Reasoning != "" {
+		req.ReasoningEffort = shared.ReasoningEffort(params.Reasoning)
+		c.logger.Debug(ctx, "Setting reasoning effort", map[string]interface{}{"reasoning_effort": params.Reasoning})
+	}
+
 	var resp *openai.ChatCompletion
 	var err error
 
@@ -405,7 +323,7 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 			"presence_penalty":  req.PresencePenalty,
 			"stop_sequences":    req.Stop,
 			"messages":          len(req.Messages),
-			"reasoning":         params.Reasoning,
+			"reasoning_effort":  params.Reasoning,
 		})
 
 		resp, err = c.ChatService.Completions.New(ctx, req)
@@ -527,46 +445,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Add system message if available
 	if params.SystemMessage != "" {
-		// If reasoning is enabled, enhance the system message
-		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			switch params.LLMConfig.Reasoning {
-			case "minimal":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, briefly explain your thought process.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using minimal reasoning mode", nil)
-			case "comprehensive":
-				params.SystemMessage = fmt.Sprintf("%s\n\nWhen responding, please think step-by-step and explain your complete reasoning process in detail.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using comprehensive reasoning mode", nil)
-			case "none":
-				params.SystemMessage = fmt.Sprintf("%s\n\nProvide direct, concise answers without explaining your reasoning or showing calculations.", params.SystemMessage)
-				c.logger.Debug(ctx, "Using no reasoning mode with explicit instruction", nil)
-			default:
-				c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-			}
-		}
-
 		messages = append(messages, openai.SystemMessage(params.SystemMessage))
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
-	} else if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		// If no system message but reasoning is enabled, create a system message just for reasoning
-		var systemMessage string
-		switch params.LLMConfig.Reasoning {
-		case "minimal":
-			systemMessage = "When responding, briefly explain your thought process."
-			c.logger.Debug(ctx, "Using minimal reasoning mode with default system message", nil)
-		case "comprehensive":
-			systemMessage = "When responding, please think step-by-step and explain your complete reasoning process in detail."
-			c.logger.Debug(ctx, "Using comprehensive reasoning mode with default system message", nil)
-		case "none":
-			// No system message needed
-			c.logger.Debug(ctx, "Using no reasoning mode", nil)
-		default:
-			c.logger.Warn(ctx, "Unknown reasoning mode, using default behavior", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-		}
-
-		if systemMessage != "" {
-			messages = append(messages, openai.SystemMessage(systemMessage))
-			c.logger.Debug(ctx, "Using system message for reasoning", map[string]interface{}{"system_message": systemMessage})
-		}
 	}
 
 	// Add user message
@@ -595,6 +475,12 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
 	}
 
+	// Set reasoning effort for reasoning models
+	if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+		req.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+		c.logger.Debug(ctx, "Setting reasoning effort", map[string]interface{}{"reasoning_effort": params.LLMConfig.Reasoning})
+	}
+
 	// Set response format if provided
 	if params.ResponseFormat != nil {
 		// Convert to the new API's response format structure
@@ -618,11 +504,11 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		req.Messages = messages
 
 		// Send request
-		var reasoningMode string
+		var reasoningEffort string
 		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-			reasoningMode = params.LLMConfig.Reasoning
+			reasoningEffort = params.LLMConfig.Reasoning
 		} else {
-			reasoningMode = "none"
+			reasoningEffort = "none"
 		}
 
 		c.logger.Debug(ctx, "Sending request with tools to OpenAI", map[string]interface{}{
@@ -636,7 +522,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			"tools":             len(req.Tools),
 			"response_format":   params.ResponseFormat != nil,
 			"parallel_tools":    req.ParallelToolCalls,
-			"reasoning":         reasoningMode,
+			"reasoning_effort":  reasoningEffort,
 			"iteration":         iteration + 1,
 			"maxIterations":     maxIterations,
 		})
@@ -1122,9 +1008,10 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 	}
 }
 
-// WithReasoning creates a GenerateOption to set the reasoning mode
-// reasoning can be "none" (direct answers), "minimal" (brief explanations),
-// or "comprehensive" (detailed step-by-step reasoning)
+// WithReasoning creates a GenerateOption to set the reasoning effort for reasoning models
+// For OpenAI reasoning models (o1, o3, o4, gpt-5 series), valid values are:
+// "minimal", "low", "medium", "high"
+// This parameter is only used with reasoning models and is ignored for standard models.
 func WithReasoning(reasoning string) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
 		if options.LLMConfig == nil {
