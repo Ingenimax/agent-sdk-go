@@ -160,6 +160,11 @@ func (c *AzureOpenAIClient) GenerateStream(
 					OfStringArray: params.LLMConfig.StopSequences,
 				}
 			}
+			// Set reasoning effort for reasoning models
+			if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+				streamParams.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+				c.logger.Debug(ctx, "Setting reasoning effort for streaming", map[string]interface{}{"reasoning_effort": params.LLMConfig.Reasoning})
+			}
 		}
 
 		// Log the request
@@ -494,6 +499,11 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 				}
 				if params.LLMConfig.PresencePenalty != 0 {
 					streamParams.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
+				}
+				// Set reasoning effort for reasoning models
+				if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+					streamParams.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+					c.logger.Debug(ctx, "Setting reasoning effort for tools streaming", map[string]interface{}{"reasoning_effort": params.LLMConfig.Reasoning})
 				}
 			}
 
@@ -855,6 +865,11 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 			}
 			if params.LLMConfig.PresencePenalty != 0 {
 				finalStreamParams.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
+			}
+			// Set reasoning effort for reasoning models
+			if isReasoningModel(c.Model) && params.LLMConfig.Reasoning != "" {
+				finalStreamParams.ReasoningEffort = shared.ReasoningEffort(params.LLMConfig.Reasoning)
+				c.logger.Debug(ctx, "Setting reasoning effort for final call", map[string]interface{}{"reasoning_effort": params.LLMConfig.Reasoning})
 			}
 		}
 
