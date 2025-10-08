@@ -478,3 +478,46 @@ func (m *mockTool) Execute(ctx context.Context, args string) (string, error) {
 func (m *mockTool) Run(ctx context.Context, input string) (string, error) {
 	return m.Execute(ctx, input)
 }
+
+func TestReasoningEffort(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse request body
+		var reqBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		// Verify reasoning_effort is present
+		if reqBody["reasoning_effort"] != "low" {
+			t.Errorf("Expected reasoning_effort 'low', got '%v'", reqBody["reasoning_effort"])
+		}
+
+		// Send response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{
+				{Message: openai.ChatCompletionMessage{Content: "test", Role: "assistant"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	// Create client
+	client := openai_client.NewClient("test-key",
+		openai_client.WithModel("gpt-5-mini"),
+		openai_client.WithLogger(logging.New()),
+	)
+	client.ChatService = openai.NewChatService(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL),
+	)
+
+	// Test with reasoning effort
+	_, err := client.Generate(context.Background(), "test",
+		openai_client.WithReasoning("low"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to generate: %v", err)
+	}
+}

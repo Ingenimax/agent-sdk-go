@@ -1,10 +1,16 @@
 package azureopenai
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
+	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/option"
 )
 
 func TestNewClient(t *testing.T) {
@@ -484,6 +490,49 @@ func TestConvertToOpenAISchema(t *testing.T) {
 		if enum[i] != val {
 			t.Errorf("Expected enum value %v at index %d, got %v", val, i, enum[i])
 		}
+	}
+}
+
+func TestReasoningEffort(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse request body
+		var reqBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		// Verify reasoning_effort is present
+		if reqBody["reasoning_effort"] != "low" {
+			t.Errorf("Expected reasoning_effort 'low', got '%v'", reqBody["reasoning_effort"])
+		}
+
+		// Send response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{
+				{Message: openai.ChatCompletionMessage{Content: "test", Role: "assistant"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewClient("test-key", server.URL, "gpt-5-mini",
+		WithModel("gpt-5-mini"),
+		WithLogger(logging.New()),
+	)
+	client.ChatService = openai.NewChatService(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL),
+	)
+
+	// Test with reasoning effort
+	_, err := client.Generate(context.Background(), "test",
+		WithReasoning("low"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to generate: %v", err)
 	}
 }
 
