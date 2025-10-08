@@ -88,7 +88,7 @@ func (v *VectorStoreRetriever) GetMessages(ctx context.Context, options ...inter
 		timestamp, _ := result.Document.Metadata["timestamp"].(float64)
 
 		messages = append(messages, interfaces.Message{
-			Role:    role,
+			Role:    interfaces.MessageRole(role),
 			Content: result.Document.Content,
 			Metadata: map[string]interface{}{
 				"timestamp": timestamp,

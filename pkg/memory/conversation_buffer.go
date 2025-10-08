@@ -90,7 +90,7 @@ func (c *ConversationBuffer) GetMessages(ctx context.Context, options ...interfa
 		var filtered []interfaces.Message
 		for _, msg := range messages {
 			for _, role := range opts.Roles {
-				if msg.Role == role {
+				if msg.Role == interfaces.MessageRole(role) {
 					filtered = append(filtered, msg)
 					break
 				}

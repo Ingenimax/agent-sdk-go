@@ -297,7 +297,7 @@ func (r *RedisMemory) GetMessages(ctx context.Context, options ...interfaces.Get
 		var filtered []interfaces.Message
 		for _, msg := range allMessages {
 			for _, role := range opts.Roles {
-				if msg.Role == role {
+				if msg.Role == interfaces.MessageRole(role) {
 					filtered = append(filtered, msg)
 					break
 				}
