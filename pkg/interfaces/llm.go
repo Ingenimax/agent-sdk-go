@@ -37,7 +37,7 @@ type LLMConfig struct {
 	FrequencyPenalty float64  // Frequency penalty for the generation
 	PresencePenalty  float64  // Presence penalty for the generation
 	StopSequences    []string // Stop sequences for the generation
-	Reasoning        string   // Reasoning mode (none, minimal, comprehensive) to control explanation detail
+	Reasoning        string   // Reasoning mode (minimal, low, medium, high) to control reasoning effort
 	EnableReasoning  bool     // Enable native reasoning tokens (Anthropic thinking/OpenAI o1)
 	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only)
 }
