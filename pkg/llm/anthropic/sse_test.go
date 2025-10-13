@@ -279,11 +279,6 @@ func TestGenerateWithMemory(t *testing.T) {
 			}
 		}
 
-		// Verify system message is separate
-		// if reqBody["system"] == nil {
-		// 	t.Error("Expected system message in separate system field")
-		// }
-
 		// Send mock response
 		w.Header().Set("Content-Type", "application/json")
 		response := map[string]interface{}{

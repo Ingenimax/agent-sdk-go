@@ -65,8 +65,14 @@ func TestConvertToHumanReadable(t *testing.T) {
 			wantNotContain: []string{"{", "}", `["Analyzing"]`},
 		},
 		{
-			name:           "mixed data types",
-			json:           `{"message":"Hello","count":42,"enabled":true,"score":95.5}`,
+			name:           "mixed data types 1",
+			json:           `{"message":"Hello","count":42,"enabled":true}`, // Iterating over object keys is random, so we need to make sure it's less than 4 fields
+			wantContains:   []string{"[AI:", "message: Hello"},
+			wantNotContain: []string{"{", "}", `"message"`},
+		},
+		{
+			name:           "mixed data types 2",
+			json:           `{"message":"Hello","count":42,"score":95.5}`, // Iterating over object keys is random, so we need to make sure it's less than 4 fields
 			wantContains:   []string{"[AI:", "message: Hello"},
 			wantNotContain: []string{"{", "}", `"message"`},
 		},
