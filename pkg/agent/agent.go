@@ -849,49 +849,6 @@ func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string,
 	return "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.", nil
 }
 
-// formatHistoryIntoPrompt formats conversation history into a prompt
-func formatHistoryIntoPrompt(history []interfaces.Message) string {
-	// Implementation depends on the LLM's expected format
-	var prompt string
-
-	// Format messages with clear role markers and proper separation
-	for i, msg := range history {
-		// Convert role to uppercase for clarity
-		var roleMarker string
-		switch msg.Role {
-		case "user":
-			roleMarker = "USER"
-		case "assistant":
-			roleMarker = "ASSISTANT"
-		case "tool":
-			roleMarker = "TOOL"
-		case "system":
-			roleMarker = "SYSTEM"
-		default:
-			roleMarker = strings.ToUpper(string(msg.Role))
-		}
-
-		// Handle assistant messages that contain structured JSON output
-		content := msg.Content
-		if msg.Role == "assistant" && isStructuredJSONResponse(content) {
-			// For structured JSON responses, convert to human-readable format instead of showing full JSON
-			// This prevents LLM confusion that leads to concatenated JSON responses
-			content = convertToHumanReadable(content)
-		}
-
-		// Add role marker and content
-		prompt += roleMarker + ": " + content
-
-		// Add double newline between messages for clear separation
-		// Except for the last message
-		if i < len(history)-1 {
-			prompt += "\n\n"
-		}
-	}
-
-	return prompt
-}
-
 // isStructuredJSONResponse checks if a message content is a structured JSON response
 func isStructuredJSONResponse(content string) bool {
 	trimmed := strings.TrimSpace(content)

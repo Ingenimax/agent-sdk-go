@@ -237,7 +237,7 @@ func (c *AzureOpenAIClient) Generate(ctx context.Context, prompt string, options
 		ctx = context.WithValue(ctx, organizationKey, orgID)
 	}
 
-	// Create request with system message if provided
+	// Build messages with memory and current prompt
 	messages := []openai.ChatCompletionMessageParamUnion{}
 
 	// Add system message if available
@@ -246,8 +246,9 @@ func (c *AzureOpenAIClient) Generate(ctx context.Context, prompt string, options
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 	}
 
-	// Add user message
-	messages = append(messages, openai.UserMessage(prompt))
+	// Add memory messages and current prompt
+	builder := newMessageHistoryBuilder(c.logger)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
 
 	// Create request - use deployment name as model for Azure OpenAI
 	req := openai.ChatCompletionNewParams{
@@ -536,7 +537,7 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 		})
 	}
 
-	// Create messages array with system message if provided
+	// Build messages with memory and current prompt
 	messages := []openai.ChatCompletionMessageParamUnion{}
 
 	// Track tool call repetitions for loop detection
@@ -549,8 +550,9 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 	}
 
-	// Add user message
-	messages = append(messages, openai.UserMessage(prompt))
+	// Add memory messages and current prompt
+	builder := newMessageHistoryBuilder(c.logger)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
 
 	// Create request - use deployment name as model for Azure OpenAI
 	req := openai.ChatCompletionNewParams{

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/calculator"
 )
 
@@ -22,6 +23,8 @@ func TestSubAgentsIntegration(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	ctx = multitenancy.WithOrgID(ctx, "test-org")
+	ctx = memory.WithConversationID(ctx, "test-conversation")
 	llm := openai.NewClient(apiKey)
 
 	// Create a math sub-agent
@@ -32,6 +35,7 @@ func TestSubAgentsIntegration(t *testing.T) {
 		WithMemory(memory.NewConversationBuffer()),
 		WithTools(calculator.New()),
 		WithSystemPrompt("You are a math expert. Solve mathematical problems accurately."),
+		WithRequirePlanApproval(false),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create math agent: %v", err)
@@ -44,6 +48,7 @@ func TestSubAgentsIntegration(t *testing.T) {
 		WithLLM(llm),
 		WithMemory(memory.NewConversationBuffer()),
 		WithSystemPrompt("You are a helpful general assistant."),
+		WithRequirePlanApproval(false),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create general agent: %v", err)
@@ -60,6 +65,7 @@ func TestSubAgentsIntegration(t *testing.T) {
 		Use GeneralAgent_agent for general questions.
 		Delegate tasks appropriately based on the query.`),
 		WithMaxIterations(2),
+		WithRequirePlanApproval(false),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create main agent: %v", err)
@@ -83,7 +89,10 @@ func TestSubAgentsIntegration(t *testing.T) {
 	// Uncomment to test with real API calls
 	// response, err := mainAgent.Run(ctx, "What is 25 + 37?")
 	// if err != nil {
-	//     t.Fatalf("Failed to run agent: %v", err)
+	// 	t.Fatalf("Failed to run agent: %v", err)
+	// }
+	// if !strings.Contains(response, "62") {
+	// 	t.Errorf("Expected response to contain '62', got %s", response)
 	// }
 	// t.Logf("Response: %s", response)
 }

@@ -154,8 +154,9 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
 	}
 
-	// Add memory messages and current prompt
-	messages = c.buildMessagesWithMemory(ctx, prompt, params, messages)
+	// Build messages using unified builder
+	builder := newMessageHistoryBuilder(c.logger)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
 
 	// Create request
 	req := openai.ChatCompletionNewParams{
@@ -437,7 +438,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Build messages with memory and current prompt
-	messages := c.buildMessagesWithMemory(ctx, prompt, params, []openai.ChatCompletionMessageParamUnion{})
+	builder := newMessageHistoryBuilder(c.logger)
+	messages := builder.buildMessages(ctx, prompt, params.Memory)
 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)
@@ -1016,78 +1018,4 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 		}
 		options.LLMConfig.Reasoning = reasoning
 	}
-}
-
-// buildMessagesWithMemory builds OpenAI messages from memory and current prompt
-func (c *OpenAIClient) buildMessagesWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions, messages []openai.ChatCompletionMessageParamUnion) []openai.ChatCompletionMessageParamUnion {
-	// Retrieve and add memory messages if available
-	if params.Memory != nil {
-		memoryMessages, err := params.Memory.GetMessages(ctx)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Convert memory messages to OpenAI format, ensuring system messages come first
-			var systemMessages []openai.ChatCompletionMessageParamUnion
-			var otherMessages []openai.ChatCompletionMessageParamUnion
-
-			for _, msg := range memoryMessages {
-				switch msg.Role {
-				case interfaces.MessageRoleUser:
-					otherMessages = append(otherMessages, openai.UserMessage(msg.Content))
-				case interfaces.MessageRoleAssistant:
-					if len(msg.ToolCalls) > 0 {
-						// Assistant message with tool calls - create a temporary message and convert it
-						var toolCalls []openai.ChatCompletionMessageToolCallUnion
-
-						for _, toolCall := range msg.ToolCalls {
-							toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnion{
-								ID: toolCall.ID,
-								Function: openai.ChatCompletionMessageFunctionToolCallFunction{
-									Name:      toolCall.Name,
-									Arguments: toolCall.Arguments,
-								},
-							})
-						}
-
-						// Create a temporary ChatCompletionMessage and convert it to param
-						tempMessage := openai.ChatCompletionMessage{
-							Role:      "assistant",
-							Content:   msg.Content,
-							ToolCalls: toolCalls,
-						}
-						otherMessages = append(otherMessages, tempMessage.ToParam())
-					} else if msg.Content != "" {
-						// Regular assistant message
-						otherMessages = append(otherMessages, openai.AssistantMessage(msg.Content))
-					}
-				case interfaces.MessageRoleTool:
-					// Always add tool messages, use ToolCallID if available, otherwise generate one
-					toolCallID := msg.ToolCallID
-					if toolCallID == "" {
-						toolCallID = "call_" + fmt.Sprintf("%d", len(otherMessages))
-					}
-					otherMessages = append(otherMessages, openai.ToolMessage(msg.Content, toolCallID))
-				case interfaces.MessageRoleSystem:
-					// Only add system messages if not reasoning model
-					if !isReasoningModel(c.Model) {
-						systemMessages = append(systemMessages, openai.SystemMessage(msg.Content))
-					}
-				}
-			}
-
-			// Add system messages first, then other messages
-			messages = append(messages, systemMessages...)
-			messages = append(messages, otherMessages...)
-		}
-	}
-
-	// Add current user message only if no memory is provided
-	// If memory is provided, the current prompt should already be in memory
-	if params.Memory == nil {
-		messages = append(messages, openai.UserMessage(prompt))
-	}
-
-	return messages
 }

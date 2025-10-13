@@ -36,66 +36,9 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	}
 	_ = orgID
 
-	// Build contents starting with memory context
-	contents := []*genai.Content{}
-
-	// Retrieve and add memory messages if available
-	if params.Memory != nil {
-		memoryMessages, err := params.Memory.GetMessages(ctx)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Convert memory messages to Gemini format
-			for _, msg := range memoryMessages {
-				switch msg.Role {
-				case "user":
-					contents = append(contents, &genai.Content{
-						Role:  "user",
-						Parts: []*genai.Part{{Text: msg.Content}},
-					})
-				case "assistant":
-					if msg.Content != "" {
-						contents = append(contents, &genai.Content{
-							Role:  "model",
-							Parts: []*genai.Part{{Text: msg.Content}},
-						})
-					}
-				case "tool":
-					// Tool messages in Gemini are handled as function responses
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
-						}
-						contents = append(contents, &genai.Content{
-							Role: "user",
-							Parts: []*genai.Part{
-								{
-									FunctionResponse: &genai.FunctionResponse{
-										Name: toolName,
-										Response: map[string]any{
-											"result": msg.Content,
-										},
-									},
-								},
-							},
-						})
-					}
-					// Skip system messages as they're handled separately in Gemini
-				}
-			}
-		}
-	}
-
-	// Add current user message
-	contents = append(contents, &genai.Content{
-		Role:  "user",
-		Parts: []*genai.Part{{Text: prompt}},
-	})
+	// Build contents using unified builder
+	builder := newMessageHistoryBuilder(c.logger)
+	contents := builder.buildContents(ctx, prompt, params)
 
 	// Add system instruction if provided or if reasoning is specified
 	var systemInstruction *genai.Content
@@ -296,14 +239,6 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 				Content: prompt,
 			})
 
-			// Store system message if provided
-			if params.SystemMessage != "" {
-				_ = params.Memory.AddMessage(ctx, interfaces.Message{
-					Role:    "system",
-					Content: params.SystemMessage,
-				})
-			}
-
 			// Store accumulated assistant response
 			if accumulatedContent.Len() > 0 {
 				_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -456,66 +391,9 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 	// Track tool calls for clean loop continuation
 
-	// Build contents starting with memory context
-	contents := []*genai.Content{}
-
-	// Retrieve and add memory messages if available
-	if params.Memory != nil {
-		memoryMessages, err := params.Memory.GetMessages(ctx)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Convert memory messages to Gemini format
-			for _, msg := range memoryMessages {
-				switch msg.Role {
-				case "user":
-					contents = append(contents, &genai.Content{
-						Role:  "user",
-						Parts: []*genai.Part{{Text: msg.Content}},
-					})
-				case "assistant":
-					if msg.Content != "" {
-						contents = append(contents, &genai.Content{
-							Role:  "model",
-							Parts: []*genai.Part{{Text: msg.Content}},
-						})
-					}
-				case "tool":
-					// Tool messages in Gemini are handled as function responses
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
-						}
-						contents = append(contents, &genai.Content{
-							Role: "user",
-							Parts: []*genai.Part{
-								{
-									FunctionResponse: &genai.FunctionResponse{
-										Name: toolName,
-										Response: map[string]any{
-											"result": msg.Content,
-										},
-									},
-								},
-							},
-						})
-					}
-					// Skip system messages as they're handled separately in Gemini
-				}
-			}
-		}
-	}
-
-	// Add current user message
-	contents = append(contents, &genai.Content{
-		Role:  "user",
-		Parts: []*genai.Part{{Text: prompt}},
-	})
+	// Build contents using unified builder
+	builder := newMessageHistoryBuilder(c.logger)
+	contents := builder.buildContents(ctx, prompt, params)
 
 	// Store initial messages in memory (only new user message and system message)
 	if params.Memory != nil {
@@ -523,13 +401,6 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			Role:    "user",
 			Content: prompt,
 		})
-
-		if params.SystemMessage != "" {
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "system",
-				Content: params.SystemMessage,
-			})
-		}
 	}
 
 	// Add system instruction if provided

@@ -50,57 +50,9 @@ func (c *AnthropicClient) GenerateStream(
 		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
 	}
 
-	// Build messages starting with memory context
-	messages := []Message{}
-
-	// Retrieve and add memory messages if available
-	if params.Memory != nil {
-		memoryMessages, err := params.Memory.GetMessages(ctx)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Convert memory messages to Anthropic format
-			for _, msg := range memoryMessages {
-				switch msg.Role {
-				case "user":
-					messages = append(messages, Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				case "assistant":
-					if msg.Content != "" {
-						messages = append(messages, Message{
-							Role:    "assistant",
-							Content: msg.Content,
-						})
-					}
-				case "tool":
-					// Tool messages in Anthropic are handled as user messages with tool results
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
-						}
-						messages = append(messages, Message{
-							Role:    "user",
-							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
-						})
-					}
-					// Skip system messages as they're handled separately in Anthropic
-				}
-			}
-		}
-	}
-
-	// Add current user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: prompt,
-	})
+	// Build messages using unified builder
+	builder := newMessageHistoryBuilder(c.logger)
+	messages := builder.buildMessages(ctx, prompt, params)
 
 	// Create request with streaming enabled
 	// Note: MaxTokens must be greater than reasoning budget_tokens
@@ -466,57 +418,9 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	params *interfaces.GenerateOptions,
 	eventChan chan<- interfaces.StreamEvent,
 ) error {
-	// Build messages starting with memory context
-	messages := []Message{}
-
-	// Retrieve and add memory messages if available
-	if params.Memory != nil {
-		memoryMessages, err := params.Memory.GetMessages(ctx)
-		if err != nil {
-			c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			// Convert memory messages to Anthropic format
-			for _, msg := range memoryMessages {
-				switch msg.Role {
-				case "user":
-					messages = append(messages, Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				case "assistant":
-					if msg.Content != "" {
-						messages = append(messages, Message{
-							Role:    "assistant",
-							Content: msg.Content,
-						})
-					}
-				case "tool":
-					// Tool messages in Anthropic are handled as user messages with tool results
-					if msg.ToolCallID != "" {
-						toolName := "unknown"
-						if msg.Metadata != nil {
-							if name, ok := msg.Metadata["tool_name"].(string); ok {
-								toolName = name
-							}
-						}
-						messages = append(messages, Message{
-							Role:    "user",
-							Content: fmt.Sprintf("Tool %s result: %s", toolName, msg.Content),
-						})
-					}
-					// Skip system messages as they're handled separately in Anthropic
-				}
-			}
-		}
-	}
-
-	// Add current user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: prompt,
-	})
+	// Build messages using unified builder
+	builder := newMessageHistoryBuilder(c.logger)
+	messages := builder.buildMessages(ctx, prompt, params)
 
 	// Store initial messages in memory (only new user message and system message)
 	if params.Memory != nil {
@@ -524,13 +428,6 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			Role:    "user",
 			Content: prompt,
 		})
-
-		if params.SystemMessage != "" {
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "system",
-				Content: params.SystemMessage,
-			})
-		}
 	}
 
 	// Get maxIterations from params

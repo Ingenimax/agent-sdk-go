@@ -133,55 +133,6 @@ func TestConvertToHumanReadable(t *testing.T) {
 	}
 }
 
-func TestConversationHistoryFormatting(t *testing.T) {
-	tests := []struct {
-		name     string
-		history  []interfaces.Message
-		wantJSON bool
-	}{
-		{
-			name: "json response gets summarized",
-			history: []interfaces.Message{
-				{Role: "user", Content: "Deploy the model"},
-				{Role: "assistant", Content: `{"reasoning":["Analyzing deployment request"],"status":"active"}`},
-				{Role: "user", Content: "Use GCP"},
-			},
-			wantJSON: false,
-		},
-		{
-			name: "plain text response unchanged",
-			history: []interfaces.Message{
-				{Role: "user", Content: "Hello"},
-				{Role: "assistant", Content: "Hi there!"},
-			},
-			wantJSON: false,
-		},
-		{
-			name: "tool messages unchanged",
-			history: []interfaces.Message{
-				{Role: "tool", Content: `{"result": "success"}`},
-			},
-			wantJSON: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			formatted := formatHistoryIntoPrompt(tt.history)
-
-			if tt.wantJSON {
-				if !strings.Contains(formatted, "{") {
-					t.Error("formatHistoryIntoPrompt() should preserve JSON in tool messages")
-				}
-			} else {
-				if strings.Contains(formatted, `"reasoning":`) {
-					t.Error("formatHistoryIntoPrompt() should not contain raw JSON from assistant messages")
-				}
-			}
-		})
-	}
-}
-
 type mockLLMForIntegration struct {
 	callCount int
 }
@@ -264,17 +215,34 @@ func TestJSONConcatenationPrevention(t *testing.T) {
 		t.Errorf("Expected single JSON object, got %d objects in: %s", jsonCount, response2)
 	}
 
-	// Verify conversation history contains summaries
+	// Verify conversation history contains the actual responses
 	history, err := conversationMemory.GetMessages(ctx)
 	if err != nil {
 		t.Fatalf("GetMessages() error = %v", err)
 	}
 
-	formatted := formatHistoryIntoPrompt(history)
-	if strings.Contains(formatted, `"task":"analyze"`) {
-		t.Error("Conversation history should not contain raw JSON")
+	// Check that we have the expected number of messages
+	if len(history) < 4 {
+		t.Errorf("Expected at least 4 messages in history, got %d", len(history))
 	}
-	if !strings.Contains(formatted, "[AI:") {
-		t.Error("Conversation history should contain summarized responses")
+
+	// Verify that assistant messages contain the expected responses
+	assistantMessages := 0
+	for _, msg := range history {
+		if msg.Role == interfaces.MessageRoleAssistant {
+			assistantMessages++
+			// The first response should contain "analyze" task
+			if assistantMessages == 1 && !strings.Contains(msg.Content, "analyze") {
+				t.Errorf("First assistant message should contain 'analyze', got: %s", msg.Content)
+			}
+			// The second response should contain "respond" task
+			if assistantMessages == 2 && !strings.Contains(msg.Content, "respond") {
+				t.Errorf("Second assistant message should contain 'respond', got: %s", msg.Content)
+			}
+		}
+	}
+
+	if assistantMessages != 2 {
+		t.Errorf("Expected 2 assistant messages, got %d", assistantMessages)
 	}
 }

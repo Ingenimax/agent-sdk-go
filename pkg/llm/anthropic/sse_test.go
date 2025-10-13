@@ -255,25 +255,6 @@ func TestContentBlockDeltaData(t *testing.T) {
 	}
 }
 
-// mockMemory is a simple in-memory implementation for testing
-type mockMemory struct {
-	messages []interfaces.Message
-}
-
-func (m *mockMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
-	m.messages = append(m.messages, message)
-	return nil
-}
-
-func (m *mockMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
-	return m.messages, nil
-}
-
-func (m *mockMemory) Clear(ctx context.Context) error {
-	m.messages = nil
-	return nil
-}
-
 func TestGenerateWithMemory(t *testing.T) {
 	// Test memory message ordering with a mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -289,8 +270,8 @@ func TestGenerateWithMemory(t *testing.T) {
 			t.Fatalf("Expected messages array in request")
 		}
 
-		// We expect 4 messages: user, assistant, current user (system goes to separate field in Anthropic)
-		if len(messages) != 3 { // System is skipped
+		// We expect 4 messages: system->user, user, assistant, current user
+		if len(messages) != 4 {
 			t.Errorf("Expected 4 messages in request, got %d", len(messages))
 			// Debug: print the messages
 			for i, msg := range messages {
@@ -332,7 +313,7 @@ func TestGenerateWithMemory(t *testing.T) {
 			{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
 			{Role: interfaces.MessageRoleUser, Content: "Hi"},
 			{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
-			{Role: interfaces.MessageRoleUser, Content: "How are you?"}, // Current prompt should be in memory
+			{Role: interfaces.MessageRoleUser, Content: "How are you?"},
 		},
 	}
 
