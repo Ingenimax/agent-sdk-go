@@ -932,12 +932,7 @@ func (c *GeminiClient) streamResponse(ctx context.Context, response string, even
 			return
 		}
 
-		// Add small delay to simulate streaming
-		select {
-		case <-time.After(50 * time.Millisecond):
-		case <-ctx.Done():
-			return
-		}
+		// No artificial delay - stream at real speed
 	}
 }
 
@@ -959,61 +954,94 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 		"filterContent": filterContent,
 	})
 
-	// Generate content with tools
-	result, err := c.genaiClient.Models.GenerateContent(ctx, c.model, contents, config)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to generate content: %w", err)
-	}
-
-	if len(result.Candidates) == 0 {
-		return nil, false, fmt.Errorf("no candidates returned")
-	}
-
-	candidate := result.Candidates[0]
-	if candidate.Content == nil {
-		return nil, false, fmt.Errorf("no content in candidate")
-	}
-
-	// Process each part in the content
-	for _, part := range candidate.Content.Parts {
-		if part.FunctionCall != nil {
-			// This is a tool call - capture it
-			argsBytes, _ := json.Marshal(part.FunctionCall.Args)
-			toolCall := interfaces.ToolCall{
-				ID:        fmt.Sprintf("gemini_tool_%s", part.FunctionCall.Name),
-				Name:      part.FunctionCall.Name,
-				Arguments: string(argsBytes),
-			}
-			toolCalls = append(toolCalls, toolCall)
-
-			// Send tool use event to stream
-			select {
-			case eventCh <- interfaces.StreamEvent{
-				Type:      interfaces.StreamEventToolUse,
-				Timestamp: time.Now(),
-				ToolCall:  &toolCall,
-			}:
-			case <-ctx.Done():
-				return nil, false, ctx.Err()
-			}
-		} else if part.Text != "" {
-			// This is content
-			hasContent = true
-			contentEvent := interfaces.StreamEvent{
-				Type:      interfaces.StreamEventContentDelta,
-				Content:   part.Text,
-				Timestamp: time.Now(),
+	// Add thinking configuration if supported and enabled
+	if SupportsThinking(c.model) && c.thinkingConfig != nil {
+		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
+			config.ThinkingConfig = &genai.ThinkingConfig{
+				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
+				ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
 			}
 
-			if filterContent && capturedEvents != nil {
-				// Capture content for potential replay later
-				*capturedEvents = append(*capturedEvents, contentEvent)
-			} else {
-				// Stream content immediately
-				select {
-				case eventCh <- contentEvent:
-				case <-ctx.Done():
-					return nil, false, ctx.Err()
+			c.logger.Debug(ctx, "Enabled thinking configuration for tool streaming", map[string]interface{}{
+				"includeThoughts": c.thinkingConfig.IncludeThoughts,
+				"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
+			})
+		}
+	}
+
+	// Generate content with tools using streaming
+	streamIter := c.genaiClient.Models.GenerateContentStream(ctx, c.model, contents, config)
+
+	for response, err := range streamIter {
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to generate content stream: %w", err)
+		}
+
+		// Process each candidate in the response
+		for _, candidate := range response.Candidates {
+			if candidate.Content == nil {
+				continue
+			}
+
+			// Process each part in the content
+			for _, part := range candidate.Content.Parts {
+				if part.FunctionCall != nil {
+					// This is a tool call - capture it
+					argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+					toolCall := interfaces.ToolCall{
+						ID:        fmt.Sprintf("gemini_tool_%s", part.FunctionCall.Name),
+						Name:      part.FunctionCall.Name,
+						Arguments: string(argsBytes),
+					}
+					toolCalls = append(toolCalls, toolCall)
+
+					// Send tool use event to stream
+					select {
+					case eventCh <- interfaces.StreamEvent{
+						Type:      interfaces.StreamEventToolUse,
+						Timestamp: time.Now(),
+						ToolCall:  &toolCall,
+					}:
+					case <-ctx.Done():
+						return nil, false, ctx.Err()
+					}
+				} else if part.Text != "" {
+					// Check if this is thinking content
+					if part.Thought {
+						// Send thinking event
+						select {
+						case eventCh <- interfaces.StreamEvent{
+							Type:      interfaces.StreamEventThinking,
+							Content:   part.Text,
+							Timestamp: time.Now(),
+							Metadata: map[string]interface{}{
+								"thought_signature": part.ThoughtSignature,
+							},
+						}:
+						case <-ctx.Done():
+							return nil, false, ctx.Err()
+						}
+					} else {
+						// This is content
+						hasContent = true
+						contentEvent := interfaces.StreamEvent{
+							Type:      interfaces.StreamEventContentDelta,
+							Content:   part.Text,
+							Timestamp: time.Now(),
+						}
+
+						if filterContent && capturedEvents != nil {
+							// Capture content for potential replay later
+							*capturedEvents = append(*capturedEvents, contentEvent)
+						} else {
+							// Stream content immediately
+							select {
+							case eventCh <- contentEvent:
+							case <-ctx.Done():
+								return nil, false, ctx.Err()
+							}
+						}
+					}
 				}
 			}
 		}
