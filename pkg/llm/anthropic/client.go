@@ -375,13 +375,8 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		ctx = multitenancy.WithOrgID(ctx, defaultOrgID)
 	}
 
-	// Create request with messages
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
+	// Build messages with memory and current prompt
+	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
 	// Handle structured output if requested
 	if params.ResponseFormat != nil {
@@ -942,13 +937,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)
 
-	// Create messages array with user message
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
+	// Build messages with memory and current prompt
+	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
@@ -1884,4 +1874,10 @@ func extractJSONFromResponse(response string) string {
 func isValidJSONStart(s string) bool {
 	s = strings.TrimSpace(s)
 	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
+}
+
+// buildMessagesWithMemory builds Anthropic messages from memory and current prompt
+func (c *AnthropicClient) buildMessagesWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) []Message {
+	builder := newMessageHistoryBuilder(c.logger)
+	return builder.buildMessages(ctx, prompt, params)
 }

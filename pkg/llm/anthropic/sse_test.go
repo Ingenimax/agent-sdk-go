@@ -1,11 +1,15 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
 func TestParseSSELine(t *testing.T) {
@@ -248,5 +252,71 @@ func TestContentBlockDeltaData(t *testing.T) {
 
 	if blockDelta.Delta.Type != "text_delta" {
 		t.Errorf("Expected delta type 'text_delta', got '%s'", blockDelta.Delta.Type)
+	}
+}
+
+func TestGenerateWithMemory(t *testing.T) {
+	// Test memory message ordering with a mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse request body to validate messages
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		// Verify messages array
+		messages, ok := reqBody["messages"].([]interface{})
+		if !ok {
+			t.Fatalf("Expected messages array in request")
+		}
+
+		// We expect 4 messages: system->user, user, assistant, current user
+		if len(messages) != 4 {
+			t.Errorf("Expected 4 messages in request, got %d", len(messages))
+			// Debug: print the messages
+			for i, msg := range messages {
+				t.Logf("Message %d: %+v", i, msg)
+			}
+		}
+
+		// Send mock response
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"text": "test response", "type": "text"},
+			},
+			"id":    "msg_123",
+			"model": "claude-3-sonnet-20240229",
+			"role":  "assistant",
+			"type":  "message",
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Fatalf("Failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	// Create client with test server
+	client := NewClient(
+		"test-key",
+		WithBaseURL(server.URL),
+		WithLogger(logging.New()),
+	)
+
+	memory := &mockMemory{
+		messages: []interfaces.Message{
+			{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
+			{Role: interfaces.MessageRoleUser, Content: "Hi"},
+			{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+			{Role: interfaces.MessageRoleUser, Content: "How are you?"},
+		},
+	}
+
+	// Test Generate with memory
+	_, err := client.Generate(context.Background(), "How are you?",
+		interfaces.WithMemory(memory))
+
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
 	}
 }

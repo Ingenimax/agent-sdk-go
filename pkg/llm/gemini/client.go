@@ -263,17 +263,8 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
 
-	// Build the request content
-	parts := []*genai.Part{
-		{Text: prompt},
-	}
-
-	contents := []*genai.Content{
-		{
-			Role:  "user",
-			Parts: parts,
-		},
-	}
+	// Build contents with memory and current prompt
+	contents := c.buildContentsWithMemory(ctx, prompt, params)
 
 	// Add system instruction if provided or if reasoning is specified
 	var systemInstruction *genai.Content
@@ -570,8 +561,8 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 		geminiTools = append(geminiTools, functionDeclaration)
 	}
 
-	// Create contents array starting with system message if provided
-	contents := []*genai.Content{}
+	// Build contents with memory and current prompt
+	contents := c.buildContentsWithMemory(ctx, prompt, params)
 	var systemInstruction *genai.Content
 
 	// Track tool call repetitions for loop detection
@@ -605,14 +596,6 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": systemMessage})
 	}
-
-	// Add user message
-	contents = append(contents, &genai.Content{
-		Role: "user",
-		Parts: []*genai.Part{
-			{Text: prompt},
-		},
-	})
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
@@ -1078,4 +1061,10 @@ func (c *GeminiClient) SupportsStreaming() bool {
 // GetModel returns the model name being used
 func (c *GeminiClient) GetModel() string {
 	return c.model
+}
+
+// buildContentsWithMemory builds Gemini contents from memory messages and current prompt
+func (c *GeminiClient) buildContentsWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) []*genai.Content {
+	builder := newMessageHistoryBuilder(c.logger)
+	return builder.buildContents(ctx, prompt, params)
 }

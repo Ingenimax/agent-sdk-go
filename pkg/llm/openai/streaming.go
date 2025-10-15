@@ -50,69 +50,9 @@ func (c *OpenAIClient) GenerateStream(
 	go func() {
 		defer close(eventChan)
 
-		// Build messages starting with memory context
-		messages := []openai.ChatCompletionMessageParamUnion{}
-
-		// Add system message first (if reasoning model allows it)
-		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
-			messages = append(messages, openai.SystemMessage(params.SystemMessage))
-		}
-
-		// Retrieve and add memory messages if available
-		if params.Memory != nil {
-			memoryMessages, err := params.Memory.GetMessages(ctx)
-			if err != nil {
-				c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-					"error": err.Error(),
-				})
-			} else {
-				// Convert memory messages to OpenAI format
-				for _, msg := range memoryMessages {
-					switch msg.Role {
-					case "user":
-						messages = append(messages, openai.UserMessage(msg.Content))
-					case "assistant":
-						// Handle assistant messages with tool calls properly
-						if len(msg.ToolCalls) > 0 {
-							// Create assistant message with tool calls
-							assistantMsg := openai.ChatCompletionMessage{
-								Role:    "assistant",
-								Content: msg.Content,
-							}
-
-							// Convert tool calls to OpenAI format
-							for _, tc := range msg.ToolCalls {
-								assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, openai.ChatCompletionMessageToolCallUnion{
-									ID:   tc.ID,
-									Type: "function",
-									Function: openai.ChatCompletionMessageFunctionToolCallFunction{
-										Name:      tc.Name,
-										Arguments: tc.Arguments,
-									},
-								})
-							}
-
-							messages = append(messages, assistantMsg.ToParam())
-						} else if msg.Content != "" {
-							// Regular assistant message without tool calls
-							messages = append(messages, openai.AssistantMessage(msg.Content))
-						}
-					case "tool":
-						if msg.ToolCallID != "" {
-							messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
-						}
-					case "system":
-						// Only add system messages if not reasoning model and not already added
-						if !isReasoningModel(c.Model) {
-							messages = append(messages, openai.SystemMessage(msg.Content))
-						}
-					}
-				}
-			}
-		}
-
-		// Add current user message
-		messages = append(messages, openai.UserMessage(prompt))
+		// Build messages using unified builder
+		builder := newMessageHistoryBuilder(c.logger)
+		messages := builder.buildMessages(ctx, prompt, params.Memory)
 
 		// Create stream request
 		streamParams := openai.ChatCompletionNewParams{
@@ -388,69 +328,9 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			})
 		}
 
-		// Build messages starting with memory context
-		messages := []openai.ChatCompletionMessageParamUnion{}
-
-		// Add system message first (if reasoning model allows it)
-		if params.SystemMessage != "" && !isReasoningModel(c.Model) {
-			messages = append(messages, openai.SystemMessage(params.SystemMessage))
-		}
-
-		// Retrieve and add memory messages if available
-		if params.Memory != nil {
-			memoryMessages, err := params.Memory.GetMessages(ctx)
-			if err != nil {
-				c.logger.Error(ctx, "Failed to retrieve memory messages", map[string]interface{}{
-					"error": err.Error(),
-				})
-			} else {
-				// Convert memory messages to OpenAI format
-				for _, msg := range memoryMessages {
-					switch msg.Role {
-					case "user":
-						messages = append(messages, openai.UserMessage(msg.Content))
-					case "assistant":
-						// Handle assistant messages with tool calls properly
-						if len(msg.ToolCalls) > 0 {
-							// Create assistant message with tool calls
-							assistantMsg := openai.ChatCompletionMessage{
-								Role:    "assistant",
-								Content: msg.Content,
-							}
-
-							// Convert tool calls to OpenAI format
-							for _, tc := range msg.ToolCalls {
-								assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, openai.ChatCompletionMessageToolCallUnion{
-									ID:   tc.ID,
-									Type: "function",
-									Function: openai.ChatCompletionMessageFunctionToolCallFunction{
-										Name:      tc.Name,
-										Arguments: tc.Arguments,
-									},
-								})
-							}
-
-							messages = append(messages, assistantMsg.ToParam())
-						} else if msg.Content != "" {
-							// Regular assistant message without tool calls
-							messages = append(messages, openai.AssistantMessage(msg.Content))
-						}
-					case "tool":
-						if msg.ToolCallID != "" {
-							messages = append(messages, openai.ToolMessage(msg.Content, msg.ToolCallID))
-						}
-					case "system":
-						// Only add system messages if not reasoning model and not already added
-						if !isReasoningModel(c.Model) {
-							messages = append(messages, openai.SystemMessage(msg.Content))
-						}
-					}
-				}
-			}
-		}
-
-		// Add current user message
-		messages = append(messages, openai.UserMessage(prompt))
+		// Build messages using unified builder
+		builder := newMessageHistoryBuilder(c.logger)
+		messages := builder.buildMessages(ctx, prompt, params.Memory)
 
 		// Store initial messages in memory
 		if params.Memory != nil {

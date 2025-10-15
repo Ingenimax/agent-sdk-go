@@ -521,3 +521,141 @@ func TestReasoningEffort(t *testing.T) {
 		t.Fatalf("Failed to generate: %v", err)
 	}
 }
+
+// mockMemory is a simple in-memory implementation for testing
+type mockMemory struct {
+	messages []interfaces.Message
+}
+
+func (m *mockMemory) AddMessage(ctx context.Context, message interfaces.Message) error {
+	m.messages = append(m.messages, message)
+	return nil
+}
+
+func (m *mockMemory) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
+	return m.messages, nil
+}
+
+func (m *mockMemory) Clear(ctx context.Context) error {
+	m.messages = nil
+	return nil
+}
+
+func TestGenerateWithMemory(t *testing.T) {
+	tests := []struct {
+		name     string
+		history  []interfaces.Message
+		prompt   string
+		expected int // expected number of messages in request
+	}{
+		{
+			name:     "empty memory",
+			history:  nil, // No memory provided
+			prompt:   "Hello",
+			expected: 1, // Just the current user message
+		},
+		{
+			name: "conversation with system message",
+			history: []interfaces.Message{
+				{Role: interfaces.MessageRoleSystem, Content: "You are helpful"},
+				{Role: interfaces.MessageRoleUser, Content: "Hi"},
+				{Role: interfaces.MessageRoleAssistant, Content: "Hello!"},
+				{Role: interfaces.MessageRoleUser, Content: "How are you?"}, // Current prompt should be in memory
+			},
+			prompt:   "How are you?",
+			expected: 4, // system + user + assistant + current user (from memory)
+		},
+		{
+			name: "conversation with tool call",
+			history: []interfaces.Message{
+				{Role: interfaces.MessageRoleUser, Content: "Check status"},
+				{Role: interfaces.MessageRoleAssistant, Content: "Checking..."},
+				{
+					Role:       interfaces.MessageRoleTool,
+					Content:    "All good",
+					ToolCallID: "call_123",
+					Metadata:   map[string]interface{}{"tool_name": "status_check"},
+				},
+				{Role: interfaces.MessageRoleUser, Content: "Thanks"}, // Current prompt should be in memory
+			},
+			prompt:   "Thanks",
+			expected: 4, // user + assistant + tool + current user (from memory)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test server that validates the request structure
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Parse request body to validate messages
+				var reqBody map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+					t.Fatalf("Failed to decode request body: %v", err)
+				}
+
+				// Verify messages array
+				messages, ok := reqBody["messages"].([]interface{})
+				if !ok {
+					t.Fatalf("Expected messages array in request")
+				}
+
+				if len(messages) != tt.expected {
+					t.Errorf("Expected %d messages in request, got %d", tt.expected, len(messages))
+				}
+
+				// Verify system message comes first if present
+				if len(tt.history) > 0 {
+					hasSystemMessage := false
+					for _, msg := range tt.history {
+						if msg.Role == interfaces.MessageRoleSystem {
+							hasSystemMessage = true
+							break
+						}
+					}
+
+					if hasSystemMessage && len(messages) > 0 {
+						firstMsg := messages[0].(map[string]interface{})
+						if firstMsg["role"] != "system" {
+							t.Errorf("Expected first message to be system message, got: %v", firstMsg["role"])
+						}
+					}
+				}
+
+				// Send mock response
+				w.Header().Set("Content-Type", "application/json")
+				response := openai.ChatCompletion{
+					Choices: []openai.ChatCompletionChoice{
+						{
+							Message: openai.ChatCompletionMessage{
+								Content: "test response",
+								Role:    "assistant",
+							},
+						},
+					},
+				}
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					t.Fatalf("Failed to encode response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			// Create client with test server
+			client := openai_client.NewClient("test-key",
+				openai_client.WithBaseURL(server.URL),
+				openai_client.WithLogger(logging.New()))
+
+			var memory interfaces.Memory
+			if tt.history != nil {
+				memory = &mockMemory{messages: tt.history}
+			}
+
+			// Test Generate with memory
+			_, err := client.Generate(context.Background(), tt.prompt,
+				interfaces.WithMemory(memory))
+
+			if err != nil {
+				t.Fatalf("Generate failed: %v", err)
+			}
+		})
+	}
+}

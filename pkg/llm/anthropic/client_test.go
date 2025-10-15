@@ -19,8 +19,8 @@ func TestMessageFiltering(t *testing.T) {
 			name: "Filter out messages with empty content",
 			messages: []interfaces.Message{
 				{Role: "user", Content: "Hello"},
-				{Role: "assistant", Content: ""},      // Should be filtered out
-				{Role: "user", Content: "   "},        // Should be filtered out (whitespace only)
+				{Role: "assistant", Content: ""}, // Should be filtered out
+				{Role: "user", Content: "   "},   // Should be filtered out (whitespace only)
 				{Role: "assistant", Content: "World"},
 			},
 			expectedCount:   2,
@@ -68,7 +68,7 @@ func TestMessageFiltering(t *testing.T) {
 					continue // System messages are handled separately
 				}
 				anthropicMessages[i] = Message{
-					Role:    role,
+					Role:    string(role),
 					Content: msg.Content,
 				}
 			}
