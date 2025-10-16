@@ -1,25 +1,25 @@
 version: 2
-updates:
-  - package-ecosystem: "gomod"
-    directory: "/"
+
+multi-ecosystem-groups:
+  all-updates:
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-      - "automerge"
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "Europe/Warsaw"
     commit-message:
       prefix: "deps"
       include: "scope"
 
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: "all-updates"
+    labels: ["dependencies", "automerge"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-      - "automerge"
-    commit-message:
-      prefix: "ci"
-      include: "scope"
+    patterns: ["*"]
+    multi-ecosystem-group: "all-updates"
+    labels: ["dependencies", "automerge"]
