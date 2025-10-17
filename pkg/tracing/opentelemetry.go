@@ -83,6 +83,20 @@ func NewOTelTracer(config OTelConfig) (*OTelTracer, error) {
 	}, nil
 }
 
+// NewOTelTracerWrapper creates a new OpenTelemetry tracer wrapper from existing tracer
+func NewOTelTracerWrapper(tracer trace.Tracer) *OTelTracer {
+	if tracer == nil {
+		return &OTelTracer{
+			enabled: false,
+		}
+	}
+
+	return &OTelTracer{
+		tracer:  tracer,
+		enabled: true,
+	}
+}
+
 // StartSpan starts a new span
 func (t *OTelTracer) StartSpan(ctx context.Context, name string, attributes map[string]string) (context.Context, trace.Span) {
 	if !t.enabled {
