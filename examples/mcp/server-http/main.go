@@ -51,7 +51,7 @@ func main() {
 	// Create SSE handler for HTTP transport
 	sseHandler := mcp.NewSSEHandler(func(request *http.Request) *mcp.Server {
 		return server
-	})
+	}, nil)
 
 	// Set up HTTP routes
 	http.Handle("/mcp", sseHandler)
