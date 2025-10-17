@@ -1,0 +1,137 @@
+version: 2
+
+project_name: agent-sdk-go
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: agent-cli
+    main: ./cmd/agent-cli
+    binary: agent-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+  - id: simple-agent
+    main: ./examples/simple_agent
+    binary: simple-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+  - id: yaml-config
+    main: ./examples/agent_config_yaml
+    binary: yaml-config
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^style:"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance Improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: Ingenimax
+    name: agent-sdk-go
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Agent SDK Go {{ .Tag }}
+
+    Welcome to this new release of Agent SDK Go!
+
+  footer: |
+    ## Installation
+
+    ### CLI Tool
+    Download the appropriate binary for your platform from the assets below and add it to your PATH.
+
+    ### Go Library
+    ```bash
+    go get github.com/Ingenimax/agent-sdk-go@{{ .Tag }}
+    ```
+
+    **Full Changelog**: https://github.com/Ingenimax/agent-sdk-go/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+brews:
+  - name: agent-sdk-go
+    repository:
+      owner: Ingenimax
+      name: homebrew-tap
+    homepage: https://github.com/Ingenimax/agent-sdk-go
+    description: A powerful Go framework for building production-ready AI agents
+    license: MIT
+    test: |
+      system "#{bin}/agent-cli --version"
+    install: |
+      bin.install "agent-cli"
+      bin.install "simple-agent"
+      bin.install "yaml-config"
