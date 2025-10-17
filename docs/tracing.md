@@ -14,7 +14,7 @@ Tracing provides observability into the behavior of your agents, allowing you to
 
 ```go
 import (
-    "github.com/Ingenimax/agent-sdk-go/pkg/tracing/langfuse"
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
     "github.com/Ingenimax/agent-sdk-go/pkg/config"
 )
 
@@ -22,12 +22,19 @@ import (
 cfg := config.Get()
 
 // Create Langfuse tracer
-tracer := langfuse.New(
-    cfg.Tracing.Langfuse.SecretKey,
-    cfg.Tracing.Langfuse.PublicKey,
-    langfuse.WithHost(cfg.Tracing.Langfuse.Host),
-    langfuse.WithEnvironment(cfg.Tracing.Langfuse.Environment),
-)
+langfuseTracer, err := tracing.NewLangfuseTracer(tracing.LangfuseConfig{
+    Enabled:     cfg.Tracing.Langfuse.Enabled,
+    SecretKey:   cfg.Tracing.Langfuse.SecretKey,
+    PublicKey:   cfg.Tracing.Langfuse.PublicKey,
+    Host:        cfg.Tracing.Langfuse.Host,
+    Environment: cfg.Tracing.Langfuse.Environment,
+})
+if err != nil {
+    log.Fatalf("Failed to create Langfuse tracer: %v", err)
+}
+
+// Convert to unified interface
+tracer := langfuseTracer.AsInterfaceTracer()
 ```
 
 ### OpenTelemetry
@@ -36,22 +43,22 @@ tracer := langfuse.New(
 
 ```go
 import (
-    "github.com/Ingenimax/agent-sdk-go/pkg/tracing/otel"
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
     "github.com/Ingenimax/agent-sdk-go/pkg/config"
 )
 
 // Get configuration
 cfg := config.Get()
 
-// Create OpenTelemetry tracer
-tracer, err := otel.New(
-    cfg.Tracing.OpenTelemetry.ServiceName,
-    otel.WithCollectorEndpoint(cfg.Tracing.OpenTelemetry.CollectorEndpoint),
-)
+// Create OpenTelemetry tracer using the unified interface
+tracer, err := tracing.NewOTelTracer(tracing.OTelConfig{
+    Enabled:          cfg.Tracing.OpenTelemetry.Enabled,
+    ServiceName:      cfg.Tracing.OpenTelemetry.ServiceName,
+    CollectorEndpoint: cfg.Tracing.OpenTelemetry.CollectorEndpoint,
+})
 if err != nil {
     log.Fatalf("Failed to create OpenTelemetry tracer: %v", err)
 }
-defer tracer.Shutdown()
 ```
 
 ## Using Tracing with an Agent
@@ -61,11 +68,23 @@ To use tracing with an agent, pass it to the `WithTracer` option:
 ```go
 import (
     "github.com/Ingenimax/agent-sdk-go/pkg/agent"
-    "github.com/Ingenimax/agent-sdk-go/pkg/tracing/langfuse"
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
-// Create tracer
-tracer := langfuse.New(secretKey, publicKey)
+// Create Langfuse tracer
+langfuseTracer, err := tracing.NewLangfuseTracer(tracing.LangfuseConfig{
+    Enabled:     true,
+    SecretKey:   secretKey,
+    PublicKey:   publicKey,
+    Host:        "https://cloud.langfuse.com",
+    Environment: "development",
+})
+if err != nil {
+    log.Fatalf("Failed to create Langfuse tracer: %v", err)
+}
+
+// Convert to unified interface
+tracer := langfuseTracer.AsInterfaceTracer()
 
 // Create agent with tracer
 agent, err := agent.NewAgent(
@@ -99,6 +118,52 @@ span.AddEvent("something-happened")
 span.RecordError(err)
 ```
 
+## Unified Tracing Middleware
+
+The Agent SDK provides unified tracing middleware that works with any tracer implementing the `interfaces.Tracer` interface:
+
+### LLM Tracing Middleware
+
+```go
+import (
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
+    "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+)
+
+// Create LLM client
+llm := openai.NewClient(apiKey)
+
+// Wrap with unified tracing middleware
+tracedLLM := tracing.NewTracedLLM(llm, tracer)
+
+// Use with agent
+agent, err := agent.NewAgent(
+    agent.WithLLM(tracedLLM),
+    // ... other options
+)
+```
+
+### Memory Tracing Middleware
+
+```go
+import (
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
+    "github.com/Ingenimax/agent-sdk-go/pkg/memory"
+)
+
+// Create memory store
+mem := memory.NewConversationBuffer()
+
+// Wrap with unified tracing middleware
+tracedMemory := tracing.NewTracedMemory(mem, tracer)
+
+// Use with agent
+agent, err := agent.NewAgent(
+    agent.WithMemory(tracedMemory),
+    // ... other options
+)
+```
+
 ## Tracing LLM Calls
 
 The Agent SDK automatically traces LLM calls when a tracer is configured:
@@ -121,15 +186,17 @@ import (
 ctx, span := tracer.StartSpan(ctx, "llm-generate")
 defer span.End()
 
-// Set LLM-specific attributes
+// Set LLM-specific attributes (privacy-safe)
 span.SetAttribute("llm.model", "gpt-4")
-span.SetAttribute("llm.prompt", prompt)
+span.SetAttribute("llm.prompt.length", len(prompt))
+span.SetAttribute("llm.prompt.hash", hashString(prompt))
 
 // Make the LLM call
 response, err := client.Generate(ctx, prompt)
 
-// Record the response
-span.SetAttribute("llm.response", response)
+// Record the response (privacy-safe)
+span.SetAttribute("llm.response.length", len(response))
+span.SetAttribute("llm.response.hash", hashString(response))
 if err != nil {
     span.RecordError(err)
 }
@@ -271,7 +338,7 @@ import (
     "github.com/Ingenimax/agent-sdk-go/pkg/config"
     "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
     "github.com/Ingenimax/agent-sdk-go/pkg/memory"
-    "github.com/Ingenimax/agent-sdk-go/pkg/tracing/langfuse"
+    "github.com/Ingenimax/agent-sdk-go/pkg/tracing"
     "github.com/Ingenimax/agent-sdk-go/pkg/tools/websearch"
 )
 
@@ -282,13 +349,20 @@ func main() {
     // Create OpenAI client
     openaiClient := openai.NewClient(cfg.LLM.OpenAI.APIKey)
 
-    // Create tracer
-    tracer := langfuse.New(
-        cfg.Tracing.Langfuse.SecretKey,
-        cfg.Tracing.Langfuse.PublicKey,
-        langfuse.WithHost(cfg.Tracing.Langfuse.Host),
-        langfuse.WithEnvironment(cfg.Tracing.Langfuse.Environment),
-    )
+    // Create Langfuse tracer
+    langfuseTracer, err := tracing.NewLangfuseTracer(tracing.LangfuseConfig{
+        Enabled:     cfg.Tracing.Langfuse.Enabled,
+        SecretKey:   cfg.Tracing.Langfuse.SecretKey,
+        PublicKey:   cfg.Tracing.Langfuse.PublicKey,
+        Host:        cfg.Tracing.Langfuse.Host,
+        Environment: cfg.Tracing.Langfuse.Environment,
+    })
+    if err != nil {
+        log.Fatalf("Failed to create Langfuse tracer: %v", err)
+    }
+
+    // Convert to unified interface
+    tracer := langfuseTracer.AsInterfaceTracer()
 
     // Create tools
     searchTool := websearch.New(
@@ -296,21 +370,24 @@ func main() {
         cfg.Tools.WebSearch.GoogleSearchEngineID,
     )
 
-    // Create a new agent with tracer
+    // Wrap LLM and memory with unified tracing middleware
+    tracedLLM := tracing.NewTracedLLM(openaiClient, tracer)
+    tracedMemory := tracing.NewTracedMemory(memory.NewConversationBuffer(), tracer)
+
+    // Create a new agent with traced components
     agent, err := agent.NewAgent(
-        agent.WithLLM(openaiClient),
-        agent.WithMemory(memory.NewConversationBuffer()),
+        agent.WithLLM(tracedLLM),
+        agent.WithMemory(tracedMemory),
         agent.WithTools(searchTool),
-        agent.WithTracer(tracer),
         agent.WithSystemPrompt("You are a helpful AI assistant. Use tools when needed."),
     )
     if err != nil {
         log.Fatalf("Failed to create agent: %v", err)
     }
 
-    // Create context with trace ID
+    // Create context with trace session
     ctx := context.Background()
-    ctx, span := tracer.StartSpan(ctx, "user-session")
+    ctx, span := tracer.StartTraceSession(ctx, "user-session-123")
     defer span.End()
 
     // Add session attributes
@@ -324,8 +401,9 @@ func main() {
         span.RecordError(err)
     }
 
-    // Record the response
-    span.SetAttribute("response", response)
+    // Record the response (privacy-safe)
+    span.SetAttribute("response.length", len(response))
+    span.SetAttribute("response.hash", tracing.HashString(response))
 
     fmt.Println(response)
 }
