@@ -1,6 +1,6 @@
 # Agent SDK Go - Makefile
 
-.PHONY: build build-cli install clean test lint help
+.PHONY: all build build-cli install clean test lint fmt tidy proto dev-setup release quickstart help
 
 # Default target
 all: build
@@ -17,7 +17,7 @@ build: build-cli
 	@mkdir -p bin
 	@cd examples/simple_agent && go build -o ../../bin/simple-agent .
 	@cd examples/agent_config_yaml && go build -o ../../bin/yaml-config .
-	@cd cmd/examples/mcp/client && go build -o ../../../../bin/mcp-client .
+	@cd examples/mcp/client && go build -o ../../../../bin/mcp-client .
 	@echo "✅ All binaries built successfully"
 
 # Install CLI tool to system PATH
