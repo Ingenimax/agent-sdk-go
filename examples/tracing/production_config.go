@@ -47,7 +47,7 @@ func CreateTracedAgent(ctx context.Context) (*agent.Agent, context.Context, erro
 	logger := logging.New()
 
 	// Setup tracing
-	langfuseTracer, otelTracer, err := setupProductionTracing(logger, ctx)
+	langfuseTracer, _, err := setupProductionTracing(logger, ctx)
 	if err != nil {
 		return nil, ctx, err
 	}
@@ -62,19 +62,20 @@ func CreateTracedAgent(ctx context.Context) (*agent.Agent, context.Context, erro
 		openai.WithModel(os.Getenv("LLM_MODEL")),
 		openai.WithLogger(logger),
 	)
-	llmWithLangfuse := tracing.NewLLMMiddleware(llm, langfuseTracer)
-	llmWithOTel := tracing.NewLLMOTelMiddleware(llmWithLangfuse, otelTracer)
+	// Use unified middleware with Langfuse tracer adapter
+	llmWithTracing := tracing.NewTracedLLM(llm, langfuseTracer.AsInterfaceTracer())
 	logger.Info(ctx, "Created LLM client with tracing", nil)
 
 	// Create memory with tracing
 	mem := memory.NewConversationBuffer()
-	memWithOTel := tracing.NewMemoryOTelMiddleware(mem, otelTracer)
+	// Use unified middleware with Langfuse tracer adapter
+	memWithTracing := tracing.NewTracedMemory(mem, langfuseTracer.AsInterfaceTracer())
 	logger.Info(ctx, "Created memory with tracing", nil)
 
 	// Create agent
 	agent, err := agent.NewAgent(
-		agent.WithLLM(llmWithOTel),
-		agent.WithMemory(memWithOTel),
+		agent.WithLLM(llmWithTracing),
+		agent.WithMemory(memWithTracing),
 		agent.WithSystemPrompt(os.Getenv("SYSTEM_PROMPT")),
 	)
 	if err != nil {
