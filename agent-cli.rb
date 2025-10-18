@@ -5,21 +5,21 @@
 class AgentCli < Formula
   desc "A powerful Go framework for building production-ready AI agents"
   homepage "https://github.com/Ingenimax/agent-sdk-go"
-  version "0.1.0"
+  version "0.1.1"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.0/agent-sdk-go_Darwin_x86_64.tar.gz"
-      sha256 "e29f45a2c033a4ab1ddbcde3685987ee5604988bbb393b91d044ba97667e719f"
+      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.1/agent-sdk-go_Darwin_x86_64.tar.gz"
+      sha256 "db41c721ccd7de3fa0e911468323517312cc8ad19d20d995b94dbc4f6da4f7df"
 
       def install
         bin.install "agent-cli"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.0/agent-sdk-go_Darwin_arm64.tar.gz"
-      sha256 "d2c661dd716047781e4a0ba6e06a3831e0459cdfb5bf10ebe19a542d9d8b2baa"
+      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.1/agent-sdk-go_Darwin_arm64.tar.gz"
+      sha256 "3c7a817acacc16832c3d58e50ac61d90ce475ec4758ba2620c629e08b4531ee6"
 
       def install
         bin.install "agent-cli"
@@ -29,15 +29,15 @@ class AgentCli < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.0/agent-sdk-go_Linux_x86_64.tar.gz"
-      sha256 "20d815731fb507aaf3d3d2d18109bd57b5d6632a3d494d5c553ba5c749f988f5"
+      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.1/agent-sdk-go_Linux_x86_64.tar.gz"
+      sha256 "0f8d9176d0833196f6c4a8369cc4e0a9acf492660049ba8366f959f5abbd2921"
       def install
         bin.install "agent-cli"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.0/agent-sdk-go_Linux_arm64.tar.gz"
-      sha256 "0f288c38aa20fd175c63ac403bae29f3f0621a80af8fbe9fd6aff3dd41ca5593"
+      url "https://github.com/Ingenimax/agent-sdk-go/releases/download/v0.1.1/agent-sdk-go_Linux_arm64.tar.gz"
+      sha256 "857727de50dd216456f8331863952baa827bd5357c2dbc4dbac32e14ac9c5249"
       def install
         bin.install "agent-cli"
       end
