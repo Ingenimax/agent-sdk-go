@@ -103,6 +103,7 @@ release:
   draft: false
   prerelease: auto
   mode: replace
+  make_latest: true
   header: |
     ## Agent SDK Go {{ .Tag }}
 
@@ -122,10 +123,10 @@ release:
     **Full Changelog**: https://github.com/Ingenimax/agent-sdk-go/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 brews:
-  - name: agent-sdk-go
+  - name: agent-cli
     repository:
       owner: Ingenimax
-      name: homebrew-tap
+      name: agent-sdk-go
     homepage: https://github.com/Ingenimax/agent-sdk-go
     description: A powerful Go framework for building production-ready AI agents
     license: MIT
@@ -133,5 +134,3 @@ brews:
       system "#{bin}/agent-cli --version"
     install: |
       bin.install "agent-cli"
-      bin.install "simple-agent"
-      bin.install "yaml-config"
