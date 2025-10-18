@@ -122,15 +122,16 @@ release:
 
     **Full Changelog**: https://github.com/Ingenimax/agent-sdk-go/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-brews:
-  - name: agent-cli
-    repository:
-      owner: Ingenimax
-      name: agent-sdk-go
-    homepage: https://github.com/Ingenimax/agent-sdk-go
-    description: A powerful Go framework for building production-ready AI agents
-    license: MIT
-    test: |
-      system "#{bin}/agent-cli --version"
-    install: |
-      bin.install "agent-cli"
+# Note: Homebrew formula disabled for now
+# brews:
+#   - name: agent-cli
+#     repository:
+#       owner: Ingenimax
+#       name: agent-sdk-go
+#     homepage: https://github.com/Ingenimax/agent-sdk-go
+#     description: A powerful Go framework for building production-ready AI agents
+#     license: MIT
+#     test: |
+#       system "#{bin}/agent-cli --version"
+#     install: |
+#       bin.install "agent-cli"

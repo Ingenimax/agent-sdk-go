@@ -44,27 +44,15 @@ go get github.com/Ingenimax/agent-sdk-go
 
 #### As a CLI Tool (Headless SDK)
 
-**Option 1: Install via Homebrew (Recommended)**
-
-```bash
-# Add the tap
-brew tap Ingenimax/agent-sdk-go
-
-# Install the CLI tool
-brew install agent-cli
-
-# Verify installation
-agent-cli --version
-```
-
-*Alternatively, you can install directly without adding the tap:*
-```bash
-brew install Ingenimax/agent-sdk-go/agent-cli
-```
-
-**Option 2: Download Pre-built Binaries**
+**Option 1: Download Pre-built Binaries (Recommended)**
 
 Download the latest release for your platform from [GitHub Releases](https://github.com/Ingenimax/agent-sdk-go/releases) and add it to your PATH.
+
+**Option 2: Install via Go**
+
+```bash
+go install github.com/Ingenimax/agent-sdk-go/cmd/agent-cli@latest
+```
 
 **Option 3: Build from Source**
 
@@ -78,12 +66,6 @@ make build-cli
 
 # Install to system PATH (optional)
 make install
-```
-
-**Option 4: Install via Go**
-
-```bash
-go install github.com/Ingenimax/agent-sdk-go/cmd/agent-cli@latest
 ```
 
 **Quick CLI Start:**
