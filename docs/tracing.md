@@ -164,6 +164,48 @@ agent, err := agent.NewAgent(
 )
 ```
 
+### Migration Guide (deprecated APIs)
+
+The following legacy helpers are deprecated in favor of the NewTracedLLM and NewTracedMemory. Please migrate as shown below.
+
+- Old: `tracing.NewLLMMiddleware(llm interfaces.LLM, tracer *LangfuseTracer)`
+- Replace with: `tracing.NewTracedLLM(llm, langfuseTracer.AsInterfaceTracer())`
+
+```go
+// Before (deprecated)
+wrapped := tracing.NewLLMMiddleware(llm, langfuseTracer)
+
+// After
+tracer := langfuseTracer.AsInterfaceTracer()
+wrapped := tracing.NewTracedLLM(llm, tracer)
+```
+
+- Old: `tracing.NewOTELLLMMiddleware(llm interfaces.LLM, tracer *OTELLangfuseTracer)`
+- Replace with: `tracing.NewTracedLLM(llm, tracer)`
+
+```go
+// Before (deprecated)
+wrapped := tracing.NewOTELLLMMiddleware(llm, otelLangfuseTracer)
+
+// After
+wrapped := tracing.NewTracedLLM(llm, otelLangfuseTracer)
+```
+
+- Old: `tracing.NewMemoryOTelMiddleware(memory interfaces.Memory, tracer *OTelTracer)`
+- Replace with: `tracing.NewTracedMemory(memory, tracer)`
+
+```go
+// Before (deprecated)
+tracedMemory := tracing.NewMemoryOTelMiddleware(mem, otelTracer)
+
+// After
+tracedMemory := tracing.NewTracedMemory(mem, otelTracer)
+```
+
+Notes:
+- Prefer creating a single `interfaces.Tracer` and pass it to all traced components via `NewTracedLLM` and `NewTracedMemory`.
+- When using `LangfuseTracer`, call `AsInterfaceTracer()` to obtain the unified tracer.
+
 ## Tracing LLM Calls
 
 The Agent SDK automatically traces LLM calls when a tracer is configured:
