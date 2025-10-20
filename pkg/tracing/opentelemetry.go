@@ -23,6 +23,34 @@ type OTelTracer struct {
 	serviceName string
 }
 
+// OTelSpan wraps an OpenTelemetry span to implement interfaces.Span
+type OTelSpan struct {
+	span trace.Span
+}
+
+// End implements interfaces.Span
+func (s *OTelSpan) End() {
+	s.span.End()
+}
+
+// AddEvent implements interfaces.Span
+func (s *OTelSpan) AddEvent(name string, attributes map[string]interface{}) {
+	attrs := make([]attribute.KeyValue, 0, len(attributes))
+	for k, v := range attributes {
+		attrs = append(attrs, attribute.String(k, fmt.Sprintf("%v", v)))
+	}
+	s.span.AddEvent(name, trace.WithAttributes(attrs...))
+}
+
+// SetAttribute implements interfaces.Span
+func (s *OTelSpan) SetAttribute(key string, value interface{}) {
+	s.span.SetAttributes(attribute.String(key, fmt.Sprintf("%v", value)))
+}
+
+func (s *OTelSpan) RecordError(err error) {
+	s.span.RecordError(err)
+}
+
 // OTelConfig contains configuration for OpenTelemetry
 type OTelConfig struct {
 	// Enabled determines whether OpenTelemetry tracing is enabled
@@ -33,6 +61,9 @@ type OTelConfig struct {
 
 	// CollectorEndpoint is the endpoint of the OpenTelemetry collector
 	CollectorEndpoint string
+
+	// Tracer allows passing a pre-built tracer instead of creating one
+	Tracer trace.Tracer
 }
 
 // NewOTelTracer creates a new OpenTelemetry tracer
@@ -43,38 +74,45 @@ func NewOTelTracer(config OTelConfig) (*OTelTracer, error) {
 		}, nil
 	}
 
-	// Create exporter
-	ctx := context.Background()
-	exporter, err := otlptrace.New(
-		ctx,
-		otlptracegrpc.NewClient(
-			otlptracegrpc.WithEndpoint(config.CollectorEndpoint),
-			otlptracegrpc.WithInsecure(),
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+	var tracer trace.Tracer
+
+	// Use provided tracer or create a new one
+	if config.Tracer != nil {
+		tracer = config.Tracer
+	} else {
+		// Create exporter
+		ctx := context.Background()
+		exporter, err := otlptrace.New(
+			ctx,
+			otlptracegrpc.NewClient(
+				otlptracegrpc.WithEndpoint(config.CollectorEndpoint),
+				otlptracegrpc.WithInsecure(),
+			),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+		}
+
+		// Create resource
+		res, err := resource.New(ctx,
+			resource.WithAttributes(
+				semconv.ServiceNameKey.String(config.ServiceName),
+			),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create resource: %w", err)
+		}
+
+		// Create trace provider
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(exporter),
+			sdktrace.WithResource(res),
+		)
+		otel.SetTracerProvider(tp)
+
+		// Create tracer
+		tracer = tp.Tracer(config.ServiceName)
 	}
-
-	// Create resource
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(config.ServiceName),
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
-	}
-
-	// Create trace provider
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-	otel.SetTracerProvider(tp)
-
-	// Create tracer
-	tracer := tp.Tracer(config.ServiceName)
 
 	return &OTelTracer{
 		tracer:      tracer,
@@ -83,109 +121,53 @@ func NewOTelTracer(config OTelConfig) (*OTelTracer, error) {
 	}, nil
 }
 
-// StartSpan starts a new span
-func (t *OTelTracer) StartSpan(ctx context.Context, name string, attributes map[string]string) (context.Context, trace.Span) {
+// StartSpan implements interfaces.Tracer
+func (t *OTelTracer) StartSpan(ctx context.Context, name string) (context.Context, interfaces.Span) {
 	if !t.enabled {
-		return ctx, trace.SpanFromContext(ctx)
-	}
-
-	// Convert attributes to OpenTelemetry attributes
-	attrs := make([]attribute.KeyValue, 0, len(attributes))
-	for k, v := range attributes {
-		attrs = append(attrs, attribute.String(k, v))
+		return ctx, &OTelSpan{span: trace.SpanFromContext(ctx)}
 	}
 
 	// Get organization ID from context
 	orgID, _ := multitenancy.GetOrgID(ctx)
+
+	attrs := []attribute.KeyValue{}
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("org_id", orgID))
 	}
 
+	// Namespace the span name with the library name
+	namespacedName := "github.com/Ingenimax/agent-sdk-go/" + name
+
 	// Start span
-	return t.tracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	ctx, span := t.tracer.Start(ctx, namespacedName, trace.WithAttributes(attrs...))
+	return ctx, &OTelSpan{span: span}
 }
 
-// EndSpan ends a span
-func (t *OTelTracer) EndSpan(span trace.Span, err error) {
+// StartTraceSession implements interfaces.Tracer
+func (t *OTelTracer) StartTraceSession(ctx context.Context, contextID string) (context.Context, interfaces.Span) {
 	if !t.enabled {
-		return
+		return ctx, &OTelSpan{span: trace.SpanFromContext(ctx)}
 	}
 
-	if err != nil {
-		span.RecordError(err)
+	// Get organization ID from context
+	orgID, _ := multitenancy.GetOrgID(ctx)
+
+	attrs := []attribute.KeyValue{
+		attribute.String("trace.session_id", contextID),
 	}
-	span.End()
+	if orgID != "" {
+		attrs = append(attrs, attribute.String("org_id", orgID))
+	}
+
+	// Namespace the span name with the library name
+	namespacedName := "github.com/Ingenimax/agent-sdk-go/trace-session"
+
+	// Start root span for the session
+	ctx, span := t.tracer.Start(ctx, namespacedName, trace.WithAttributes(attrs...))
+	return ctx, &OTelSpan{span: span}
 }
 
-// MemoryOTelMiddleware implements middleware for memory operations with OpenTelemetry tracing
-type MemoryOTelMiddleware struct {
-	memory interfaces.Memory
-	tracer *OTelTracer
-}
-
-// NewMemoryOTelMiddleware creates a new memory middleware with OpenTelemetry tracing
-func NewMemoryOTelMiddleware(memory interfaces.Memory, tracer *OTelTracer) *MemoryOTelMiddleware {
-	return &MemoryOTelMiddleware{
-		memory: memory,
-		tracer: tracer,
-	}
-}
-
-// AddMessage adds a message to memory with OpenTelemetry tracing
-func (m *MemoryOTelMiddleware) AddMessage(ctx context.Context, message interfaces.Message) error {
-	// Create attributes
-	attributes := map[string]string{
-		"message.role":    string(message.Role),
-		"message.content": fmt.Sprintf("%d bytes", len(message.Content)),
-	}
-
-	// Start span
-	ctx, span := m.tracer.StartSpan(ctx, "memory.add_message", attributes)
-	defer func() {
-		m.tracer.EndSpan(span, nil)
-	}()
-
-	// Call the underlying memory
-	err := m.memory.AddMessage(ctx, message)
-	if err != nil {
-		span.RecordError(err)
-	}
-
-	return err
-}
-
-// GetMessages gets messages from memory with OpenTelemetry tracing
-func (m *MemoryOTelMiddleware) GetMessages(ctx context.Context, options ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
-	// Start span
-	ctx, span := m.tracer.StartSpan(ctx, "memory.get_messages", nil)
-	defer func() {
-		m.tracer.EndSpan(span, nil)
-	}()
-
-	// Call the underlying memory
-	messages, err := m.memory.GetMessages(ctx, options...)
-	if err != nil {
-		span.RecordError(err)
-	} else {
-		span.SetAttributes(attribute.Int("messages.count", len(messages)))
-	}
-
-	return messages, err
-}
-
-// Clear clears memory with OpenTelemetry tracing
-func (m *MemoryOTelMiddleware) Clear(ctx context.Context) error {
-	// Start span
-	ctx, span := m.tracer.StartSpan(ctx, "memory.clear", nil)
-	defer func() {
-		m.tracer.EndSpan(span, nil)
-	}()
-
-	// Call the underlying memory
-	err := m.memory.Clear(ctx)
-	if err != nil {
-		span.RecordError(err)
-	}
-
-	return err
+// @deprecated Use NewTracedLLM - removing in v1.0.0
+func NewMemoryOTelMiddleware(memory interfaces.Memory, tracer *OTelTracer) interfaces.Memory {
+	return NewTracedMemory(memory, tracer)
 }

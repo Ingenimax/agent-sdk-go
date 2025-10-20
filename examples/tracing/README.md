@@ -1,36 +1,60 @@
 # Tracing Example
 
-This example demonstrates how to use the agent SDK with tracing capabilities using both Langfuse and OpenTelemetry.
+This example demonstrates how to use the agent SDK with unified tracing capabilities supporting both Langfuse and OpenTelemetry backends.
 
 ## Prerequisites
 
 - Go 1.21 or later
-- Langfuse account and API keys
-- OpenTelemetry collector running locally (or a remote endpoint)
+- Either Langfuse account and API keys OR OpenTelemetry collector endpoint
+- OpenAI API key
 
 ## Environment Variables
 
-Set the following environment variables before running the example:
+The example automatically detects which tracing backend to use based on environment variables:
+
+### Option 1: Langfuse Tracing
 
 ```bash
-# Langfuse configuration
+# Langfuse configuration (required for Langfuse)
 export LANGFUSE_SECRET_KEY="your-langfuse-secret-key"
 export LANGFUSE_PUBLIC_KEY="your-langfuse-public-key"
-export ENVIRONMENT="development"
-
-# OpenTelemetry configuration
-export SERVICE_NAME="agent-sdk-example"
-export OTEL_COLLECTOR_ENDPOINT="localhost:4317"  # Default OpenTelemetry collector endpoint
+export LANGFUSE_HOST="https://cloud.langfuse.com"  # optional
+export LANGFUSE_ENVIRONMENT="development"  # optional
 
 # OpenAI configuration
 export OPENAI_API_KEY="your-openai-api-key"
-export LLM_MODEL="gpt-4"  # or your preferred model
+```
 
-# System prompt
-export SYSTEM_PROMPT="You are a helpful AI assistant."
+### Option 2: OpenTelemetry Tracing
+
+```bash
+# OpenTelemetry configuration (required for OTEL)
+export OTEL_COLLECTOR_ENDPOINT="localhost:4317"  # or your OTEL endpoint
+export SERVICE_NAME="agent-sdk-example"  # optional
+
+# OpenAI configuration
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+### Optional Tools Configuration
+
+```bash
+# Google Search (optional)
+export GOOGLE_API_KEY="your-google-api-key"
+export GOOGLE_SEARCH_ENGINE_ID="your-search-engine-id"
 ```
 
 ## Running the Example
+
+### With Langfuse Tracing
+
+1. Set Langfuse environment variables (see above)
+2. Run the example:
+```bash
+go run cmd/examples/tracing/main.go
+```
+
+### With OpenTelemetry Tracing
 
 1. Start the OpenTelemetry collector (if running locally):
 ```bash
@@ -41,10 +65,13 @@ docker run -v $(pwd)/otel-collector-config.yaml:/etc/otel-collector-config.yaml 
     --config /etc/otel-collector-config.yaml
 ```
 
-2. Run the example:
+2. Set OpenTelemetry environment variables (see above)
+3. Run the example:
 ```bash
 go run cmd/examples/tracing/main.go
 ```
+
+### Interactive Usage
 
 3. Interact with the agent by entering queries. Type 'exit' to quit.
 
