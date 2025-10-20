@@ -57,7 +57,7 @@ func (m *TracedLLM) Generate(ctx context.Context, prompt string, options ...inte
 		span.SetAttribute("response.hash", hashString(response))
 		span.SetAttribute("duration_ms", duration.Milliseconds())
 	} else {
-		span.SetAttribute("error", err.Error())
+		span.RecordError(err)
 	}
 
 	return response, err
@@ -111,7 +111,7 @@ func (m *TracedLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
 			span.SetAttribute("response.hash", hashString(response))
 			span.SetAttribute("duration_ms", duration.Milliseconds())
 		} else {
-			span.SetAttribute("error", err.Error())
+			span.RecordError(err)
 		}
 
 		return response, err

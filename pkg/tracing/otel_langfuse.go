@@ -54,6 +54,10 @@ func (s *OTELLangfuseSpan) SetAttribute(key string, value interface{}) {
 	s.span.SetAttributes(attribute.String(key, fmt.Sprintf("%v", value)))
 }
 
+func (s *OTELLangfuseSpan) RecordError(err error) {
+	s.span.RecordError(err)
+}
+
 // NewOTELLangfuseTracer creates a new OTEL-based Langfuse tracer
 func NewOTELLangfuseTracer(customConfig ...LangfuseConfig) (*OTELLangfuseTracer, error) {
 	// Get global configuration

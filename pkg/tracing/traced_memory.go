@@ -37,7 +37,7 @@ func (m *TracedMemory) AddMessage(ctx context.Context, message interfaces.Messag
 	// Call the underlying memory
 	err := m.memory.AddMessage(ctx, message)
 	if err != nil {
-		span.SetAttribute("error", err.Error())
+		span.RecordError(err)
 	}
 
 	return err
@@ -52,7 +52,7 @@ func (m *TracedMemory) GetMessages(ctx context.Context, options ...interfaces.Ge
 	// Call the underlying memory
 	messages, err := m.memory.GetMessages(ctx, options...)
 	if err != nil {
-		span.SetAttribute("error", err.Error())
+		span.RecordError(err)
 	} else {
 		span.SetAttribute("messages.count", len(messages))
 	}
@@ -69,7 +69,7 @@ func (m *TracedMemory) Clear(ctx context.Context) error {
 	// Call the underlying memory
 	err := m.memory.Clear(ctx)
 	if err != nil {
-		span.SetAttribute("error", err.Error())
+		span.RecordError(err)
 	}
 
 	return err

@@ -47,6 +47,10 @@ func (s *OTelSpan) SetAttribute(key string, value interface{}) {
 	s.span.SetAttributes(attribute.String(key, fmt.Sprintf("%v", value)))
 }
 
+func (s *OTelSpan) RecordError(err error) {
+	s.span.RecordError(err)
+}
+
 // OTelConfig contains configuration for OpenTelemetry
 type OTelConfig struct {
 	// Enabled determines whether OpenTelemetry tracing is enabled
