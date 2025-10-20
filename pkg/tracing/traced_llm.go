@@ -16,7 +16,7 @@ type TracedLLM struct {
 }
 
 // NewTracedLLM creates a new LLM middleware with unified tracing
-func NewTracedLLM(llm interfaces.LLM, tracer interfaces.Tracer) *TracedLLM {
+func NewTracedLLM(llm interfaces.LLM, tracer interfaces.Tracer) interfaces.LLM {
 	return &TracedLLM{
 		llm:    llm,
 		tracer: tracer,

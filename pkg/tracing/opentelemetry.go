@@ -162,3 +162,8 @@ func (t *OTelTracer) StartTraceSession(ctx context.Context, contextID string) (c
 	ctx, span := t.tracer.Start(ctx, namespacedName, trace.WithAttributes(attrs...))
 	return ctx, &OTelSpan{span: span}
 }
+
+// @deprecated Use NewTracedLLM - removing in v1.0.0
+func NewMemoryOTelMiddleware(memory interfaces.Memory, tracer *OTelTracer) interfaces.Memory {
+	return NewTracedMemory(memory, tracer)
+}

@@ -120,3 +120,13 @@ func (t *LangfuseTracer) AsInterfaceTracer() interfaces.Tracer {
 	}
 	return NewOTELTracerAdapter(t.otelTracer)
 }
+
+// @deprecated Use NewTracedLLM - removing in v1.0.0
+func NewLLMMiddleware(llm interfaces.LLM, tracer *LangfuseTracer) interfaces.LLM {
+	return NewTracedLLM(llm, tracer.AsInterfaceTracer())
+}
+
+// @deprecated Use NewTracedLLM - removing in v1.0.0
+func NewOTELLLMMiddleware(llm interfaces.LLM, tracer *OTELLangfuseTracer) interfaces.LLM {
+	return NewTracedLLM(llm, tracer)
+}
