@@ -9,11 +9,6 @@ on:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
-      - "Makefile"
-      - ".github/workflows/release.yml"
-      - ".goreleaser.yml"
-    tags:
-      - "v*"
 
 jobs:
   release:
@@ -24,9 +19,18 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Bump version and create tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.CI_GITHUB_TOKEN }}
+          default_bump: patch
+          release_branches: main
+          tag_prefix: v
 
       - name: Set up Go
         uses: actions/setup-go@v6
