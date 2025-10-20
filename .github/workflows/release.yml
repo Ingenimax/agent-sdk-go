@@ -9,9 +9,6 @@ on:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
-      - "Makefile"
-      - ".github/workflows/release.yml"
-      - ".goreleaser.yml"
 
 jobs:
   release:
