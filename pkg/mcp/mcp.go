@@ -12,12 +12,43 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // MCPServerImpl is the implementation of interfaces.MCPServer using the official SDK
 type MCPServerImpl struct {
 	session *mcp.ClientSession
 	logger  logging.Logger
+}
+
+const TraceParentAttribute = "traceparent"
+
+func tracingMiddleware(h mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (result mcp.Result, err error) {
+		// Add tracing information to the request metadata for tools/call method
+		if method == "tools/call" {
+			spanCtx := trace.SpanContextFromContext(ctx)
+			if !spanCtx.IsValid() {
+				// No tracing context available
+				return h(ctx, method, req)
+			}
+			propagator := propagation.TraceContext{}
+			headers := make(http.Header)
+			propagator.Inject(ctx, propagation.HeaderCarrier(headers))
+			traceparentValue := headers.Get(TraceParentAttribute)
+			if rp, ok := req.GetParams().(mcp.RequestParams); ok {
+				if rp.GetMeta() == nil {
+					rp.SetMeta(map[string]any{
+						TraceParentAttribute: traceparentValue,
+					})
+				} else {
+					rp.GetMeta()[TraceParentAttribute] = traceparentValue
+				}
+			}
+		}
+		return h(ctx, method, req)
+	}
 }
 
 // NewMCPServer creates a new MCPServer with the given transport using the official SDK
@@ -31,6 +62,8 @@ func NewMCPServer(ctx context.Context, transport mcp.Transport) (interfaces.MCPS
 		Version: "0.0.0",
 	}, nil)
 
+	// Add tracing middleware to the client
+	client.AddSendingMiddleware(tracingMiddleware)
 	// Connect to the server using the transport
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
@@ -139,10 +172,17 @@ type StdioServerConfig struct {
 	Command string
 	Args    []string
 	Env     []string
+	Logger  logging.Logger
 }
 
 // NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
 func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.MCPServer, error) {
+
+	// Create logger if not configured
+	logger := config.Logger
+	if logger == nil {
+		logger = logging.New()
+	}
 	// Validate the command and arguments to mitigate command injection risks
 	if config.Command == "" {
 		return nil, fmt.Errorf("command cannot be empty")
@@ -177,8 +217,29 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 	// Create the command transport using the official SDK
 	transport := &mcp.CommandTransport{Command: cmd}
 
-	// Create the MCP server using the transport
-	return NewMCPServer(ctx, transport)
+	// Create a new client with basic implementation info
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "agent-sdk-go",
+		Version: "0.0.0",
+	}, nil)
+
+	// Add tracing middleware to the client
+	client.AddSendingMiddleware(tracingMiddleware)
+	// Connect to the server using the transport
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return nil, err
+	}
+
+	logger.Debug(ctx, "MCP server connection established", nil)
+
+	return &MCPServerImpl{
+		session: session,
+		logger:  logger,
+	}, nil
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server
@@ -187,6 +248,7 @@ type HTTPServerConfig struct {
 	Path         string
 	Token        string
 	ProtocolType ServerProtocolType
+	Logger       logging.Logger
 }
 
 // ServerProtocolType defines the protocol type for the MCP server communication
@@ -222,14 +284,20 @@ func customHTTPClient(token string) *http.Client {
 
 // NewHTTPServer creates a new MCPServer that communicates over HTTP using the official SDK
 func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCPServer, error) {
-	// Create logger
-	logger := logging.New()
+	// Create logger if not configured
+	logger := config.Logger
+	if logger == nil {
+		logger = logging.New()
+	}
 
 	// Create a new client with basic implementation info
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "agent-sdk-go",
 		Version: "0.0.0",
 	}, nil)
+
+	// Add tracing middleware to the client
+	client.AddSendingMiddleware(tracingMiddleware)
 
 	httpClient := http.DefaultClient
 	if config.Token != "" {
