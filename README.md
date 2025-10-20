@@ -44,7 +44,17 @@ go get github.com/Ingenimax/agent-sdk-go
 
 #### As a CLI Tool (Headless SDK)
 
-Build and install the CLI tool for headless usage:
+**Option 1: Download Pre-built Binaries (Recommended)**
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/Ingenimax/agent-sdk-go/releases) and add it to your PATH.
+
+**Option 2: Install via Go**
+
+```bash
+go install github.com/Ingenimax/agent-sdk-go/cmd/agent-cli@latest
+```
+
+**Option 3: Build from Source**
 
 ```bash
 # Clone the repository
@@ -56,15 +66,12 @@ make build-cli
 
 # Install to system PATH (optional)
 make install
-
-# Or run the installation script
-./scripts/install-cli.sh
 ```
 
 **Quick CLI Start:**
 ```bash
 # Initialize configuration
-./bin/agent-cli init
+agent-cli init
 
 # Option 1: Set environment variables
 export OPENAI_API_KEY=your_api_key_here
@@ -74,10 +81,10 @@ cp env.example .env
 # Edit .env with your API keys
 
 # Run a simple query
-./bin/agent-cli run "What's the weather in San Francisco?"
+agent-cli run "What's the weather in San Francisco?"
 
 # Start interactive chat
-./bin/agent-cli chat
+agent-cli chat
 ```
 
 ### Configuration

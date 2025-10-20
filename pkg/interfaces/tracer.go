@@ -22,4 +22,6 @@ type Span interface {
 
 	// SetAttribute sets an attribute on the span
 	SetAttribute(key string, value interface{})
+
+	RecordError(err error)
 }

@@ -24,6 +24,7 @@ type NoOpSpan struct{}
 func (s *NoOpSpan) End()                                                    {}
 func (s *NoOpSpan) AddEvent(name string, attributes map[string]interface{}) {}
 func (s *NoOpSpan) SetAttribute(key string, value interface{})              {}
+func (s *NoOpSpan) RecordError(err error)                                   {}
 
 // WithRequestTracing is a convenience function that combines context setup and trace session creation
 func WithRequestTracing(ctx context.Context, tracer interfaces.Tracer, requestID string, orgID string) (context.Context, interfaces.Span) {
