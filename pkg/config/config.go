@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bufio"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -85,6 +87,10 @@ type Config struct {
 		GitHub struct {
 			Token string
 		}
+
+		Tavily struct {
+			TavilyAPIKey string
+		}
 	}
 
 	// Tracing configuration
@@ -149,6 +155,36 @@ type AzureOpenAIConfig struct {
 	Timeout      time.Duration
 }
 
+// LoadDotEnv loads environment variables from a .env file.
+func LoadDotEnv(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Split at first '='
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// remove surrounding quotes if present
+		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+			val = val[1 : len(val)-1]
+		}
+		_ = os.Setenv(key, val)
+	}
+	return scanner.Err()
+}
+
 // LoadFromEnv loads configuration from environment variables
 func LoadFromEnv() *Config {
 	config := &Config{}
@@ -178,6 +214,8 @@ func LoadFromEnv() *Config {
 	config.Tools.WebSearch.GoogleSearchEngineID = getEnv("GOOGLE_SEARCH_ENGINE_ID", "")
 
 	config.Tools.GitHub.Token = getEnv("GITHUB_TOKEN", "")
+
+	config.Tools.Tavily.TavilyAPIKey = getEnv("TAVILY_API_KEY", "")
 
 	// Tracing configuration
 	config.Tracing.Langfuse.Enabled = getEnvBool("LANGFUSE_ENABLED", false)
@@ -290,6 +328,9 @@ var globalConfig *Config
 
 // Initialize the global configuration
 func init() {
+	if err := LoadDotEnv(".env"); err != nil {
+		panic(err)
+	}
 	globalConfig = LoadFromEnv()
 }
 
