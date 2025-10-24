@@ -418,23 +418,6 @@ func (c *AnthropicClient) parseSSEStreamAndCapture(ctx context.Context, scanner 
 		}
 	}
 
-	// Store messages in memory if provided
-	if params != nil && params.Memory != nil {
-		// Store user message
-		_ = params.Memory.AddMessage(ctx, interfaces.Message{
-			Role:    "user",
-			Content: prompt,
-		})
-
-		// Store accumulated assistant response
-		if accumulatedContent.Len() > 0 {
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "assistant",
-				Content: accumulatedContent.String(),
-			})
-		}
-	}
-
 	return accumulatedContent.String()
 }
 
