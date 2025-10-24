@@ -422,14 +422,6 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	builder := newMessageHistoryBuilder(c.logger)
 	messages := builder.buildMessages(ctx, prompt, params)
 
-	// Store initial messages in memory (only new user message and system message)
-	if params.Memory != nil {
-		_ = params.Memory.AddMessage(ctx, interfaces.Message{
-			Role:    "user",
-			Content: prompt,
-		})
-	}
-
 	// Get maxIterations from params
 	maxIterations := 2 // Default to match non-streaming behavior
 	if params.MaxIterations > 0 {
@@ -651,53 +643,10 @@ func (c *AnthropicClient) executeStreamingWithTools(
 
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
-				toolResult = fmt.Sprintf("Error: %v", err)
-			}
+			toolResult = fmt.Sprintf("Error: %v", err)
+		}
 
-			// Store tool call and result in memory if provided
-			if params.Memory != nil {
-				if err != nil {
-					// Store failed tool call result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Name,
-							Arguments: toolCall.Arguments,
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    fmt.Sprintf("Error: %v", err),
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolCall.Name,
-						},
-					})
-				} else {
-					// Store successful tool call and result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Name,
-							Arguments: toolCall.Arguments,
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    toolResult,
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolCall.Name,
-						},
-					})
-				}
-			}
-
-			// Add tool result message
+		// Add tool result message
 			messages = append(messages, Message{
 				Role:    "user", // Tool results come as user messages to Anthropic
 				Content: fmt.Sprintf("Tool %s result: %s", toolCall.Name, toolResult),

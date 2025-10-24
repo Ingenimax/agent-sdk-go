@@ -198,7 +198,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 func (a *Agent) runStreamingGeneration(
 	ctx context.Context,
 	input string,
-	tools []interfaces.Tool,
+	allTools []interfaces.Tool,
 	streamingLLM interfaces.StreamingLLM,
 	eventChan chan<- interfaces.AgentStreamEvent,
 ) error {
@@ -245,8 +245,8 @@ func (a *Agent) runStreamingGeneration(
 	var llmEventChan <-chan interfaces.StreamEvent
 	var err error
 
-	if len(tools) > 0 {
-		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctx, input, tools, options...)
+	if len(allTools) > 0 {
+		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctx, input, allTools, options...)
 	} else {
 		llmEventChan, err = streamingLLM.GenerateStream(ctx, input, options...)
 	}
@@ -255,23 +255,31 @@ func (a *Agent) runStreamingGeneration(
 		return fmt.Errorf("failed to start LLM streaming: %w", err)
 	}
 
-	// Track accumulated content for memory
+	// Track accumulated content and tool calls for memory
 	var accumulatedContent strings.Builder
+	var toolCalls []interfaces.ToolCall
+	var toolResults map[string]string // map[toolCallID]result
 	var finalError error
+
+	toolResults = make(map[string]string)
 
 	// Forward LLM events as agent events
 	for llmEvent := range llmEventChan {
-		agentEvent := a.convertLLMEventToAgentEvent(llmEvent)
+		agentEvent := a.convertLLMEventToAgentEvent(llmEvent, allTools)
 
-		// Handle tool calls specially
-		if llmEvent.Type == interfaces.StreamEventToolUse && llmEvent.ToolCall != nil {
-			// Execute tool and send progress events
-			a.handleToolCallStreaming(ctx, llmEvent.ToolCall, tools, eventChan)
-		}
-
-		// Accumulate content for memory
+		// Accumulate content for memory (not thinking)
 		if llmEvent.Type == interfaces.StreamEventContentDelta {
 			accumulatedContent.WriteString(llmEvent.Content)
+		}
+
+		// Track tool calls for memory
+		if llmEvent.Type == interfaces.StreamEventToolUse && llmEvent.ToolCall != nil {
+			toolCalls = append(toolCalls, *llmEvent.ToolCall)
+		}
+
+		// Track tool results for memory
+		if llmEvent.Type == interfaces.StreamEventToolResult && llmEvent.ToolCall != nil {
+			toolResults[llmEvent.ToolCall.ID] = llmEvent.Content
 		}
 
 		// Track errors
@@ -283,14 +291,45 @@ func (a *Agent) runStreamingGeneration(
 		eventChan <- agentEvent
 	}
 
-	// Add accumulated content to memory if available and no error occurred
-	if a.memory != nil && finalError == nil && accumulatedContent.Len() > 0 {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    "assistant",
-			Content: accumulatedContent.String(),
-		}); err != nil {
-			// Warning: Failed to add assistant response to memory
-			fmt.Printf("Warning: Failed to add assistant response to memory: %v\n", err)
+	// Add messages to memory if available (save even on error to preserve conversation history)
+	if a.memory != nil {
+		// If we have tool calls, save them in the correct order
+		if len(toolCalls) > 0 {
+			// Add assistant message with tool calls
+			err := a.memory.AddMessage(ctx, interfaces.Message{
+				Role:      "assistant",
+				Content:   accumulatedContent.String(), // May be empty or contain text before tools
+				ToolCalls: toolCalls,
+			})
+			if err != nil {
+				fmt.Printf("Warning: Failed to add assistant message with tool calls to memory: %v\n", err)
+			}
+
+			// Add tool result messages
+			for _, toolCall := range toolCalls {
+				if result, ok := toolResults[toolCall.ID]; ok {
+					err := a.memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    result,
+						ToolCallID: toolCall.ID,
+						Metadata: map[string]interface{}{
+							"tool_name": toolCall.Name,
+						},
+					})
+					if err != nil {
+						fmt.Printf("Warning: Failed to add tool result to memory: %v\n", err)
+					}
+				}
+			}
+		} else if accumulatedContent.Len() > 0 {
+			// No tool calls, just content - add assistant message
+			err := a.memory.AddMessage(ctx, interfaces.Message{
+				Role:    "assistant",
+				Content: accumulatedContent.String(),
+			})
+			if err != nil {
+				fmt.Printf("Warning: Failed to add assistant response to memory: %v\n", err)
+			}
 		}
 	}
 
@@ -307,8 +346,30 @@ func (a *Agent) runStreamingGeneration(
 	return finalError
 }
 
+// getToolMetadata retrieves display name and internal flag for a tool
+func getToolMetadata(toolName string, tools []interfaces.Tool) (displayName string, internal bool) {
+	displayName = toolName
+	internal = false
+
+	for _, tool := range tools {
+		if tool.Name() == toolName {
+			if toolWithDisplayName, ok := tool.(interfaces.ToolWithDisplayName); ok {
+				if dn := toolWithDisplayName.DisplayName(); dn != "" {
+					displayName = dn
+				}
+			}
+			if internalTool, ok := tool.(interfaces.InternalTool); ok {
+				internal = internalTool.Internal()
+			}
+			break
+		}
+	}
+
+	return displayName, internal
+}
+
 // convertLLMEventToAgentEvent converts LLM events to agent events
-func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) interfaces.AgentStreamEvent {
+func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent, tools []interfaces.Tool) interfaces.AgentStreamEvent {
 	agentEvent := interfaces.AgentStreamEvent{
 		Timestamp: llmEvent.Timestamp,
 		Metadata:  llmEvent.Metadata,
@@ -335,22 +396,29 @@ func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) int
 	case interfaces.StreamEventToolUse:
 		agentEvent.Type = interfaces.AgentEventToolCall
 		if llmEvent.ToolCall != nil {
+			displayName, internal := getToolMetadata(llmEvent.ToolCall.Name, tools)
 			agentEvent.ToolCall = &interfaces.ToolCallEvent{
-				ID:        llmEvent.ToolCall.ID,
-				Name:      llmEvent.ToolCall.Name,
-				Arguments: llmEvent.ToolCall.Arguments,
-				Status:    "received",
+				ID:          llmEvent.ToolCall.ID,
+				Name:        llmEvent.ToolCall.Name,
+				DisplayName: displayName,
+				Internal:    internal,
+				Arguments:   llmEvent.ToolCall.Arguments,
+				Status:      "received",
 			}
 		}
 
 	case interfaces.StreamEventToolResult:
 		agentEvent.Type = interfaces.AgentEventToolResult
 		if llmEvent.ToolCall != nil {
+			displayName, internal := getToolMetadata(llmEvent.ToolCall.Name, tools)
 			agentEvent.ToolCall = &interfaces.ToolCallEvent{
-				ID:     llmEvent.ToolCall.ID,
-				Name:   llmEvent.ToolCall.Name,
-				Result: "", // LLM StreamEvent ToolCall doesn't have Result field
-				Status: "completed",
+				ID:          llmEvent.ToolCall.ID,
+				Name:        llmEvent.ToolCall.Name,
+				DisplayName: displayName,
+				Internal:    internal,
+				Arguments:   llmEvent.ToolCall.Arguments,
+				Result:      llmEvent.Content, // Tool result is in Content field of StreamEvent
+				Status:      "completed",
 			}
 		}
 
@@ -369,106 +437,6 @@ func (a *Agent) convertLLMEventToAgentEvent(llmEvent interfaces.StreamEvent) int
 	}
 
 	return agentEvent
-}
-
-// handleToolCallStreaming executes a tool call and sends progress events
-func (a *Agent) handleToolCallStreaming(
-	ctx context.Context,
-	toolCall *interfaces.ToolCall,
-	tools []interfaces.Tool,
-	eventChan chan<- interfaces.AgentStreamEvent,
-) {
-	// Find the requested tool first to get its display name and internal flag
-	var selectedTool interfaces.Tool
-	for _, tool := range tools {
-		if tool.Name() == toolCall.Name {
-			selectedTool = tool
-			break
-		}
-	}
-
-	// Prepare tool call event with display name and internal flag
-	var displayName string
-	var internal bool
-	if selectedTool != nil {
-		// Use type assertion to check if tool implements DisplayName
-		if toolWithDisplayName, ok := selectedTool.(interfaces.ToolWithDisplayName); ok {
-			displayName = toolWithDisplayName.DisplayName()
-		}
-		// Fallback to tool name if DisplayName is empty or not implemented
-		if displayName == "" {
-			displayName = selectedTool.Name()
-		}
-
-		// Use type assertion to check if tool implements Internal
-		if internalTool, ok := selectedTool.(interfaces.InternalTool); ok {
-			internal = internalTool.Internal()
-		}
-		// Default is false if Internal() is not implemented
-	} else {
-		displayName = toolCall.Name
-	}
-
-	// Send tool execution start event
-	eventChan <- interfaces.AgentStreamEvent{
-		Type: interfaces.AgentEventToolCall,
-		ToolCall: &interfaces.ToolCallEvent{
-			ID:          toolCall.ID,
-			Name:        toolCall.Name,
-			DisplayName: displayName,
-			Internal:    internal,
-			Arguments:   toolCall.Arguments,
-			Status:      "executing",
-		},
-		Timestamp: time.Now(),
-	}
-
-	if selectedTool == nil {
-		// Send tool result event with error instead of error event
-		errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Name)
-		eventChan <- interfaces.AgentStreamEvent{
-			Type: interfaces.AgentEventToolResult,
-			ToolCall: &interfaces.ToolCallEvent{
-				ID:          toolCall.ID,
-				Name:        toolCall.Name,
-				DisplayName: displayName,
-				Internal:    internal,
-				Arguments:   toolCall.Arguments,
-				Result:      errorMessage,
-				Status:      "error",
-			},
-			Error:     fmt.Errorf("tool not found: %s", toolCall.Name),
-			Timestamp: time.Now(),
-		}
-		return
-	}
-
-	// Execute the tool
-	toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
-
-	// Send tool result event
-	resultEvent := interfaces.AgentStreamEvent{
-		Type: interfaces.AgentEventToolResult,
-		ToolCall: &interfaces.ToolCallEvent{
-			ID:          toolCall.ID,
-			Name:        toolCall.Name,
-			DisplayName: displayName,
-			Internal:    internal,
-			Arguments:   toolCall.Arguments,
-			Result:      toolResult,
-		},
-		Timestamp: time.Now(),
-	}
-
-	if err != nil {
-		resultEvent.Error = err
-		resultEvent.ToolCall.Status = "error"
-		resultEvent.ToolCall.Result = fmt.Sprintf("Error: %v", err)
-	} else {
-		resultEvent.ToolCall.Status = "completed"
-	}
-
-	eventChan <- resultEvent
 }
 
 // runRemoteStream handles streaming for remote agents

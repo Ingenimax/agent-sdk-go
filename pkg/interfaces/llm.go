@@ -39,7 +39,7 @@ type LLMConfig struct {
 	StopSequences    []string // Stop sequences for the generation
 	Reasoning        string   // Reasoning mode (minimal, low, medium, high) to control reasoning effort
 	EnableReasoning  bool     // Enable native reasoning tokens (Anthropic thinking/OpenAI o1)
-	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only)
+	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only), minimum 1024
 }
 
 // WithMaxIterations creates a GenerateOption to set the maximum number of tool-calling iterations
