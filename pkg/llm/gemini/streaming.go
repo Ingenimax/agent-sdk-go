@@ -231,23 +231,6 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 			}
 		}
 
-		// Store messages in memory if provided
-		if params.Memory != nil {
-			// Store user message
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: prompt,
-			})
-
-			// Store accumulated assistant response
-			if accumulatedContent.Len() > 0 {
-				_ = params.Memory.AddMessage(ctx, interfaces.Message{
-					Role:    "assistant",
-					Content: accumulatedContent.String(),
-				})
-			}
-		}
-
 		// Send content complete event
 		select {
 		case eventCh <- interfaces.StreamEvent{
@@ -394,14 +377,6 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 	// Build contents using unified builder
 	builder := newMessageHistoryBuilder(c.logger)
 	contents := builder.buildContents(ctx, prompt, params)
-
-	// Store initial messages in memory (only new user message and system message)
-	if params.Memory != nil {
-		_ = params.Memory.AddMessage(ctx, interfaces.Message{
-			Role:    "user",
-			Content: prompt,
-		})
-	}
 
 	// Add system instruction if provided
 	var systemInstruction *genai.Content
@@ -625,49 +600,6 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
 				toolResult = fmt.Sprintf("Error: %v", err)
-			}
-
-			// Store tool call and result in memory if provided
-			if params.Memory != nil {
-				if err != nil {
-					// Store failed tool call result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Name,
-							Arguments: toolCall.Arguments,
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    fmt.Sprintf("Error: %v", err),
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolCall.Name,
-						},
-					})
-				} else {
-					// Store successful tool call and result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolCall.Name,
-							Arguments: toolCall.Arguments,
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    toolResult,
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolCall.Name,
-						},
-					})
-				}
 			}
 
 			// Add tool result as function response

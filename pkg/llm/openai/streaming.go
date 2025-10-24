@@ -229,35 +229,10 @@ func (c *OpenAIClient) GenerateStream(
 				Error:     fmt.Errorf("openai streaming error: %w", err),
 				Timestamp: time.Now(),
 			}
-			return
-		}
+		return
+	}
 
-		// Store messages in memory if provided
-		if params.Memory != nil {
-			// Store user message
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: prompt,
-			})
-
-			// Store system message if provided
-			if params.SystemMessage != "" {
-				_ = params.Memory.AddMessage(ctx, interfaces.Message{
-					Role:    "system",
-					Content: params.SystemMessage,
-				})
-			}
-
-			// Store accumulated assistant response
-			if accumulatedContent.Len() > 0 {
-				_ = params.Memory.AddMessage(ctx, interfaces.Message{
-					Role:    "assistant",
-					Content: accumulatedContent.String(),
-				})
-			}
-		}
-
-		// Send final message stop event
+	// Send final message stop event
 		eventChan <- interfaces.StreamEvent{
 			Type:      interfaces.StreamEventMessageStop,
 			Timestamp: time.Now(),
@@ -331,21 +306,6 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
 		messages := builder.buildMessages(ctx, prompt, params.Memory)
-
-		// Store initial messages in memory
-		if params.Memory != nil {
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: prompt,
-			})
-
-			if params.SystemMessage != "" {
-				_ = params.Memory.AddMessage(ctx, interfaces.Message{
-					Role:    "system",
-					Content: params.SystemMessage,
-				})
-			}
-		}
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{
@@ -641,53 +601,10 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 						"tool_name": toolCall.Function.Name,
 						"error":     err.Error(),
 					})
-					result = fmt.Sprintf("Error executing tool: %v", err)
-				}
+				result = fmt.Sprintf("Error executing tool: %v", err)
+			}
 
-				// Store tool call and result in memory if provided
-				if params.Memory != nil {
-					if err != nil {
-						// Store failed tool call result
-						_ = params.Memory.AddMessage(ctx, interfaces.Message{
-							Role:    "assistant",
-							Content: "",
-							ToolCalls: []interfaces.ToolCall{{
-								ID:        toolCall.ID,
-								Name:      toolCall.Function.Name,
-								Arguments: toolCall.Function.Arguments,
-							}},
-						})
-						_ = params.Memory.AddMessage(ctx, interfaces.Message{
-							Role:       "tool",
-							Content:    fmt.Sprintf("Error: %v", err),
-							ToolCallID: toolCall.ID,
-							Metadata: map[string]interface{}{
-								"tool_name": toolCall.Function.Name,
-							},
-						})
-					} else {
-						// Store successful tool call and result
-						_ = params.Memory.AddMessage(ctx, interfaces.Message{
-							Role:    "assistant",
-							Content: "",
-							ToolCalls: []interfaces.ToolCall{{
-								ID:        toolCall.ID,
-								Name:      toolCall.Function.Name,
-								Arguments: toolCall.Function.Arguments,
-							}},
-						})
-						_ = params.Memory.AddMessage(ctx, interfaces.Message{
-							Role:       "tool",
-							Content:    result,
-							ToolCallID: toolCall.ID,
-							Metadata: map[string]interface{}{
-								"tool_name": toolCall.Function.Name,
-							},
-						})
-					}
-				}
-
-				// Send tool result event
+			// Send tool result event
 				eventChan <- interfaces.StreamEvent{
 					Type:      interfaces.StreamEventToolResult,
 					Timestamp: time.Now(),
@@ -848,14 +765,6 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				Timestamp: time.Now(),
 			}
 			return
-		}
-
-		// Store final assistant response
-		if params.Memory != nil && finalContent.Len() > 0 {
-			_ = params.Memory.AddMessage(ctx, interfaces.Message{
-				Role:    "assistant",
-				Content: finalContent.String(),
-			})
 		}
 
 		// Send final message stop event
