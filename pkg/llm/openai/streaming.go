@@ -229,10 +229,10 @@ func (c *OpenAIClient) GenerateStream(
 				Error:     fmt.Errorf("openai streaming error: %w", err),
 				Timestamp: time.Now(),
 			}
-		return
-	}
+			return
+		}
 
-	// Send final message stop event
+		// Send final message stop event
 		eventChan <- interfaces.StreamEvent{
 			Type:      interfaces.StreamEventMessageStop,
 			Timestamp: time.Now(),
@@ -601,10 +601,10 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 						"tool_name": toolCall.Function.Name,
 						"error":     err.Error(),
 					})
-				result = fmt.Sprintf("Error executing tool: %v", err)
-			}
+					result = fmt.Sprintf("Error executing tool: %v", err)
+				}
 
-			// Send tool result event
+				// Send tool result event
 				eventChan <- interfaces.StreamEvent{
 					Type:      interfaces.StreamEventToolResult,
 					Timestamp: time.Now(),

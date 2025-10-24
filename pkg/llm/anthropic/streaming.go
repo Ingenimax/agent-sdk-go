@@ -643,10 +643,10 @@ func (c *AnthropicClient) executeStreamingWithTools(
 
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
-			toolResult = fmt.Sprintf("Error: %v", err)
-		}
+				toolResult = fmt.Sprintf("Error: %v", err)
+			}
 
-		// Add tool result message
+			// Add tool result message
 			messages = append(messages, Message{
 				Role:    "user", // Tool results come as user messages to Anthropic
 				Content: fmt.Sprintf("Tool %s result: %s", toolCall.Name, toolResult),
