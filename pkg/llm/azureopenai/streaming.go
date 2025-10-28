@@ -691,6 +691,21 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 			finalStreamParams.Temperature = openai.Float(params.LLMConfig.Temperature)
 		}
 
+		// Add structured output if specified
+		if params.ResponseFormat != nil {
+			jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name:   params.ResponseFormat.Name,
+				Schema: params.ResponseFormat.Schema,
+			}
+
+			finalStreamParams.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+					Type:       "json_schema",
+					JSONSchema: jsonSchema,
+				},
+			}
+		}
+
 		// Add other parameters
 		if params.LLMConfig != nil {
 			// Reasoning models don't support top_p parameter
