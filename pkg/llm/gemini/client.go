@@ -56,6 +56,7 @@ type GeminiClient struct {
 	logger          logging.Logger
 	retryExecutor   *retry.Executor
 	thinkingConfig  *ThinkingConfig
+	maxOutputTokens *int32 // Maximum number of output tokens to generate
 }
 
 // Option represents an option for configuring the Gemini client
@@ -140,6 +141,26 @@ func WithCredentialsFile(credentialsFile string) Option {
 func WithCredentialsJSON(credentialsJSON []byte) Option {
 	return func(c *GeminiClient) {
 		c.credentialsJSON = credentialsJSON
+	}
+}
+
+// WithMaxOutputTokens sets the maximum number of output tokens to generate.
+// This limits the length of the model's response.
+func WithMaxOutputTokens(maxTokens int32) Option {
+	return func(c *GeminiClient) {
+		c.maxOutputTokens = &maxTokens
+	}
+}
+
+// applyMaxOutputTokens applies the client's max output tokens to the generation config if set
+func (c *GeminiClient) applyMaxOutputTokens(genConfig **genai.GenerationConfig) {
+	if c.maxOutputTokens != nil {
+		if *genConfig == nil {
+			*genConfig = &genai.GenerationConfig{}
+		}
+		// MaxOutputTokens expects int32 value, not pointer
+		maxTokens := *c.maxOutputTokens
+		(*genConfig).MaxOutputTokens = maxTokens
 	}
 }
 
@@ -312,6 +333,9 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 			genConfig.StopSequences = params.LLMConfig.StopSequences
 		}
 	}
+
+	// Apply max output tokens if configured at client level
+	c.applyMaxOutputTokens(&genConfig)
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
@@ -616,6 +640,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				genConfig.StopSequences = params.LLMConfig.StopSequences
 			}
 		}
+
+		// Apply max output tokens if configured at client level
+		c.applyMaxOutputTokens(&genConfig)
 
 		// Set response format if provided
 		if params.ResponseFormat != nil {
@@ -966,6 +993,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			genConfig.StopSequences = params.LLMConfig.StopSequences
 		}
 	}
+
+	// Apply max output tokens if configured at client level
+	c.applyMaxOutputTokens(&genConfig)
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {

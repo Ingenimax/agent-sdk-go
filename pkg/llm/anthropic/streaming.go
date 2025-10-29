@@ -3,6 +3,7 @@ package anthropic
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -707,10 +708,42 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		"reason":                "no_complete_response_received",
 	})
 
+	// Build the final user message
+	finalUserMessage := "Please provide your final response based on the information available. Do not request any additional tools."
+
+	// If structured output is requested, enhance the final message with schema and examples
+	if params.ResponseFormat != nil {
+		// Convert the schema to a string representation for the prompt
+		schemaJSON, err := json.MarshalIndent(params.ResponseFormat.Schema, "", "  ")
+		if err == nil {
+			// Create an example JSON structure based on the schema
+			exampleJSON := createExampleFromSchema(params.ResponseFormat.Schema)
+			exampleStr, _ := json.MarshalIndent(exampleJSON, "", "  ")
+
+			// Enhance the final user message with schema information and example
+			finalUserMessage = fmt.Sprintf(`%s
+
+You must respond with a valid JSON object that exactly follows this schema:
+%s
+
+Here is an example of the expected JSON structure:
+%s
+
+CRITICAL INSTRUCTIONS:
+- Output ONLY valid JSON, no additional text before or after
+- Follow the EXACT structure shown in the schema and example
+- Use the field names exactly as specified
+- Ensure all required fields are present
+- Pay special attention to array fields - they must be arrays of objects, not simple objects
+- If a field is defined as an array in the schema, it MUST be an array in your response
+- The JSON must be directly parsable and match the schema precisely`, finalUserMessage, string(schemaJSON), string(exampleStr))
+		}
+	}
+
 	// Add a message to inform the LLM this is the final call
 	finalMessages := append(messages, Message{
 		Role:    "user",
-		Content: "Please provide your final response based on the information available. Do not request any additional tools.",
+		Content: finalUserMessage,
 	})
 
 	finalReq := CompletionRequest{
@@ -723,9 +756,16 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		Stream: true, // Enable streaming
 	}
 
-	// Add system message if available
+	// Add system message if available and enhance for structured output
 	if params.SystemMessage != "" {
-		finalReq.System = params.SystemMessage
+		if params.ResponseFormat != nil {
+			finalReq.System = params.SystemMessage + "\n\nIMPORTANT: You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
+		} else {
+			finalReq.System = params.SystemMessage
+		}
+	} else if params.ResponseFormat != nil {
+		// If no system message but structured output is requested, add a system message for JSON
+		finalReq.System = "You must respond with valid JSON that matches the specified schema. Return ONLY the raw JSON object without any markdown formatting, code blocks, or wrapper text. Pay special attention to array fields - if a field is defined as an array in the schema, it MUST be an array in your response, not an object."
 	}
 
 	// Add reasoning (thinking) support if enabled and model supports it

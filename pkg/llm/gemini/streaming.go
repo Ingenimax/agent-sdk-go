@@ -87,6 +87,9 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 		}
 	}
 
+	// Apply max output tokens if configured at client level
+	c.applyMaxOutputTokens(&genConfig)
+
 	// Set response format if provided
 	if params.ResponseFormat != nil {
 		if genConfig == nil {
@@ -466,6 +469,9 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			}
 		}
 
+		// Apply max output tokens if configured at client level
+		c.applyMaxOutputTokens(&genConfig)
+
 		// Create config
 		config := &genai.GenerateContentConfig{
 			SystemInstruction: systemInstruction,
@@ -686,6 +692,27 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 	}
 
+	// Apply max output tokens if configured at client level
+	c.applyMaxOutputTokens(&genConfig)
+
+	// Add ResponseFormat if specified
+	if params.ResponseFormat != nil {
+		if genConfig == nil {
+			genConfig = &genai.GenerationConfig{}
+		}
+		genConfig.ResponseMIMEType = "application/json"
+
+		// Convert schema for genai
+		if schemaBytes, err := json.Marshal(params.ResponseFormat.Schema); err == nil {
+			var schema *genai.Schema
+			if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+				c.logger.Warn(ctx, "Failed to convert response schema for final call", map[string]interface{}{"error": err.Error()})
+			} else {
+				genConfig.ResponseSchema = schema
+			}
+		}
+	}
+
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: systemInstruction,
 		// No tools in final request - we want a final answer
@@ -701,6 +728,12 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 		if len(genConfig.StopSequences) > 0 {
 			config.StopSequences = genConfig.StopSequences
+		}
+		if genConfig.ResponseMIMEType != "" {
+			config.ResponseMIMEType = genConfig.ResponseMIMEType
+		}
+		if genConfig.ResponseSchema != nil {
+			config.ResponseSchema = genConfig.ResponseSchema
 		}
 	}
 
