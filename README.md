@@ -24,6 +24,13 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 🛠️ **Structured Task Framework**: Plan, approve, and execute complex multi-step operations
 - 📄 **Declarative Configuration**: Define sophisticated agents and tasks using intuitive YAML definitions
 - 🧙 **Zero-Effort Bootstrapping**: Auto-generate complete agent configurations from simple system prompts
+  
+## Discord Community
+
+Join our Discord Server Channel to collaborate and get involved in the community leveraging agent-sdk-go. We would love to hear what everyone is working on and provide community based support for engaged engineers.  
+
+[Ingenimax Discord Server - agent-sdk-go channel](https://discord.com/invite/MjJbDG2nQZ)    
+  
 
 ## Getting Started
 
