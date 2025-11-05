@@ -61,6 +61,8 @@ debug.test
 # Binary files
 bin/
 dist/
+# But allow UI dist files for Go embedding
+!pkg/microservice/ui/dist/
 
 # Python virtualenv
 venv/
