@@ -7,6 +7,12 @@
 
 A powerful Go framework for building production-ready AI agents that seamlessly integrates memory management, tool execution, multi-LLM support, and enterprise features into a flexible, extensible architecture.
 
+## Community
+
+[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/MjJbDG2nQZ)
+
+Join our Discord server to collaborate, share what you're building, and get community support for agent-sdk-go!
+
 ## Features
 
 ### Core Capabilities
@@ -24,13 +30,6 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 🛠️ **Structured Task Framework**: Plan, approve, and execute complex multi-step operations
 - 📄 **Declarative Configuration**: Define sophisticated agents and tasks using intuitive YAML definitions
 - 🧙 **Zero-Effort Bootstrapping**: Auto-generate complete agent configurations from simple system prompts
-  
-## Discord Community
-
-Join our Discord Server Channel to collaborate and get involved in the community leveraging agent-sdk-go. We would love to hear what everyone is working on and provide community based support for engaged engineers.  
-
-[Ingenimax Discord Server - agent-sdk-go channel](https://discord.com/invite/MjJbDG2nQZ)    
-  
 
 ## Getting Started
 
