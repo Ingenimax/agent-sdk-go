@@ -287,6 +287,11 @@ func (c *OllamaClient) SupportsStreaming() bool {
 	return false
 }
 
+// GetModel returns the model name being used
+func (c *OllamaClient) GetModel() string {
+	return c.Model
+}
+
 // makeRequest makes an HTTP request to the Ollama API
 func (c *OllamaClient) makeRequest(ctx context.Context, endpoint string, payload interface{}) ([]byte, error) {
 	// Marshal payload

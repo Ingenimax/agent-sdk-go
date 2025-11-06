@@ -12,7 +12,7 @@ import (
 )
 
 // Calculator implements a simple calculator tool
-type Calculator struct {}
+type Calculator struct{}
 
 // Input represents the input for the calculator tool
 type Input struct {
