@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -47,12 +48,12 @@ type HTTPServerWithUI struct {
 
 // SubAgentInfo represents sub-agent information for UI
 type SubAgentInfo struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Model       string   `json:"model"`
-	Status      string   `json:"status"`
-	Tools       []string `json:"tools"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Model        string   `json:"model"`
+	Status       string   `json:"status"`
+	Tools        []string `json:"tools"`
 	Capabilities []string `json:"capabilities,omitempty"`
 }
 
@@ -79,12 +80,31 @@ type MemoryInfo struct {
 
 // MemoryEntry represents a memory entry for the browser
 type MemoryEntry struct {
-	ID           string                 `json:"id"`
-	Role         string                 `json:"role"`
-	Content      string                 `json:"content"`
-	Timestamp    int64                  `json:"timestamp"`
-	ConversationID string               `json:"conversation_id,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	ID             string                 `json:"id"`
+	Role           string                 `json:"role"`
+	Content        string                 `json:"content"`
+	Timestamp      int64                  `json:"timestamp"`
+	ConversationID string                 `json:"conversation_id,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ConversationInfo represents conversation metadata
+type ConversationInfo struct {
+	ID           string `json:"id"`
+	MessageCount int    `json:"message_count"`
+	LastActivity int64  `json:"last_activity"`
+	LastMessage  string `json:"last_message,omitempty"`
+}
+
+// MemoryResponse represents the response structure for memory endpoints
+type MemoryResponse struct {
+	Mode           string             `json:"mode"` // "conversations" or "messages"
+	Conversations  []ConversationInfo `json:"conversations,omitempty"`
+	Messages       []MemoryEntry      `json:"messages,omitempty"`
+	Total          int                `json:"total"`
+	Limit          int                `json:"limit"`
+	Offset         int                `json:"offset"`
+	ConversationID string             `json:"conversation_id,omitempty"`
 }
 
 // DelegateRequest represents a request to delegate to a sub-agent
@@ -96,6 +116,7 @@ type DelegateRequest struct {
 }
 
 // Embed UI files (will be populated at build time)
+//
 //go:embed all:ui-nextjs/out
 var defaultUIFiles embed.FS
 
@@ -228,7 +249,6 @@ func (h *HTTPServerWithUI) Start() error {
 	return h.server.ListenAndServe()
 }
 
-
 // registerAPIEndpoints registers all API endpoints
 func (h *HTTPServerWithUI) registerAPIEndpoints(mux *http.ServeMux) {
 	// Health check (always available)
@@ -244,8 +264,8 @@ func (h *HTTPServerWithUI) registerAPIEndpoints(mux *http.ServeMux) {
 		mux.HandleFunc("/api/v1/agent/config", h.handleConfig)
 		mux.HandleFunc("/api/v1/agent/subagents", h.handleSubAgents)
 		mux.HandleFunc("/api/v1/agent/delegate", h.withOrgContext(h.handleDelegate))
-		mux.HandleFunc("/api/v1/memory", h.handleMemory)
-		mux.HandleFunc("/api/v1/memory/search", h.handleMemorySearch)
+		mux.HandleFunc("/api/v1/memory", h.withOrgContext(h.handleMemory))
+		mux.HandleFunc("/api/v1/memory/search", h.withOrgContext(h.handleMemorySearch))
 		mux.HandleFunc("/api/v1/tools", h.handleTools)
 		mux.HandleFunc("/ws/chat", h.handleWebSocketChat)
 	}
@@ -363,15 +383,21 @@ func (h *HTTPServerWithUI) handleMemory(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Get conversation history
-	entries := h.getConversationHistory(limit, offset)
+	conversationID := r.URL.Query().Get("conversation_id")
 
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"entries": entries,
-		"total":   len(h.conversationHistory),
-		"limit":   limit,
-		"offset":  offset,
-	}); err != nil {
+	var response MemoryResponse
+
+	if conversationID != "" {
+		// Get messages for specific conversation
+		log.Printf("Getting messages for conversation: %s", conversationID)
+		response = h.getConversationMessagesWithContext(r.Context(), conversationID, limit, offset)
+	} else {
+		// Get all conversations
+		log.Println("Getting all conversations")
+		response = h.getAllConversationsWithContext(r.Context(), limit, offset)
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -468,12 +494,12 @@ func (h *HTTPServerWithUI) getSubAgentsList() []SubAgentInfo {
 			if strings.HasSuffix(toolName, "_agent") {
 				agentName := strings.TrimSuffix(toolName, "_agent")
 				subAgent := SubAgentInfo{
-					ID:          toolName,
-					Name:        agentName,
-					Description: h.getToolDescriptionFromSystemPrompt(toolName, systemPrompt),
-					Model:       "Remote",
-					Status:      "active",
-					Tools:       []string{toolName},
+					ID:           toolName,
+					Name:         agentName,
+					Description:  h.getToolDescriptionFromSystemPrompt(toolName, systemPrompt),
+					Model:        "Remote",
+					Status:       "active",
+					Tools:        []string{toolName},
 					Capabilities: []string{"Remote sub-agent"},
 				}
 				subAgents = append(subAgents, subAgent)
@@ -484,12 +510,12 @@ func (h *HTTPServerWithUI) getSubAgentsList() []SubAgentInfo {
 		agentSubAgents := h.agent.GetSubAgents()
 		for _, subAgent := range agentSubAgents {
 			subAgentInfo := SubAgentInfo{
-				ID:          subAgent.GetName(),
-				Name:        subAgent.GetName(),
-				Description: subAgent.GetDescription(),
-				Model:       h.getSubAgentModel(subAgent),
-				Status:      "active", // Sub-agents are active if they're registered
-				Tools:       h.getSubAgentTools(subAgent),
+				ID:           subAgent.GetName(),
+				Name:         subAgent.GetName(),
+				Description:  subAgent.GetDescription(),
+				Model:        h.getSubAgentModel(subAgent),
+				Status:       "active", // Sub-agents are active if they're registered
+				Tools:        h.getSubAgentTools(subAgent),
 				Capabilities: []string{"Sub-agent"},
 			}
 			subAgents = append(subAgents, subAgentInfo)
@@ -515,12 +541,12 @@ func (h *HTTPServerWithUI) getSubAgentsList() []SubAgentInfo {
 
 				if !found {
 					subAgent := SubAgentInfo{
-						ID:          toolName,
-						Name:        agentName,
-						Description: tool.Description(),
-						Model:       "Unknown",
-						Status:      "active",
-						Tools:       []string{toolName},
+						ID:           toolName,
+						Name:         agentName,
+						Description:  tool.Description(),
+						Model:        "Unknown",
+						Status:       "active",
+						Tools:        []string{toolName},
 						Capabilities: []string{"Tool-based sub-agent"},
 					}
 					subAgents = append(subAgents, subAgent)
@@ -650,12 +676,12 @@ func (h *HTTPServerWithUI) parseSubAgentsFromSystemPrompt() []SubAgentInfo {
 					if strings.HasSuffix(part, "_agent") {
 						agentName := strings.TrimSuffix(part, "_agent")
 						subAgent := SubAgentInfo{
-							ID:          part,
-							Name:        agentName,
-							Description: "Sub-agent extracted from system prompt",
-							Model:       "Unknown",
-							Status:      "configured",
-							Tools:       []string{part},
+							ID:           part,
+							Name:         agentName,
+							Description:  "Sub-agent extracted from system prompt",
+							Model:        "Unknown",
+							Status:       "configured",
+							Tools:        []string{part},
 							Capabilities: []string{"System prompt defined"},
 						}
 						subAgents = append(subAgents, subAgent)
@@ -674,12 +700,12 @@ func (h *HTTPServerWithUI) parseSubAgentsFromSystemPrompt() []SubAgentInfo {
 			agentTool := strings.TrimPrefix(line, "### ")
 			agentName := strings.TrimSuffix(agentTool, "_agent")
 			currentAgent = &SubAgentInfo{
-				ID:          agentTool,
-				Name:        agentName,
-				Description: "",
-				Model:       "Unknown",
-				Status:      "configured",
-				Tools:       []string{agentTool},
+				ID:           agentTool,
+				Name:         agentName,
+				Description:  "",
+				Model:        "Unknown",
+				Status:       "configured",
+				Tools:        []string{agentTool},
 				Capabilities: []string{},
 			}
 		}
@@ -766,6 +792,54 @@ func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEnt
 	}
 
 	return result
+}
+
+// getAllConversationsWithContext gets all conversations with request context (but ignores org isolation)
+func (h *HTTPServerWithUI) getAllConversationsWithContext(ctx context.Context, limit, offset int) MemoryResponse {
+	// For admin/debug view, we want to see all conversations from all orgs
+	return h.getAllConversationsFromAllOrgs(limit, offset)
+}
+
+// getConversationMessagesWithContext gets messages with request context (but searches all orgs)
+func (h *HTTPServerWithUI) getConversationMessagesWithContext(ctx context.Context, conversationID string, limit, offset int) MemoryResponse {
+	// For admin/debug view, search across all orgs for the conversation
+	return h.getConversationMessagesFromAllOrgs(conversationID, limit, offset)
+}
+
+// getAllConversationsFromAllOrgs gets conversations from all organizations
+func (h *HTTPServerWithUI) getAllConversationsFromAllOrgs(limit, offset int) MemoryResponse {
+	// Handle remote agents by making HTTP calls to their memory endpoint
+	if h.agent.IsRemote() {
+		log.Println("Fetching conversations from remote agent memory")
+		return h.getRemoteMemoryConversations(limit, offset)
+	}
+
+	// Check if memory supports cross-org operations
+	if adminMem, ok := h.agent.GetMemory().(interfaces.AdminConversationMemory); ok {
+		log.Println("Fetching conversations from admin conversation memory across all orgs")
+		return h.buildConversationListFromAllOrgs(adminMem, limit, offset)
+	}
+
+	// Fallback: build conversation list from local history (all orgs)
+	return h.buildConversationListFromLocalAllOrgs(limit, offset)
+}
+
+// getConversationMessagesFromAllOrgs searches for conversation across all orgs
+func (h *HTTPServerWithUI) getConversationMessagesFromAllOrgs(conversationID string, limit, offset int) MemoryResponse {
+	// Handle remote agents by making HTTP calls to their memory endpoint
+	if h.agent.IsRemote() {
+		log.Printf("Fetching messages for conversation %s from remote agent memory", conversationID)
+		return h.getRemoteMemoryMessages(conversationID, limit, offset)
+	}
+
+	// Check if memory supports cross-org operations
+	if adminMem, ok := h.agent.GetMemory().(interfaces.AdminConversationMemory); ok {
+		log.Printf("Fetching messages for conversation %s from admin conversation memory across all orgs", conversationID)
+		return h.buildMessageListFromAllOrgs(adminMem, conversationID, limit, offset)
+	}
+
+	// Fallback: get messages from local history (search all orgs)
+	return h.buildMessageListFromLocalAllOrgs(conversationID, limit, offset)
 }
 
 // getMemoryFromAgent retrieves memory from the agent's memory system (Redis, etc.)
@@ -1004,7 +1078,6 @@ func (h *HTTPServerWithUI) getSystemPrompt() string {
 	return systemPrompt
 }
 
-
 // addToConversationHistory adds an entry to local conversation history
 func (h *HTTPServerWithUI) addToConversationHistory(role, content string, metadata map[string]interface{}) {
 	entry := MemoryEntry{
@@ -1055,7 +1128,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Add user input to conversation history
 	h.addToConversationHistory("user", req.Input, map[string]interface{}{
 		"conversation_id": req.ConversationID,
-		"org_id":         req.OrgID,
+		"org_id":          req.OrgID,
 	})
 
 	// Execute agent
@@ -1065,7 +1138,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.addToConversationHistory("error", err.Error(), map[string]interface{}{
 			"conversation_id": req.ConversationID,
-			"org_id":         req.OrgID,
+			"org_id":          req.OrgID,
 		})
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1078,7 +1151,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	h.addToConversationHistory("assistant", result, map[string]interface{}{
 		"conversation_id": req.ConversationID,
-		"org_id":         req.OrgID,
+		"org_id":          req.OrgID,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1126,7 +1199,7 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	// Add user input to conversation history
 	h.addToConversationHistory("user", req.Input, map[string]interface{}{
 		"conversation_id": req.ConversationID,
-		"org_id":         req.OrgID,
+		"org_id":          req.OrgID,
 	})
 
 	// Check if agent supports streaming
@@ -1138,7 +1211,7 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			h.addToConversationHistory("error", err.Error(), map[string]interface{}{
 				"conversation_id": req.ConversationID,
-				"org_id":         req.OrgID,
+				"org_id":          req.OrgID,
 			})
 
 			event := SSEEvent{
@@ -1152,7 +1225,7 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 
 		h.addToConversationHistory("assistant", result, map[string]interface{}{
 			"conversation_id": req.ConversationID,
-			"org_id":         req.OrgID,
+			"org_id":          req.OrgID,
 		})
 
 		event := SSEEvent{
@@ -1169,7 +1242,7 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		h.addToConversationHistory("error", err.Error(), map[string]interface{}{
 			"conversation_id": req.ConversationID,
-			"org_id":         req.OrgID,
+			"org_id":          req.OrgID,
 		})
 
 		event := SSEEvent{
@@ -1232,7 +1305,7 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	if fullResponse.Len() > 0 {
 		h.addToConversationHistory("assistant", fullResponse.String(), map[string]interface{}{
 			"conversation_id": req.ConversationID,
-			"org_id":         req.OrgID,
+			"org_id":          req.OrgID,
 		})
 	}
 }
@@ -1252,4 +1325,334 @@ func (h *HTTPServerWithUI) sendSSEEvent(w http.ResponseWriter, event SSEEvent) {
 	fmt.Fprintf(w, "\n")
 }
 
+// buildConversationListFromAllOrgs builds conversation list from all organizations
+func (h *HTTPServerWithUI) buildConversationListFromAllOrgs(adminMem interfaces.AdminConversationMemory, limit, offset int) MemoryResponse {
+	orgConversations, err := adminMem.GetAllConversationsAcrossOrgs()
+	if err != nil {
+		// Return empty response on error
+		return MemoryResponse{
+			Mode:          "conversations",
+			Conversations: []ConversationInfo{},
+			Total:         0,
+			Limit:         limit,
+			Offset:        offset,
+		}
+	}
 
+	var allConversationInfos []ConversationInfo
+
+	// Iterate through all orgs and their conversations
+	for orgID, conversations := range orgConversations {
+		for _, convID := range conversations {
+			// Get messages to determine last activity and message count
+			messages, foundOrgID, err := adminMem.GetConversationMessagesAcrossOrgs(convID)
+			if err != nil || foundOrgID != orgID {
+				continue
+			}
+
+			if len(messages) > 0 {
+				lastMessage := messages[len(messages)-1]
+
+				// Truncate last message content for preview
+				lastContent := lastMessage.Content
+				if len(lastContent) > 100 {
+					lastContent = lastContent[:100] + "..."
+				}
+
+				// Include orgID in conversation display
+				displayID := fmt.Sprintf("[%s] %s", orgID, convID)
+
+				allConversationInfos = append(allConversationInfos, ConversationInfo{
+					ID:           convID, // Keep original ID for API calls
+					MessageCount: len(messages),
+					LastActivity: time.Now().Unix(), // TODO: get actual timestamp from last message
+					LastMessage:  displayID + ": " + lastContent,
+				})
+			}
+		}
+	}
+
+	// Apply pagination
+	total := len(allConversationInfos)
+	start := offset
+	end := offset + limit
+	if start >= total {
+		allConversationInfos = []ConversationInfo{}
+	} else {
+		if end > total {
+			end = total
+		}
+		allConversationInfos = allConversationInfos[start:end]
+	}
+
+	return MemoryResponse{
+		Mode:          "conversations",
+		Conversations: allConversationInfos,
+		Total:         total,
+		Limit:         limit,
+		Offset:        offset,
+	}
+}
+
+// buildConversationListFromLocalAllOrgs builds conversation list from local history across all orgs
+func (h *HTTPServerWithUI) buildConversationListFromLocalAllOrgs(limit, offset int) MemoryResponse {
+	// Group local conversation history by conversation ID (ignoring org isolation)
+	conversationMap := make(map[string][]MemoryEntry)
+
+	for _, entry := range h.conversationHistory {
+		convID := entry.ConversationID
+		if convID == "" {
+			convID = "default"
+		}
+		conversationMap[convID] = append(conversationMap[convID], entry)
+	}
+
+	var conversationInfos []ConversationInfo
+	for convID, entries := range conversationMap {
+		if len(entries) > 0 {
+			lastEntry := entries[len(entries)-1]
+			lastContent := lastEntry.Content
+			if len(lastContent) > 100 {
+				lastContent = lastContent[:100] + "..."
+			}
+
+			conversationInfos = append(conversationInfos, ConversationInfo{
+				ID:           convID,
+				MessageCount: len(entries),
+				LastActivity: lastEntry.Timestamp,
+				LastMessage:  lastContent,
+			})
+		}
+	}
+
+	// Apply pagination
+	total := len(conversationInfos)
+	start := offset
+	end := offset + limit
+	if start >= total {
+		conversationInfos = []ConversationInfo{}
+	} else {
+		if end > total {
+			end = total
+		}
+		conversationInfos = conversationInfos[start:end]
+	}
+
+	return MemoryResponse{
+		Mode:          "conversations",
+		Conversations: conversationInfos,
+		Total:         total,
+		Limit:         limit,
+		Offset:        offset,
+	}
+}
+
+// buildMessageListFromAllOrgs builds message list from all organizations
+func (h *HTTPServerWithUI) buildMessageListFromAllOrgs(adminMem interfaces.AdminConversationMemory, conversationID string, limit, offset int) MemoryResponse {
+	messages, orgID, err := adminMem.GetConversationMessagesAcrossOrgs(conversationID)
+	if err != nil {
+		// Return empty response on error
+		return MemoryResponse{
+			Mode:           "messages",
+			Messages:       []MemoryEntry{},
+			Total:          0,
+			Limit:          limit,
+			Offset:         offset,
+			ConversationID: conversationID,
+		}
+	}
+
+	var memoryEntries []MemoryEntry
+
+	for i, msg := range messages {
+		// Extract tool calls if present
+		toolCallsInfo := ""
+		if len(msg.ToolCalls) > 0 {
+			toolCallsInfo = fmt.Sprintf(" [%d tool calls]", len(msg.ToolCalls))
+		}
+
+		// Include org info in the message content
+		content := msg.Content + toolCallsInfo
+		if orgID != "" {
+			content = fmt.Sprintf("[%s] %s", orgID, content)
+		}
+
+		memoryEntries = append(memoryEntries, MemoryEntry{
+			ID:             fmt.Sprintf("agent_msg_%d", i),
+			Role:           string(msg.Role),
+			Content:        content,
+			Timestamp:      time.Now().Unix(), // TODO: get actual timestamp from message
+			ConversationID: conversationID,
+			Metadata:       msg.Metadata,
+		})
+	}
+
+	// Apply pagination
+	total := len(memoryEntries)
+	start := offset
+	end := offset + limit
+	if start >= total {
+		memoryEntries = []MemoryEntry{}
+	} else {
+		if end > total {
+			end = total
+		}
+		memoryEntries = memoryEntries[start:end]
+	}
+
+	return MemoryResponse{
+		Mode:           "messages",
+		Messages:       memoryEntries,
+		Total:          total,
+		Limit:          limit,
+		Offset:         offset,
+		ConversationID: conversationID,
+	}
+}
+
+// buildMessageListFromLocalAllOrgs builds message list from local history across all orgs
+func (h *HTTPServerWithUI) buildMessageListFromLocalAllOrgs(conversationID string, limit, offset int) MemoryResponse {
+	var filteredEntries []MemoryEntry
+
+	// Filter entries by conversation ID (ignoring org isolation)
+	for _, entry := range h.conversationHistory {
+		entryConvID := entry.ConversationID
+		if entryConvID == "" {
+			entryConvID = "default"
+		}
+		if entryConvID == conversationID {
+			filteredEntries = append(filteredEntries, entry)
+		}
+	}
+
+	// Apply pagination
+	total := len(filteredEntries)
+	start := offset
+	end := offset + limit
+	if start >= total {
+		filteredEntries = []MemoryEntry{}
+	} else {
+		if end > total {
+			end = total
+		}
+		filteredEntries = filteredEntries[start:end]
+	}
+
+	return MemoryResponse{
+		Mode:           "messages",
+		Messages:       filteredEntries,
+		Total:          total,
+		Limit:          limit,
+		Offset:         offset,
+		ConversationID: conversationID,
+	}
+}
+
+// getRemoteMemoryConversations gets conversations from a remote agent via HTTP
+func (h *HTTPServerWithUI) getRemoteMemoryConversations(limit, offset int) MemoryResponse {
+	remoteURL := h.agent.GetRemoteURL()
+	if remoteURL == "" {
+		return MemoryResponse{
+			Mode:          "conversations",
+			Conversations: []ConversationInfo{},
+			Total:         0,
+			Limit:         limit,
+			Offset:        offset,
+		}
+	}
+
+	// Make HTTP request to remote agent's memory endpoint
+	url := fmt.Sprintf("%s/api/v1/memory?limit=%d&offset=%d", remoteURL, limit, offset)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return MemoryResponse{
+			Mode:          "conversations",
+			Conversations: []ConversationInfo{},
+			Total:         0,
+			Limit:         limit,
+			Offset:        offset,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return MemoryResponse{
+			Mode:          "conversations",
+			Conversations: []ConversationInfo{},
+			Total:         0,
+			Limit:         limit,
+			Offset:        offset,
+		}
+	}
+
+	var remoteResponse MemoryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&remoteResponse); err != nil {
+		return MemoryResponse{
+			Mode:          "conversations",
+			Conversations: []ConversationInfo{},
+			Total:         0,
+			Limit:         limit,
+			Offset:        offset,
+		}
+	}
+
+	return remoteResponse
+}
+
+// getRemoteMemoryMessages gets messages for a specific conversation from a remote agent via HTTP
+func (h *HTTPServerWithUI) getRemoteMemoryMessages(conversationID string, limit, offset int) MemoryResponse {
+	remoteURL := h.agent.GetRemoteURL()
+	if remoteURL == "" {
+		return MemoryResponse{
+			Mode:           "messages",
+			Messages:       []MemoryEntry{},
+			Total:          0,
+			Limit:          limit,
+			Offset:         offset,
+			ConversationID: conversationID,
+		}
+	}
+
+	// Make HTTP request to remote agent's memory endpoint for specific conversation
+	url := fmt.Sprintf("%s/api/v1/memory?conversation_id=%s&limit=%d&offset=%d",
+		remoteURL, conversationID, limit, offset)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return MemoryResponse{
+			Mode:           "messages",
+			Messages:       []MemoryEntry{},
+			Total:          0,
+			Limit:          limit,
+			Offset:         offset,
+			ConversationID: conversationID,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return MemoryResponse{
+			Mode:           "messages",
+			Messages:       []MemoryEntry{},
+			Total:          0,
+			Limit:          limit,
+			Offset:         offset,
+			ConversationID: conversationID,
+		}
+	}
+
+	var remoteResponse MemoryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&remoteResponse); err != nil {
+		return MemoryResponse{
+			Mode:           "messages",
+			Messages:       []MemoryEntry{},
+			Total:          0,
+			Limit:          limit,
+			Offset:         offset,
+			ConversationID: conversationID,
+		}
+	}
+
+	return remoteResponse
+}

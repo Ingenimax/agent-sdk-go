@@ -29,14 +29,14 @@ type ResearchPaper struct {
 
 // FinancialMetrics represents detailed financial information
 type FinancialMetrics struct {
-	Revenue          float64 `json:"revenue" description:"Annual revenue in billions USD"`
-	NetIncome        float64 `json:"net_income" description:"Net income in billions USD"`
-	GrossMargin      float64 `json:"gross_margin" description:"Gross margin percentage"`
-	OperatingMargin  float64 `json:"operating_margin" description:"Operating margin percentage"`
-	DebtToEquity     float64 `json:"debt_to_equity" description:"Debt to equity ratio"`
-	CurrentRatio     float64 `json:"current_ratio" description:"Current ratio"`
-	ReturnOnEquity   float64 `json:"return_on_equity" description:"Return on equity percentage"`
-	FreeCashFlow     float64 `json:"free_cash_flow" description:"Free cash flow in billions USD"`
+	Revenue         float64 `json:"revenue" description:"Annual revenue in billions USD"`
+	NetIncome       float64 `json:"net_income" description:"Net income in billions USD"`
+	GrossMargin     float64 `json:"gross_margin" description:"Gross margin percentage"`
+	OperatingMargin float64 `json:"operating_margin" description:"Operating margin percentage"`
+	DebtToEquity    float64 `json:"debt_to_equity" description:"Debt to equity ratio"`
+	CurrentRatio    float64 `json:"current_ratio" description:"Current ratio"`
+	ReturnOnEquity  float64 `json:"return_on_equity" description:"Return on equity percentage"`
+	FreeCashFlow    float64 `json:"free_cash_flow" description:"Free cash flow in billions USD"`
 }
 
 // MarketPosition represents market analysis information
@@ -51,11 +51,11 @@ type MarketPosition struct {
 
 // Innovation represents R&D and innovation metrics
 type Innovation struct {
-	RAndDSpending    float64  `json:"r_and_d_spending" description:"R&D spending in billions USD"`
-	PatentCount      int      `json:"patent_count" description:"Number of patents held"`
-	RecentBrevets   []string `json:"recent_innovations" description:"Recent innovations or breakthroughs"`
-	TechnologyFocus  []string `json:"technology_focus" description:"Key technology focus areas"`
-	PartnershipsCount int     `json:"partnerships_count" description:"Number of strategic partnerships"`
+	RAndDSpending     float64  `json:"r_and_d_spending" description:"R&D spending in billions USD"`
+	PatentCount       int      `json:"patent_count" description:"Number of patents held"`
+	RecentBrevets     []string `json:"recent_innovations" description:"Recent innovations or breakthroughs"`
+	TechnologyFocus   []string `json:"technology_focus" description:"Key technology focus areas"`
+	PartnershipsCount int      `json:"partnerships_count" description:"Number of strategic partnerships"`
 }
 
 // CompanyAnalysis represents structured company analysis
@@ -81,25 +81,25 @@ type CompanyAnalysis struct {
 
 // SystemRequirements represents detailed system requirements
 type SystemRequirements struct {
-	MinCPU           string  `json:"min_cpu" description:"Minimum CPU requirements"`
-	MinRAM           string  `json:"min_ram" description:"Minimum RAM requirements"`
-	MinStorage       string  `json:"min_storage" description:"Minimum storage requirements"`
-	RecommendedCPU   string  `json:"recommended_cpu" description:"Recommended CPU specifications"`
-	RecommendedRAM   string  `json:"recommended_ram" description:"Recommended RAM specifications"`
-	RecommendedStorage string `json:"recommended_storage" description:"Recommended storage specifications"`
-	NetworkBandwidth string  `json:"network_bandwidth" description:"Required network bandwidth"`
-	SupportedOS      []string `json:"supported_os" description:"Supported operating systems"`
+	MinCPU             string   `json:"min_cpu" description:"Minimum CPU requirements"`
+	MinRAM             string   `json:"min_ram" description:"Minimum RAM requirements"`
+	MinStorage         string   `json:"min_storage" description:"Minimum storage requirements"`
+	RecommendedCPU     string   `json:"recommended_cpu" description:"Recommended CPU specifications"`
+	RecommendedRAM     string   `json:"recommended_ram" description:"Recommended RAM specifications"`
+	RecommendedStorage string   `json:"recommended_storage" description:"Recommended storage specifications"`
+	NetworkBandwidth   string   `json:"network_bandwidth" description:"Required network bandwidth"`
+	SupportedOS        []string `json:"supported_os" description:"Supported operating systems"`
 }
 
 // PerformanceMetrics represents detailed performance information
 type PerformanceMetrics struct {
-	MaxThroughput    int     `json:"max_throughput" description:"Maximum throughput (requests/second)"`
-	AverageLatency   float64 `json:"average_latency" description:"Average response latency in milliseconds"`
-	MaxConcurrentUsers int   `json:"max_concurrent_users" description:"Maximum concurrent users supported"`
-	MemoryUsage      string  `json:"memory_usage" description:"Typical memory usage"`
-	CPUUtilization   float64 `json:"cpu_utilization" description:"Average CPU utilization percentage"`
-	StorageIOPS      int     `json:"storage_iops" description:"Storage IOPS requirements"`
-	NetworkThroughput string `json:"network_throughput" description:"Network throughput capabilities"`
+	MaxThroughput      int     `json:"max_throughput" description:"Maximum throughput (requests/second)"`
+	AverageLatency     float64 `json:"average_latency" description:"Average response latency in milliseconds"`
+	MaxConcurrentUsers int     `json:"max_concurrent_users" description:"Maximum concurrent users supported"`
+	MemoryUsage        string  `json:"memory_usage" description:"Typical memory usage"`
+	CPUUtilization     float64 `json:"cpu_utilization" description:"Average CPU utilization percentage"`
+	StorageIOPS        int     `json:"storage_iops" description:"Storage IOPS requirements"`
+	NetworkThroughput  string  `json:"network_throughput" description:"Network throughput capabilities"`
 }
 
 // SecurityConfiguration represents security settings and features
@@ -115,19 +115,19 @@ type SecurityConfiguration struct {
 
 // TechnicalSpec represents structured technical specifications
 type TechnicalSpec struct {
-	ProductName     string                  `json:"product_name" description:"Name of the technical product"`
-	Category        string                  `json:"category" description:"Product category"`
-	Version         string                  `json:"version" description:"Product version"`
-	Architecture    string                  `json:"architecture" description:"Technical architecture"`
-	Requirements    SystemRequirements      `json:"requirements" description:"System requirements"`
-	Features        []string                `json:"features" description:"Key technical features"`
-	Performance     PerformanceMetrics      `json:"performance" description:"Performance metrics"`
-	Compatibility   []string                `json:"compatibility" description:"Compatibility information"`
-	SecurityLevel   string                  `json:"security_level" description:"Security classification level"`
-	Security        SecurityConfiguration   `json:"security" description:"Security configuration and features"`
-	Documentation   bool                    `json:"documentation" description:"Whether comprehensive documentation exists"`
-	SupportLevel    string                  `json:"support_level" description:"Level of support available"`
-	Scalability     string                  `json:"scalability" description:"Scalability characteristics"`
+	ProductName   string                `json:"product_name" description:"Name of the technical product"`
+	Category      string                `json:"category" description:"Product category"`
+	Version       string                `json:"version" description:"Product version"`
+	Architecture  string                `json:"architecture" description:"Technical architecture"`
+	Requirements  SystemRequirements    `json:"requirements" description:"System requirements"`
+	Features      []string              `json:"features" description:"Key technical features"`
+	Performance   PerformanceMetrics    `json:"performance" description:"Performance metrics"`
+	Compatibility []string              `json:"compatibility" description:"Compatibility information"`
+	SecurityLevel string                `json:"security_level" description:"Security classification level"`
+	Security      SecurityConfiguration `json:"security" description:"Security configuration and features"`
+	Documentation bool                  `json:"documentation" description:"Whether comprehensive documentation exists"`
+	SupportLevel  string                `json:"support_level" description:"Level of support available"`
+	Scalability   string                `json:"scalability" description:"Scalability characteristics"`
 }
 
 func main() {

@@ -9,7 +9,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Send, Trash2, Loader2 } from 'lucide-react';
+import { Send, Trash2, Loader2, RefreshCw, Building2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ChatMessage as ChatMessageComponent } from './chat-message';
 
 interface ChatAreaProps {
@@ -21,6 +23,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string>('');
+  const [organizationId, setOrganizationId] = useState<string>('');
   const [charCount, setCharCount] = useState(0);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
 
@@ -50,6 +53,14 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
 
   const generateConversationId = () => {
     return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  };
+
+  const generateNewConversationId = () => {
+    // Use built-in crypto.randomUUID() for proper UUID v4 generation
+    const newId = crypto.randomUUID();
+    setConversationId(newId);
+    // Clear messages when generating new conversation
+    setMessages([]);
   };
 
   const addMessage = (message: ChatMessage) => {
@@ -103,6 +114,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
         const stream = agentAPI.streamAgent({
           input: userMessage.content,
           conversation_id: currentConversationId,
+          org_id: organizationId || undefined,
         });
 
         let fullContent = '';
@@ -125,6 +137,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
         const response = await agentAPI.runAgent({
           input: userMessage.content,
           conversation_id: currentConversationId,
+          org_id: organizationId || undefined,
         });
 
         const assistantMessage: ChatMessage = {
@@ -152,6 +165,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
   const clearChat = () => {
     setMessages([]);
     setConversationId('');
+    // Don't clear organization ID as user might want to keep it
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -213,8 +227,8 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
               className="min-h-[60px] max-h-[120px] resize-none"
               disabled={isLoading}
             />
-            <div className="flex items-center justify-between mt-2">
-              <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between mt-2 gap-4">
+              <div className="flex items-center space-x-3 flex-1">
                 <div className="flex items-center space-x-2">
                   <Switch
                     id="streaming-mode"
@@ -229,8 +243,46 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
                     Streaming
                   </label>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {charCount} characters
+
+                <div className="flex items-center space-x-2">
+                  <Building2 className="h-3 w-3 text-muted-foreground" />
+                  <Label htmlFor="org-id" className="text-xs">Org:</Label>
+                  <Input
+                    id="org-id"
+                    type="text"
+                    value={organizationId}
+                    onChange={(e) => setOrganizationId(e.target.value)}
+                    placeholder="default"
+                    className="h-7 w-24 text-xs"
+                    disabled={isLoading}
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="conv-id" className="text-xs">Conv:</Label>
+                  <Input
+                    id="conv-id"
+                    type="text"
+                    value={conversationId}
+                    onChange={(e) => setConversationId(e.target.value)}
+                    placeholder="auto-generate"
+                    className="h-7 w-32 text-xs"
+                    disabled={isLoading}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={generateNewConversationId}
+                    disabled={isLoading}
+                    className="h-7 w-7 p-0"
+                    title="Generate new UUID"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                <span className="text-xs text-muted-foreground ml-2">
+                  {charCount} chars
                 </span>
               </div>
               <div className="flex items-center space-x-2">

@@ -159,9 +159,9 @@ func TestHTTPServerWithUI_getModelName_NoLLM(t *testing.T) {
 
 func TestHTTPServerWithUI_getToolNames(t *testing.T) {
 	tests := []struct {
-		name      string
+		name       string
 		setupTools func() []interfaces.Tool
-		expected  []string
+		expected   []string
 	}{
 		{
 			name: "Agent with multiple tools",
@@ -220,29 +220,29 @@ func TestHTTPServerWithUI_getToolNames(t *testing.T) {
 
 func TestHTTPServerWithUI_getMemoryInfo(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupMemory  func() interfaces.Memory
-		expectedType string
+		name           string
+		setupMemory    func() interfaces.Memory
+		expectedType   string
 		expectedStatus string
-		hasEntryCount bool
+		hasEntryCount  bool
 	}{
 		{
 			name: "Agent with active memory",
 			setupMemory: func() interfaces.Memory {
 				return memory.NewConversationBuffer()
 			},
-			expectedType: "conversation",
+			expectedType:   "conversation",
 			expectedStatus: "active",
-			hasEntryCount: false, // Memory starts empty until messages are added
+			hasEntryCount:  false, // Memory starts empty until messages are added
 		},
 		{
 			name: "Agent with no memory",
 			setupMemory: func() interfaces.Memory {
 				return nil
 			},
-			expectedType: "none",
+			expectedType:   "none",
 			expectedStatus: "inactive",
-			hasEntryCount: false,
+			hasEntryCount:  false,
 		},
 	}
 

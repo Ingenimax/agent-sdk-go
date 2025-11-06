@@ -3,6 +3,8 @@ import {
   SubAgentInfo,
   Tool,
   MemoryEntry,
+  MemoryResponse,
+  ConversationInfo,
   RunRequest,
   StreamRequest,
   RunResponse,
@@ -79,13 +81,12 @@ class AgentAPI {
   }
 
   // Memory endpoints
-  async getMemory(limit = 100, offset = 0): Promise<{
-    entries: MemoryEntry[];
-    total: number;
-    limit: number;
-    offset: number;
-  }> {
+  async getMemory(limit = 100, offset = 0): Promise<MemoryResponse> {
     return this.get(`/memory?limit=${limit}&offset=${offset}`);
+  }
+
+  async getConversationMessages(conversationId: string, limit = 100, offset = 0): Promise<MemoryResponse> {
+    return this.get(`/memory?conversation_id=${conversationId}&limit=${limit}&offset=${offset}`);
   }
 
   async searchMemory(query: string): Promise<{

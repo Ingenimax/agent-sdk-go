@@ -37,7 +37,13 @@ export function MemoryBrowser({ open, onOpenChange }: MemoryBrowserProps) {
     try {
       setLoading(true);
       const response = await agentAPI.getMemory(pagination.limit, pagination.offset);
-      setEntries(response.entries);
+      // Handle both old and new response formats
+      if (response.mode === 'messages' && response.messages) {
+        setEntries(response.messages);
+      } else if ('entries' in response) {
+        // Fallback for old format
+        setEntries((response as any).entries || []);
+      }
       setPagination(prev => ({
         ...prev,
         total: response.total,
@@ -86,7 +92,15 @@ export function MemoryBrowser({ open, onOpenChange }: MemoryBrowserProps) {
       setLoading(true);
       const newOffset = pagination.offset + pagination.limit;
       const response = await agentAPI.getMemory(pagination.limit, newOffset);
-      setEntries(prev => [...prev, ...response.entries]);
+      // Handle both old and new response formats
+      let newEntries: MemoryEntry[] = [];
+      if (response.mode === 'messages' && response.messages) {
+        newEntries = response.messages;
+      } else if ('entries' in response) {
+        // Fallback for old format
+        newEntries = (response as any).entries || [];
+      }
+      setEntries(prev => [...prev, ...newEntries]);
       setPagination(prev => ({
         ...prev,
         offset: newOffset,

@@ -126,6 +126,23 @@ export interface MemoryEntry {
   metadata?: Record<string, unknown>;
 }
 
+export interface ConversationInfo {
+  id: string;
+  message_count: number;
+  last_activity: number;
+  last_message?: string;
+}
+
+export interface MemoryResponse {
+  mode: 'conversations' | 'messages';
+  conversations?: ConversationInfo[];
+  messages?: MemoryEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  conversation_id?: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;

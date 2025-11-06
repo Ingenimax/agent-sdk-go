@@ -350,3 +350,50 @@ The Next.js UI source code is located in `pkg/microservice/ui-nextjs/`. To modif
 - Next.js builds to static files in `out/` directory
 - Go embed directive includes all files in binary
 - Production deployment requires no separate frontend server
+
+## Important: Rebuilding Embedded UI
+
+⚠️ **The UI is embedded in the Go binary at compile time.** After making changes to the UI, you MUST:
+
+1. **Build the UI assets:**
+   ```bash
+   cd pkg/microservice/ui-nextjs
+   npm run build
+   ```
+
+2. **Rebuild your Go application** to embed the new UI:
+   ```bash
+   # For SDK development
+   go build ./pkg/...
+
+   # For your application using the SDK
+   go build -o your-agent main.go
+   ```
+
+3. **Restart your agent** to see the changes
+
+**Note:** Simply refreshing the browser will NOT show UI changes unless you rebuild both the UI and the Go binary. The UI is served from embedded files, not from the filesystem.
+
+### Quick Build Script
+
+For convenience, you can create a script to rebuild everything:
+
+```bash
+#!/bin/bash
+# build-ui.sh
+
+# Build the UI
+cd pkg/microservice/ui-nextjs
+npm run build
+
+# Go back to project root
+cd ../../..
+
+# Rebuild Go packages
+go build ./pkg/...
+
+# Rebuild your application (adjust path as needed)
+# go build -o my-agent ./cmd/my-app
+
+echo "✅ UI and Go binary rebuilt. Restart your agent to see changes."
+```

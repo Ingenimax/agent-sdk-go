@@ -11,38 +11,38 @@ func TestExtractJSON(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "JSON in markdown code block",
-			input: "```json\n{\n  \"action\": \"create_new_task\",\n  \"reasoning\": [\n    \"User requested 'deploy eks' which is a clear deployment request\"\n  ]\n}\n```",
+			name:     "JSON in markdown code block",
+			input:    "```json\n{\n  \"action\": \"create_new_task\",\n  \"reasoning\": [\n    \"User requested 'deploy eks' which is a clear deployment request\"\n  ]\n}\n```",
 			expected: "{\n  \"action\": \"create_new_task\",\n  \"reasoning\": [\n    \"User requested 'deploy eks' which is a clear deployment request\"\n  ]\n}",
 		},
 		{
-			name: "JSON in generic code block",
-			input: "```\n{\"test\": \"value\"}\n```",
+			name:     "JSON in generic code block",
+			input:    "```\n{\"test\": \"value\"}\n```",
 			expected: `{"test": "value"}`,
 		},
 		{
-			name: "JSON in code block with json identifier",
-			input: "```json\n{\"test\": \"value\"}\n```",
+			name:     "JSON in code block with json identifier",
+			input:    "```json\n{\"test\": \"value\"}\n```",
 			expected: `{"test": "value"}`,
 		},
 		{
-			name: "Plain JSON without code blocks",
-			input: `{"test": "value"}`,
+			name:     "Plain JSON without code blocks",
+			input:    `{"test": "value"}`,
 			expected: `{"test": "value"}`,
 		},
 		{
-			name: "JSON with extra text before and after",
-			input: `Here is the response: {"test": "value"} and that's it.`,
+			name:     "JSON with extra text before and after",
+			input:    `Here is the response: {"test": "value"} and that's it.`,
 			expected: `{"test": "value"}`,
 		},
 		{
-			name: "Empty string",
-			input: "",
+			name:     "Empty string",
+			input:    "",
 			expected: "",
 		},
 		{
-			name: "No JSON found",
-			input: "This is just text without JSON",
+			name:     "No JSON found",
+			input:    "This is just text without JSON",
 			expected: "",
 		},
 	}

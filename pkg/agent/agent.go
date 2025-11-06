@@ -1092,6 +1092,51 @@ func (a *Agent) GetMemory() interfaces.Memory {
 	return a.memory
 }
 
+// GetAllConversations returns all conversation IDs from memory
+func (a *Agent) GetAllConversations(ctx context.Context) ([]string, error) {
+	if a.memory == nil {
+		return []string{}, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetAllConversations(ctx)
+	}
+
+	// Fallback: return empty list for memories that don't support conversations
+	return []string{}, nil
+}
+
+// GetConversationMessages gets all messages for a specific conversation
+func (a *Agent) GetConversationMessages(ctx context.Context, conversationID string) ([]interfaces.Message, error) {
+	if a.memory == nil {
+		return []interfaces.Message{}, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetConversationMessages(ctx, conversationID)
+	}
+
+	// Fallback: return empty list for memories that don't support conversations
+	return []interfaces.Message{}, nil
+}
+
+// GetMemoryStatistics returns basic memory statistics
+func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, totalMessages int, err error) {
+	if a.memory == nil {
+		return 0, 0, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetMemoryStatistics(ctx)
+	}
+
+	// Fallback: return basic stats for memories that don't support conversations
+	return 0, 0, nil
+}
+
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
 	return a.tools
