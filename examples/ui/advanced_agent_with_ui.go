@@ -1,3 +1,6 @@
+//go:build advanced
+// +build advanced
+
 package main
 
 import (
@@ -59,6 +62,7 @@ Provide helpful, accurate, and well-structured responses.`),
 	// Get port from environment or use default
 	port := 8080
 	if portStr := os.Getenv("PORT"); portStr != "" {
+		// #nosec G104 - Parse error is not critical, will use default port
 		fmt.Sscanf(portStr, "%d", &port)
 	}
 

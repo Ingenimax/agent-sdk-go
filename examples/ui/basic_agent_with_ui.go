@@ -1,3 +1,6 @@
+//go:build basic
+// +build basic
+
 package main
 
 import (

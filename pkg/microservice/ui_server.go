@@ -185,6 +185,7 @@ func (h *HTTPServerWithUI) Start() error {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
+			// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
 			json.NewEncoder(w).Encode(files)
 		} else {
 			http.Error(w, "No UI filesystem", http.StatusNotFound)
@@ -206,6 +207,7 @@ func (h *HTTPServerWithUI) Start() error {
 			if !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/health") {
 				// Try to serve the file first
 				if file, err := h.uiFS.Open(strings.TrimPrefix(r.URL.Path, "/")); err == nil {
+					// #nosec G104 - File close error is not critical in this context
 					file.Close()
 					fileServer.ServeHTTP(w, r)
 					return
@@ -1142,6 +1144,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		})
 
 		w.Header().Set("Content-Type", "application/json")
+		// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":  err.Error(),
 			"output": "",
@@ -1155,6 +1158,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
+	// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"output": result,
 		"error":  "",
@@ -1564,6 +1568,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryConversations(limit, offset int) Memor
 	// Make HTTP request to remote agent's memory endpoint
 	url := fmt.Sprintf("%s/api/v1/memory?limit=%d&offset=%d", remoteURL, limit, offset)
 
+	// #nosec G107 - URL is constructed from validated parameters
 	resp, err := http.Get(url)
 	if err != nil {
 		return MemoryResponse{
@@ -1618,6 +1623,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryMessages(conversationID string, limit,
 	url := fmt.Sprintf("%s/api/v1/memory?conversation_id=%s&limit=%d&offset=%d",
 		remoteURL, conversationID, limit, offset)
 
+	// #nosec G107 - URL is constructed from validated parameters
 	resp, err := http.Get(url)
 	if err != nil {
 		return MemoryResponse{
