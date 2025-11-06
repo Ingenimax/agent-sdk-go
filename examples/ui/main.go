@@ -1,9 +1,6 @@
-//go:build basic
-
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -22,11 +19,11 @@ func main() {
 	// Create LLM client
 	llm := openai.NewClient(apiKey)
 
-	// Create agent with tools and configuration
+	// Create agent
 	myAgent, err := agent.NewAgent(
 		agent.WithLLM(llm),
-		agent.WithName("UIAssistant"),
-		agent.WithDescription("An AI assistant with a beautiful web interface"),
+		agent.WithName("SimpleUIAgent"),
+		agent.WithDescription("A simple AI assistant with web UI"),
 		agent.WithSystemPrompt("You are a helpful AI assistant. Provide clear and concise responses."),
 	)
 	if err != nil {
@@ -52,8 +49,8 @@ func main() {
 	server := microservice.NewHTTPServerWithUI(myAgent, port, uiConfig)
 
 	// Start the server
-	fmt.Printf("Starting Agent UI server on http://localhost:%d\n", port)
-	fmt.Println("Open your browser to interact with the agent!")
+	log.Printf("Starting Simple Agent UI on http://localhost:%d", port)
+	log.Println("Open your browser to interact with the agent!")
 
 	if err := server.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

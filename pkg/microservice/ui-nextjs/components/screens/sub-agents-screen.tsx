@@ -167,10 +167,10 @@ export function SubAgentsScreen() {
                   <p className="text-sm text-muted-foreground">
                     Sub-agents are specialized AI assistants that can handle specific tasks
                   </p>
-                  <Button variant="outline" size="sm" className="mt-4">
+                  {/* <Button variant="outline" size="sm" className="mt-4">
                     <Plus className="h-4 w-4 mr-2" />
                     Create Sub-Agent
-                  </Button>
+                  </Button> */}
                 </div>
               )}
             </div>
