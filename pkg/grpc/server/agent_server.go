@@ -249,18 +249,44 @@ func (s *AgentServer) convertEventType(eventType interfaces.AgentEventType) pb.E
 
 // GetMetadata returns agent metadata
 func (s *AgentServer) GetMetadata(ctx context.Context, req *pb.MetadataRequest) (*pb.MetadataResponse, error) {
+	// Get LLM information
+	var llmName, llmModel string = "unknown", "unknown"
+	if llm := s.agent.GetLLM(); llm != nil {
+		llmName = llm.Name()
+		if modelGetter, ok := llm.(interface{ GetModel() string }); ok {
+			llmModel = modelGetter.GetModel()
+		}
+		if llmModel == "" {
+			llmModel = llmName
+		}
+	}
+
+	// Get tool count
+	tools := s.agent.GetTools()
+	toolCount := len(tools)
+
+	// Get memory info
+	var memoryType string = "none"
+	if memory := s.agent.GetMemory(); memory != nil {
+		memoryType = "conversation"
+	}
+
 	return &pb.MetadataResponse{
 		Name:         s.agent.GetName(),
 		Description:  s.agent.GetDescription(),
-		SystemPrompt: "", // Don't expose system prompt for security
+		SystemPrompt: s.agent.GetSystemPrompt(), // Include system prompt for UI display
 		Capabilities: []string{
 			"run",
 			"metadata",
 			"health",
 		},
 		Properties: map[string]string{
-			"type":    "agent",
-			"version": "1.0.0",
+			"type":       "agent",
+			"version":    "1.0.0",
+			"llm_name":   llmName,
+			"llm_model":  llmModel,
+			"tool_count": fmt.Sprintf("%d", toolCount),
+			"memory":     memoryType,
 		},
 	}, nil
 }

@@ -52,10 +52,6 @@ func (a *Agent) getUniqueID() string {
 	return fmt.Sprintf("%p", a)
 }
 
-// GetSubAgents returns the list of sub-agents
-func (a *Agent) GetSubAgents() []*Agent {
-	return a.subAgents
-}
 
 // HasSubAgent checks if a specific agent is a sub-agent
 func (a *Agent) HasSubAgent(name string) bool {

@@ -1097,6 +1097,11 @@ func (a *Agent) GetTools() []interfaces.Tool {
 	return a.tools
 }
 
+// GetSubAgents returns the sub-agents slice
+func (a *Agent) GetSubAgents() []*Agent {
+	return a.subAgents
+}
+
 // GetLogger returns the logger instance (for use in custom functions)
 func (a *Agent) GetLogger() logging.Logger {
 	return a.logger
@@ -1170,4 +1175,29 @@ func (a *Agent) Disconnect() error {
 		return a.remoteClient.Disconnect()
 	}
 	return nil
+}
+
+// GetRemoteMetadata returns metadata for remote agents, nil for local agents
+func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
+	if !a.isRemote || a.remoteClient == nil {
+		return nil, fmt.Errorf("not a remote agent")
+	}
+
+	metadata, err := a.remoteClient.GetMetadata(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to a simple map for easier access
+	result := make(map[string]string)
+	result["name"] = metadata.GetName()
+	result["description"] = metadata.GetDescription()
+	result["system_prompt"] = metadata.GetSystemPrompt()
+
+	// Include properties
+	for k, v := range metadata.GetProperties() {
+		result[k] = v
+	}
+
+	return result, nil
 }

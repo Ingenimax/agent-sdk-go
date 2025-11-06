@@ -208,17 +208,22 @@ func (h *HTTPServerWithUI) Start() error {
 	if h.uiConfig.Enabled {
 		fmt.Printf("UI available at: http://localhost:%d%s\n", h.port, h.uiConfig.DefaultPath)
 	}
+
 	fmt.Printf("API endpoints available:\n")
 	fmt.Printf("  - POST /api/v1/agent/run (non-streaming)\n")
 	fmt.Printf("  - POST /api/v1/agent/stream (SSE streaming)\n")
 	fmt.Printf("  - GET /api/v1/agent/metadata\n")
-	fmt.Printf("  - GET /api/v1/agent/config\n")
-	fmt.Printf("  - GET /api/v1/agent/subagents\n")
-	fmt.Printf("  - POST /api/v1/agent/delegate\n")
-	fmt.Printf("  - GET /api/v1/memory\n")
-	fmt.Printf("  - GET /api/v1/memory/search\n")
-	fmt.Printf("  - GET /api/v1/tools\n")
 	fmt.Printf("  - GET /health\n")
+
+	if h.uiConfig.Enabled {
+		fmt.Printf("UI-specific endpoints:\n")
+		fmt.Printf("  - GET /api/v1/agent/config\n")
+		fmt.Printf("  - GET /api/v1/agent/subagents\n")
+		fmt.Printf("  - POST /api/v1/agent/delegate\n")
+		fmt.Printf("  - GET /api/v1/memory\n")
+		fmt.Printf("  - GET /api/v1/memory/search\n")
+		fmt.Printf("  - GET /api/v1/tools\n")
+	}
 
 	return h.server.ListenAndServe()
 }
@@ -226,26 +231,24 @@ func (h *HTTPServerWithUI) Start() error {
 
 // registerAPIEndpoints registers all API endpoints
 func (h *HTTPServerWithUI) registerAPIEndpoints(mux *http.ServeMux) {
-	// Health check
+	// Health check (always available)
 	mux.HandleFunc("/health", h.handleHealth)
 
-	// Agent endpoints with org context middleware
+	// Core agent endpoints (always available)
 	mux.HandleFunc("/api/v1/agent/run", h.withOrgContext(h.handleRun))
 	mux.HandleFunc("/api/v1/agent/stream", h.withOrgContext(h.handleStream))
 	mux.HandleFunc("/api/v1/agent/metadata", h.handleMetadata)
-	mux.HandleFunc("/api/v1/agent/config", h.handleConfig)
-	mux.HandleFunc("/api/v1/agent/subagents", h.handleSubAgents)
-	mux.HandleFunc("/api/v1/agent/delegate", h.withOrgContext(h.handleDelegate))
 
-	// Memory endpoints
-	mux.HandleFunc("/api/v1/memory", h.handleMemory)
-	mux.HandleFunc("/api/v1/memory/search", h.handleMemorySearch)
-
-	// Tools endpoint
-	mux.HandleFunc("/api/v1/tools", h.handleTools)
-
-	// WebSocket endpoint for real-time chat
-	mux.HandleFunc("/ws/chat", h.handleWebSocketChat)
+	// UI-specific endpoints (only when UI is enabled)
+	if h.uiConfig.Enabled {
+		mux.HandleFunc("/api/v1/agent/config", h.handleConfig)
+		mux.HandleFunc("/api/v1/agent/subagents", h.handleSubAgents)
+		mux.HandleFunc("/api/v1/agent/delegate", h.withOrgContext(h.handleDelegate))
+		mux.HandleFunc("/api/v1/memory", h.handleMemory)
+		mux.HandleFunc("/api/v1/memory/search", h.handleMemorySearch)
+		mux.HandleFunc("/api/v1/tools", h.handleTools)
+		mux.HandleFunc("/ws/chat", h.handleWebSocketChat)
+	}
 }
 
 // handleConfig provides detailed agent configuration
@@ -257,37 +260,17 @@ func (h *HTTPServerWithUI) handleConfig(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get agent tools
-	tools := []string{}
-	if toolsGetter, ok := interface{}(h.agent).(interface{ GetTools() []string }); ok {
-		tools = toolsGetter.GetTools()
-	}
+	// Get agent tools - directly from agent interface
+	tools := h.getToolNames()
 
-	// Get system prompt
-	systemPrompt := ""
-	if promptGetter, ok := interface{}(h.agent).(interface{ GetSystemPrompt() string }); ok {
-		systemPrompt = promptGetter.GetSystemPrompt()
-	}
+	// Get system prompt - handle remote agents differently
+	systemPrompt := h.getSystemPrompt()
 
-	// Get model info
-	model := "unknown"
-	if llm := h.agent.GetLLM(); llm != nil {
-		if modelGetter, ok := llm.(interface{ GetModel() string }); ok {
-			model = modelGetter.GetModel()
-		}
-	}
+	// Get model info - try to get from LLM
+	model := h.getModelName()
 
-	// Get memory info
-	memInfo := MemoryInfo{
-		Type:   "none",
-		Status: "inactive",
-	}
-	if memGetter, ok := interface{}(h.agent).(interface{ GetMemory() interfaces.Memory }); ok {
-		if mem := memGetter.GetMemory(); mem != nil {
-			memInfo.Type = "conversation"
-			memInfo.Status = "active"
-		}
-	}
+	// Get memory info - directly from agent interface
+	memInfo := h.getMemoryInfo()
 
 	response := AgentConfigResponse{
 		Name:         h.agent.GetName(),
@@ -431,12 +414,26 @@ func (h *HTTPServerWithUI) handleTools(w http.ResponseWriter, r *http.Request) {
 
 	tools := []map[string]interface{}{}
 
-	// Get tools from agent if available
-	if toolsGetter, ok := interface{}(h.agent).(interface{ GetTools() []string }); ok {
-		for _, toolName := range toolsGetter.GetTools() {
+	// Check if agent is remote and handle accordingly
+	if h.agent.IsRemote() {
+		// For remote agents, get tools from system prompt or use alternative method
+		// Parse system prompt to extract tool information
+		systemPrompt := h.getSystemPrompt()
+		toolNames := h.parseToolsFromSystemPrompt(systemPrompt)
+		for _, toolName := range toolNames {
 			tools = append(tools, map[string]interface{}{
 				"name":        toolName,
-				"description": fmt.Sprintf("Tool: %s", toolName),
+				"description": "Remote agent tool",
+				"enabled":     true,
+			})
+		}
+	} else {
+		// Get tools from local agent
+		agentTools := h.agent.GetTools()
+		for _, tool := range agentTools {
+			tools = append(tools, map[string]interface{}{
+				"name":        tool.Name(),
+				"description": tool.Description(),
 				"enabled":     true,
 			})
 		}
@@ -459,9 +456,265 @@ func (h *HTTPServerWithUI) handleWebSocketChat(w http.ResponseWriter, r *http.Re
 
 // getSubAgentsList returns list of sub-agents
 func (h *HTTPServerWithUI) getSubAgentsList() []SubAgentInfo {
-	// This would need actual implementation based on your agent structure
-	// For now, return empty list
-	return []SubAgentInfo{}
+	subAgents := []SubAgentInfo{}
+
+	// Check if agent is remote
+	if h.agent.IsRemote() {
+		// For remote agents, parse from system prompt
+		systemPrompt := h.getSystemPrompt()
+		toolNames := h.parseToolsFromSystemPrompt(systemPrompt)
+
+		for _, toolName := range toolNames {
+			if strings.HasSuffix(toolName, "_agent") {
+				agentName := strings.TrimSuffix(toolName, "_agent")
+				subAgent := SubAgentInfo{
+					ID:          toolName,
+					Name:        agentName,
+					Description: h.getToolDescriptionFromSystemPrompt(toolName, systemPrompt),
+					Model:       "Remote",
+					Status:      "active",
+					Tools:       []string{toolName},
+					Capabilities: []string{"Remote sub-agent"},
+				}
+				subAgents = append(subAgents, subAgent)
+			}
+		}
+	} else {
+		// Get sub-agents directly from the agent instance
+		agentSubAgents := h.agent.GetSubAgents()
+		for _, subAgent := range agentSubAgents {
+			subAgentInfo := SubAgentInfo{
+				ID:          subAgent.GetName(),
+				Name:        subAgent.GetName(),
+				Description: subAgent.GetDescription(),
+				Model:       h.getSubAgentModel(subAgent),
+				Status:      "active", // Sub-agents are active if they're registered
+				Tools:       h.getSubAgentTools(subAgent),
+				Capabilities: []string{"Sub-agent"},
+			}
+			subAgents = append(subAgents, subAgentInfo)
+		}
+
+		// Also check tools for sub-agent tools (tools that end with _agent)
+		tools := h.agent.GetTools()
+		for _, tool := range tools {
+			toolName := tool.Name()
+			// Check if this tool represents a sub-agent (ends with _agent)
+			if strings.HasSuffix(toolName, "_agent") {
+				// Extract the agent name by removing _agent suffix
+				agentName := strings.TrimSuffix(toolName, "_agent")
+
+				// Check if we already have this sub-agent from GetSubAgents()
+				found := false
+				for _, existing := range subAgents {
+					if existing.ID == toolName || existing.Name == agentName {
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					subAgent := SubAgentInfo{
+						ID:          toolName,
+						Name:        agentName,
+						Description: tool.Description(),
+						Model:       "Unknown",
+						Status:      "active",
+						Tools:       []string{toolName},
+						Capabilities: []string{"Tool-based sub-agent"},
+					}
+					subAgents = append(subAgents, subAgent)
+				}
+			}
+		}
+	}
+
+	return subAgents
+}
+
+// getSubAgentModel extracts model information from a sub-agent
+func (h *HTTPServerWithUI) getSubAgentModel(subAgent *agent.Agent) string {
+	if subAgent.IsRemote() {
+		return "Remote Agent"
+	}
+
+	llm := subAgent.GetLLM()
+	if llm == nil {
+		return "No LLM"
+	}
+
+	// Try to get model from LLM if it supports GetModel method
+	if modelGetter, ok := llm.(interface{ GetModel() string }); ok {
+		model := modelGetter.GetModel()
+		if model != "" {
+			return model
+		}
+	}
+
+	// Fallback to LLM name
+	name := llm.Name()
+	if name != "" {
+		return name
+	}
+
+	return "Unknown"
+}
+
+// getSubAgentTools gets the tools available to a sub-agent
+func (h *HTTPServerWithUI) getSubAgentTools(subAgent *agent.Agent) []string {
+	tools := subAgent.GetTools()
+	toolNames := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		toolNames = append(toolNames, tool.Name())
+	}
+	return toolNames
+}
+
+// parseToolsFromSystemPrompt extracts tool names from system prompt for remote agents
+func (h *HTTPServerWithUI) parseToolsFromSystemPrompt(systemPrompt string) []string {
+	tools := []string{}
+
+	// Look for common patterns in system prompt
+	lines := strings.Split(systemPrompt, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Look for patterns like "### ToolName_agent" or "- **Usage**: `ToolName_agent`"
+		if strings.Contains(line, "_agent") {
+			// Extract tool names ending with _agent
+			words := strings.Fields(line)
+			for _, word := range words {
+				// Clean up word (remove markdown, punctuation)
+				word = strings.Trim(word, "###*`-:.,!?()[]{}\"'")
+				if strings.HasSuffix(word, "_agent") {
+					// Check if not already added
+					found := false
+					for _, existingTool := range tools {
+						if existingTool == word {
+							found = true
+							break
+						}
+					}
+					if !found {
+						tools = append(tools, word)
+					}
+				}
+			}
+		}
+	}
+
+	return tools
+}
+
+// getToolDescriptionFromSystemPrompt extracts tool description from system prompt
+func (h *HTTPServerWithUI) getToolDescriptionFromSystemPrompt(toolName, systemPrompt string) string {
+	lines := strings.Split(systemPrompt, "\n")
+
+	for i, line := range lines {
+		if strings.Contains(line, toolName) {
+			// Look for description in nearby lines
+			for j := i; j < len(lines) && j < i+5; j++ {
+				if strings.Contains(lines[j], "Purpose") && strings.Contains(lines[j], ":") {
+					parts := strings.SplitN(lines[j], ":", 2)
+					if len(parts) == 2 {
+						return strings.TrimSpace(parts[1])
+					}
+				}
+			}
+			// Fallback to generic description
+			return fmt.Sprintf("%s sub-agent", strings.TrimSuffix(toolName, "_agent"))
+		}
+	}
+
+	return "Sub-agent tool"
+}
+
+// parseSubAgentsFromSystemPrompt extracts sub-agent info from system prompt
+func (h *HTTPServerWithUI) parseSubAgentsFromSystemPrompt() []SubAgentInfo {
+	systemPrompt := h.getSystemPrompt()
+	subAgents := []SubAgentInfo{}
+
+	// Look for patterns like "### AgentName_agent" or "ResearchAgent_agent"
+	lines := strings.Split(systemPrompt, "\n")
+	var currentAgent *SubAgentInfo
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Check for agent tool mentions like "ResearchAgent_agent"
+		if strings.Contains(line, "_agent") && strings.Contains(line, "tool") {
+			// Extract agent name from patterns like "`ResearchAgent_agent` tool"
+			if strings.Contains(line, "`") {
+				parts := strings.Split(line, "`")
+				for _, part := range parts {
+					if strings.HasSuffix(part, "_agent") {
+						agentName := strings.TrimSuffix(part, "_agent")
+						subAgent := SubAgentInfo{
+							ID:          part,
+							Name:        agentName,
+							Description: "Sub-agent extracted from system prompt",
+							Model:       "Unknown",
+							Status:      "configured",
+							Tools:       []string{part},
+							Capabilities: []string{"System prompt defined"},
+						}
+						subAgents = append(subAgents, subAgent)
+					}
+				}
+			}
+		}
+
+		// Check for section headers like "### ResearchAgent_agent"
+		if strings.HasPrefix(line, "### ") && strings.HasSuffix(line, "_agent") {
+			// Save the previous agent if it exists
+			if currentAgent != nil && currentAgent.Name != "" {
+				subAgents = append(subAgents, *currentAgent)
+			}
+
+			agentTool := strings.TrimPrefix(line, "### ")
+			agentName := strings.TrimSuffix(agentTool, "_agent")
+			currentAgent = &SubAgentInfo{
+				ID:          agentTool,
+				Name:        agentName,
+				Description: "",
+				Model:       "Unknown",
+				Status:      "configured",
+				Tools:       []string{agentTool},
+				Capabilities: []string{},
+			}
+		}
+
+		// If we're in an agent section, look for Purpose/Usage info
+		if currentAgent != nil {
+			if strings.HasPrefix(line, "- **Purpose**:") {
+				purpose := strings.TrimPrefix(line, "- **Purpose**: ")
+				currentAgent.Description = purpose
+			}
+			if strings.HasPrefix(line, "- **Usage**:") && len(currentAgent.Capabilities) == 0 {
+				usage := strings.TrimPrefix(line, "- **Usage**: ")
+				currentAgent.Capabilities = append(currentAgent.Capabilities, usage)
+			}
+			if strings.HasPrefix(line, "- **When to use**:") {
+				whenToUse := strings.TrimPrefix(line, "- **When to use**: ")
+				currentAgent.Capabilities = append(currentAgent.Capabilities, whenToUse)
+			}
+
+			// End of agent section
+			if strings.HasPrefix(line, "### ") && !strings.HasSuffix(line, "_agent") {
+				if currentAgent.Name != "" {
+					subAgents = append(subAgents, *currentAgent)
+				}
+				currentAgent = nil
+			}
+		}
+	}
+
+	// Add the last agent if we were processing one
+	if currentAgent != nil && currentAgent.Name != "" {
+		subAgents = append(subAgents, *currentAgent)
+	}
+
+	return subAgents
 }
 
 // addConversationEntry adds a new entry to conversation history
@@ -640,6 +893,363 @@ func (h *HTTPServerWithUI) withOrgContext(handler http.HandlerFunc) http.Handler
 	}
 }
 
+// getToolNames extracts tool names from the agent
+func (h *HTTPServerWithUI) getToolNames() []string {
+	tools := h.agent.GetTools()
+	toolNames := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		toolNames = append(toolNames, tool.Name())
+	}
+	return toolNames
+}
 
+// getModelName extracts the model name from the agent's LLM
+func (h *HTTPServerWithUI) getModelName() string {
+	// For remote agents, try to get LLM info from metadata
+	if h.agent.IsRemote() {
+		if metadata, err := h.agent.GetRemoteMetadata(); err == nil && metadata != nil {
+			if llmModel, ok := metadata["llm_model"]; ok && llmModel != "" && llmModel != "unknown" {
+				return llmModel
+			}
+			if llmName, ok := metadata["llm_name"]; ok && llmName != "" && llmName != "unknown" {
+				return llmName + " (model not specified)"
+			}
+		}
+		return "Remote agent - metadata unavailable"
+	}
+
+	// For local agents, get from LLM directly
+	llm := h.agent.GetLLM()
+	if llm == nil {
+		return "No LLM configured"
+	}
+
+	// Try to get model from LLM if it supports GetModel method
+	if modelGetter, ok := llm.(interface{ GetModel() string }); ok {
+		model := modelGetter.GetModel()
+		if model != "" {
+			return model
+		}
+	}
+
+	// Fallback to LLM name if GetModel is not available or returns empty
+	name := llm.Name()
+	if name != "" {
+		return name + " (model not specified)"
+	}
+
+	return "Unknown LLM"
+}
+
+// getMemoryInfo extracts memory information from the agent
+func (h *HTTPServerWithUI) getMemoryInfo() MemoryInfo {
+	// For remote agents, try to get memory info from metadata
+	if h.agent.IsRemote() {
+		if metadata, err := h.agent.GetRemoteMetadata(); err == nil && metadata != nil {
+			if memoryType, ok := metadata["memory"]; ok && memoryType != "" && memoryType != "none" {
+				return MemoryInfo{
+					Type:   memoryType,
+					Status: "active",
+					// Entry count not available from remote metadata yet
+				}
+			}
+		}
+		return MemoryInfo{
+			Type:   "none",
+			Status: "inactive",
+		}
+	}
+
+	// For local agents, check memory directly
+	memory := h.agent.GetMemory()
+	if memory == nil {
+		return MemoryInfo{
+			Type:   "none",
+			Status: "inactive",
+		}
+	}
+
+	// Memory is present, try to get more details
+	memInfo := MemoryInfo{
+		Type:   "conversation",
+		Status: "active",
+	}
+
+	// Try to get entry count if the memory supports it
+	ctx := context.Background()
+	if messages, err := memory.GetMessages(ctx); err == nil {
+		memInfo.EntryCount = len(messages)
+	}
+
+	return memInfo
+}
+
+// getSystemPrompt gets system prompt, handling remote agents
+func (h *HTTPServerWithUI) getSystemPrompt() string {
+	// For remote agents, try to get from metadata
+	if h.agent.IsRemote() {
+		if metadata, err := h.agent.GetRemoteMetadata(); err == nil && metadata != nil {
+			if systemPrompt, ok := metadata["system_prompt"]; ok && systemPrompt != "" {
+				return systemPrompt
+			}
+		}
+		return "Remote agent - system prompt unavailable"
+	}
+
+	// For local agents, get directly
+	systemPrompt := h.agent.GetSystemPrompt()
+	if systemPrompt == "" {
+		systemPrompt = "No system prompt configured"
+	}
+	return systemPrompt
+}
+
+
+// addToConversationHistory adds an entry to local conversation history
+func (h *HTTPServerWithUI) addToConversationHistory(role, content string, metadata map[string]interface{}) {
+	entry := MemoryEntry{
+		ID:        fmt.Sprintf("local_%d", time.Now().UnixNano()),
+		Role:      role,
+		Content:   content,
+		Timestamp: time.Now().UnixMilli(),
+		Metadata:  metadata,
+	}
+
+	h.conversationHistory = append(h.conversationHistory, entry)
+
+	// Keep only last 1000 entries to avoid memory issues
+	if len(h.conversationHistory) > 1000 {
+		h.conversationHistory = h.conversationHistory[len(h.conversationHistory)-1000:]
+	}
+}
+
+// handleRun handles non-streaming agent requests and captures conversations
+func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req StreamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Input == "" {
+		http.Error(w, "Input is required", http.StatusBadRequest)
+		return
+	}
+
+	// Set up context with org ID if provided
+	ctx := r.Context()
+	if req.OrgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, req.OrgID)
+	}
+
+	// Add conversation ID if provided
+	if req.ConversationID != "" {
+		ctx = memory.WithConversationID(ctx, req.ConversationID)
+	}
+
+	// Add user input to conversation history
+	h.addToConversationHistory("user", req.Input, map[string]interface{}{
+		"conversation_id": req.ConversationID,
+		"org_id":         req.OrgID,
+	})
+
+	// Execute agent
+	result, err := h.agent.Run(ctx, req.Input)
+
+	// Add response to conversation history
+	if err != nil {
+		h.addToConversationHistory("error", err.Error(), map[string]interface{}{
+			"conversation_id": req.ConversationID,
+			"org_id":         req.OrgID,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":  err.Error(),
+			"output": "",
+		})
+		return
+	}
+
+	h.addToConversationHistory("assistant", result, map[string]interface{}{
+		"conversation_id": req.ConversationID,
+		"org_id":         req.OrgID,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"output": result,
+		"error":  "",
+	})
+}
+
+// handleStream handles streaming agent requests and captures conversations
+func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req StreamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Input == "" {
+		http.Error(w, "Input is required", http.StatusBadRequest)
+		return
+	}
+
+	// Set up SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Set up context with org ID if provided
+	ctx := r.Context()
+	if req.OrgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, req.OrgID)
+	}
+
+	// Add conversation ID if provided
+	if req.ConversationID != "" {
+		ctx = memory.WithConversationID(ctx, req.ConversationID)
+	}
+
+	// Add user input to conversation history
+	h.addToConversationHistory("user", req.Input, map[string]interface{}{
+		"conversation_id": req.ConversationID,
+		"org_id":         req.OrgID,
+	})
+
+	// Check if agent supports streaming
+	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
+	if !ok {
+		// Fall back to non-streaming
+		result, err := h.agent.Run(ctx, req.Input)
+
+		if err != nil {
+			h.addToConversationHistory("error", err.Error(), map[string]interface{}{
+				"conversation_id": req.ConversationID,
+				"org_id":         req.OrgID,
+			})
+
+			event := SSEEvent{
+				Event:     "error",
+				Data:      StreamEventData{Type: "error", Content: err.Error(), IsFinal: true},
+				Timestamp: time.Now().UnixMilli(),
+			}
+			h.sendSSEEvent(w, event)
+			return
+		}
+
+		h.addToConversationHistory("assistant", result, map[string]interface{}{
+			"conversation_id": req.ConversationID,
+			"org_id":         req.OrgID,
+		})
+
+		event := SSEEvent{
+			Event:     "content",
+			Data:      StreamEventData{Type: "content", Content: result, IsFinal: true},
+			Timestamp: time.Now().UnixMilli(),
+		}
+		h.sendSSEEvent(w, event)
+		return
+	}
+
+	// Stream events from agent
+	eventChan, err := streamingAgent.RunStream(ctx, req.Input)
+	if err != nil {
+		h.addToConversationHistory("error", err.Error(), map[string]interface{}{
+			"conversation_id": req.ConversationID,
+			"org_id":         req.OrgID,
+		})
+
+		event := SSEEvent{
+			Event:     "error",
+			Data:      StreamEventData{Type: "error", Content: err.Error(), IsFinal: true},
+			Timestamp: time.Now().UnixMilli(),
+		}
+		h.sendSSEEvent(w, event)
+		return
+	}
+
+	var fullResponse strings.Builder
+	for agentEvent := range eventChan {
+		// Collect content for conversation history
+		if agentEvent.Content != "" && agentEvent.Type == interfaces.AgentEventContent {
+			fullResponse.WriteString(agentEvent.Content)
+		}
+
+		// Convert agent event to stream event data
+		eventData := StreamEventData{
+			Type:         string(agentEvent.Type),
+			Content:      agentEvent.Content,
+			ThinkingStep: agentEvent.ThinkingStep,
+			IsFinal:      agentEvent.Type == interfaces.AgentEventComplete,
+		}
+
+		if agentEvent.ToolCall != nil {
+			eventData.ToolCall = &ToolCallData{
+				ID:        agentEvent.ToolCall.ID,
+				Name:      agentEvent.ToolCall.Name,
+				Arguments: agentEvent.ToolCall.Arguments,
+				Result:    agentEvent.ToolCall.Result,
+				Status:    agentEvent.ToolCall.Status,
+			}
+		}
+
+		if agentEvent.Error != nil {
+			eventData.Error = agentEvent.Error.Error()
+		}
+
+		if agentEvent.Metadata != nil {
+			eventData.Metadata = agentEvent.Metadata
+		}
+
+		event := SSEEvent{
+			Event:     string(agentEvent.Type),
+			Data:      eventData,
+			Timestamp: agentEvent.Timestamp.UnixMilli(),
+		}
+
+		h.sendSSEEvent(w, event)
+
+		// Flush for real-time streaming
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+
+	// Add final response to conversation history
+	if fullResponse.Len() > 0 {
+		h.addToConversationHistory("assistant", fullResponse.String(), map[string]interface{}{
+			"conversation_id": req.ConversationID,
+			"org_id":         req.OrgID,
+		})
+	}
+}
+
+// sendSSEEvent sends a server-sent event
+func (h *HTTPServerWithUI) sendSSEEvent(w http.ResponseWriter, event SSEEvent) {
+	data, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+
+	fmt.Fprintf(w, "event: %s\n", event.Event)
+	fmt.Fprintf(w, "data: %s\n", string(data))
+	if event.ID != "" {
+		fmt.Fprintf(w, "id: %s\n", event.ID)
+	}
+	fmt.Fprintf(w, "\n")
+}
 
 

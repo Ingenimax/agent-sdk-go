@@ -309,6 +309,11 @@ func (c *VLLMClient) SupportsStreaming() bool {
 	return false
 }
 
+// GetModel returns the model name being used
+func (c *VLLMClient) GetModel() string {
+	return c.Model
+}
+
 // makeRequest makes an HTTP request to the vLLM API
 func (c *VLLMClient) makeRequest(ctx context.Context, endpoint string, payload interface{}) ([]byte, error) {
 	// Marshal payload

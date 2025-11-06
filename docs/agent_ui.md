@@ -107,21 +107,20 @@ The UI communicates with these endpoints:
 ### New UI-Specific Endpoints
 - `GET /api/v1/agent/config` - Detailed agent configuration
 - `GET /api/v1/agent/subagents` - List all sub-agents with details
-- `GET /api/v1/agent/subagents/{id}` - Get specific sub-agent info
-- `POST /api/v1/agent/delegate` - Delegate task to sub-agent
-- `GET /api/v1/memory` - Memory browser
-- `GET /api/v1/memory/search` - Memory search
+- `POST /api/v1/agent/delegate` - Delegate task to sub-agent (placeholder implementation)
+- `GET /api/v1/memory` - Memory browser with pagination
+- `GET /api/v1/memory/search` - Memory search functionality
 - `GET /api/v1/tools` - Available tools list
-- `WS /ws/chat` - WebSocket for real-time chat
+- `WS /ws/chat` - WebSocket for real-time chat (placeholder - not yet implemented)
 
 ## Frontend Stack
 
 ### Technology
-- **Next.js 15** with TypeScript
-- **shadcn/ui** components
+- **Next.js 16** with React 19 and TypeScript
+- **shadcn/ui** components (built on Radix UI primitives)
 - **Tailwind CSS** for styling
 - **Static export** for embedding in Go binaries
-- **WebSocket/SSE** for real-time communication
+- **Server-Sent Events (SSE)** for real-time streaming communication
 
 ### Key Components
 ```tsx
@@ -131,7 +130,9 @@ The UI communicates with these endpoints:
   <ChatArea className="flex-1" />
 </div>
 
-// Sub-agents section in sidebar
+// Sub-agents section in sidebar (currently returns empty list)
+// Note: Sub-agent functionality is implemented at API level but
+// UI components are not fully developed yet
 <Collapsible>
   <CollapsibleTrigger>
     <h3>Sub-Agents ({subAgents.length})</h3>
@@ -216,27 +217,32 @@ AGENT_UI_THEME=light           # Default theme
 ## Features
 
 ### Chat Interface
-- **Streaming Chat**: Real-time responses with typing indicators
-- **Non-Streaming**: Traditional request/response
-- **Message History**: Persistent conversation history
-- **Tool Visualization**: See when and how tools are used
-- **Export**: Save conversations as markdown/JSON
+- **Streaming Chat**: Real-time responses with Server-Sent Events (SSE) and typing indicators
+- **Non-Streaming**: Traditional request/response mode toggle
+- **Message History**: Persistent conversation history with search functionality
+- **Character Count**: Real-time character counter for input
+- **Auto-Resize**: Textarea automatically adjusts height based on content
+- **Keyboard Shortcuts**: Enter to send, Shift+Enter for new line
 
 ### Agent Information
-- **Model Details**: Current LLM model and settings
+- **Model Details**: Current LLM model and settings extracted from agent
 - **System Prompt**: View and understand agent behavior
-- **Available Tools**: List of tools agent can use
-- **Memory Status**: Type and current state of memory
-- **Sub-Agents**: View and interact with specialized sub-agents
-  - Each sub-agent shows its own model, tools, and capabilities
-  - Quick delegation to sub-agents for specific tasks
-  - Monitor sub-agent activity and performance
+- **Available Tools**: List of tools agent can use with descriptions
+- **Memory Status**: Type and current state of memory system
+- **Configuration Display**: Complete agent configuration in JSON format
 
 ### Memory Browser
-- **Conversation History**: Browse past conversations
-- **Search**: Find specific messages or topics
-- **Filtering**: Filter by role, date, or content type
-- **Export**: Export memory data
+- **Conversation History**: Browse past conversations with pagination (limit/offset)
+- **Search**: Find specific messages or topics with query functionality
+- **Agent Memory Integration**: Automatically retrieves from agent's memory system (Redis, etc.) when available
+- **Fallback Storage**: In-memory conversation tracking when agent memory is unavailable
+- **Metadata Support**: Timestamp and conversation ID tracking
+
+### Sub-Agents (Limited Implementation)
+- **API Endpoints**: Backend endpoints exist for sub-agent management
+- **Delegation**: API endpoint for task delegation (placeholder implementation)
+- **UI Components**: Frontend components exist but return empty lists currently
+- **Future Enhancement**: Full sub-agent UI implementation planned
 
 ### Responsive Design
 - **Desktop**: Full sidebar + chat layout
@@ -273,6 +279,57 @@ See `examples/ui/` directory for complete implementation examples:
 - Multi-agent setup
 - Development workflow
 
+## Implementation Details
+
+### Backend Implementation (Go)
+
+**File Structure:**
+- `ui_server.go`: Main UI server implementation with embedded file serving
+- `HTTPServerWithUI`: Extends base HTTPServer with UI capabilities
+- Embedded files: `//go:embed all:ui-nextjs/out` embeds static files at compile time
+
+**Key Features:**
+- **Memory Integration**: Automatically retrieves from agent's memory system when available
+- **Tool Extraction**: Dynamically gets tool names from agent's tool registry
+- **Model Detection**: Extracts model information from LLM interface
+- **CORS Support**: Built-in CORS handling for API endpoints
+- **Health Checks**: Debug endpoint to list embedded files
+- **Organization Context**: Multi-tenancy support with default organization
+
+**Memory System:**
+- Primary: Retrieves from agent's memory interface (Redis, etc.)
+- Fallback: In-memory conversation storage (last 1000 entries)
+- Pagination: Supports limit/offset parameters
+- Search: Text-based search through conversation history
+
+### Frontend Implementation (Next.js)
+
+**File Structure:**
+- `app/`: Next.js 16 app directory with layout and pages
+- `components/`: Reusable React components organized by feature
+- `lib/`: API client and utility functions
+- `types/`: TypeScript type definitions
+
+**Key Components:**
+- **MainLayout**: Root layout with responsive sidebar and header
+- **ChatArea**: Chat interface with streaming and non-streaming support
+- **Sidebar**: Agent information, tools, and memory browser
+- **API Client**: TypeScript client with SSE streaming support
+
+**SSE Streaming Implementation:**
+```typescript
+async *streamAgent(data: StreamRequest): AsyncGenerator<StreamEventData> {
+  const response = await fetch(`/api/v1/agent/stream`, {
+    method: 'POST',
+    headers: { 'Accept': 'text/event-stream' },
+    body: JSON.stringify(data),
+  });
+
+  const reader = response.body?.getReader();
+  // Parse SSE events and yield data
+}
+```
+
 ## UI Development
 
 The Next.js UI source code is located in `pkg/microservice/ui-nextjs/`. To modify the UI:
@@ -283,4 +340,13 @@ The Next.js UI source code is located in `pkg/microservice/ui-nextjs/`. To modif
 4. Build for production: `npm run build` (outputs to `out/` directory)
 5. The Go application automatically embeds the `out/` directory
 
-For UI customization, edit the React components in the `components/` and `app/` directories.
+**Development Workflow:**
+- Edit React components in `components/` and `app/` directories
+- Modify API types in `types/agent.ts`
+- Update API client in `lib/api.ts`
+- Test with local Go server running UI server
+
+**Build Process:**
+- Next.js builds to static files in `out/` directory
+- Go embed directive includes all files in binary
+- Production deployment requires no separate frontend server

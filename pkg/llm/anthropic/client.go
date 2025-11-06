@@ -1678,6 +1678,11 @@ func (c *AnthropicClient) SupportsStreaming() bool {
 	return true
 }
 
+// GetModel returns the model name being used
+func (c *AnthropicClient) GetModel() string {
+	return c.Model
+}
+
 // WithTemperature creates a GenerateOption to set the temperature
 func WithTemperature(temperature float64) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
