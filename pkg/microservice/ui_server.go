@@ -185,8 +185,7 @@ func (h *HTTPServerWithUI) Start() error {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
-			json.NewEncoder(w).Encode(files)
+			_ = json.NewEncoder(w).Encode(files)
 		} else {
 			http.Error(w, "No UI filesystem", http.StatusNotFound)
 		}
@@ -207,8 +206,7 @@ func (h *HTTPServerWithUI) Start() error {
 			if !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/health") {
 				// Try to serve the file first
 				if file, err := h.uiFS.Open(strings.TrimPrefix(r.URL.Path, "/")); err == nil {
-					// #nosec G104 - File close error is not critical in this context
-					file.Close()
+					_ = file.Close()
 					fileServer.ServeHTTP(w, r)
 					return
 				}
@@ -347,6 +345,7 @@ func (h *HTTPServerWithUI) handleDelegate(w http.ResponseWriter, r *http.Request
 	if req.ConversationID != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
 	}
+	_ = ctx // TODO: Use ctx when implementing actual delegation logic
 
 	// Here you would implement the actual delegation logic
 	// For now, we'll return a placeholder response
@@ -613,7 +612,7 @@ func (h *HTTPServerWithUI) parseToolsFromSystemPrompt(systemPrompt string) []str
 			words := strings.Fields(line)
 			for _, word := range words {
 				// Clean up word (remove markdown, punctuation)
-				word = strings.Trim(word, "###*`-:.,!?()[]{}\"'")
+				word = strings.Trim(word, "#*`-:.,!?()[]{}\"'")
 				if strings.HasSuffix(word, "_agent") {
 					// Check if not already added
 					found := false
@@ -658,6 +657,7 @@ func (h *HTTPServerWithUI) getToolDescriptionFromSystemPrompt(toolName, systemPr
 }
 
 // parseSubAgentsFromSystemPrompt extracts sub-agent info from system prompt
+// TODO: Currently unused, planned for future sub-agent functionality
 func (h *HTTPServerWithUI) parseSubAgentsFromSystemPrompt() []SubAgentInfo {
 	systemPrompt := h.getSystemPrompt()
 	subAgents := []SubAgentInfo{}
@@ -746,6 +746,7 @@ func (h *HTTPServerWithUI) parseSubAgentsFromSystemPrompt() []SubAgentInfo {
 }
 
 // addConversationEntry adds a new entry to conversation history
+// TODO: Currently unused, planned for future conversation management
 func (h *HTTPServerWithUI) addConversationEntry(role, content, conversationID string) {
 	entry := MemoryEntry{
 		ID:             fmt.Sprintf("mem_%d_%s", time.Now().UnixNano(), role),
@@ -1144,8 +1145,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		})
 
 		w.Header().Set("Content-Type", "application/json")
-		// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":  err.Error(),
 			"output": "",
 		})
@@ -1158,8 +1158,7 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	// #nosec G104 - Error handling is not critical for JSON encoding in HTTP response
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"output": result,
 		"error":  "",
 	})
@@ -1321,12 +1320,12 @@ func (h *HTTPServerWithUI) sendSSEEvent(w http.ResponseWriter, event SSEEvent) {
 		return
 	}
 
-	fmt.Fprintf(w, "event: %s\n", event.Event)
-	fmt.Fprintf(w, "data: %s\n", string(data))
+	_, _ = fmt.Fprintf(w, "event: %s\n", event.Event)
+	_, _ = fmt.Fprintf(w, "data: %s\n", string(data))
 	if event.ID != "" {
-		fmt.Fprintf(w, "id: %s\n", event.ID)
+		_, _ = fmt.Fprintf(w, "id: %s\n", event.ID)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }
 
 // buildConversationListFromAllOrgs builds conversation list from all organizations
@@ -1579,7 +1578,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryConversations(limit, offset int) Memor
 			Offset:        offset,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return MemoryResponse{
@@ -1635,7 +1634,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryMessages(conversationID string, limit,
 			ConversationID: conversationID,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return MemoryResponse{
