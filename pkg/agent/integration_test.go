@@ -1,30 +1,20 @@
-//go:build integration
-// +build integration
-
 package agent
 
 import (
-	"context"
 	"os"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/calculator"
 )
 
-// TestSubAgentsIntegration tests the sub-agents feature with real LLM
-// Run with: go test -tags=integration ./pkg/agent -run TestSubAgentsIntegration
 func TestSubAgentsIntegration(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		t.Skip("OPENAI_API_KEY not set, skipping integration test")
 	}
 
-	ctx := context.Background()
-	ctx = multitenancy.WithOrgID(ctx, "test-org")
-	ctx = memory.WithConversationID(ctx, "test-conversation")
 	llm := openai.NewClient(apiKey)
 
 	// Create a math sub-agent
@@ -84,15 +74,4 @@ func TestSubAgentsIntegration(t *testing.T) {
 	if !mainAgent.HasSubAgent("GeneralAgent") {
 		t.Error("Expected to find GeneralAgent")
 	}
-
-	// Test with a simple query (this would actually call the LLM)
-	// Uncomment to test with real API calls
-	// response, err := mainAgent.Run(ctx, "What is 25 + 37?")
-	// if err != nil {
-	// 	t.Fatalf("Failed to run agent: %v", err)
-	// }
-	// if !strings.Contains(response, "62") {
-	// 	t.Errorf("Expected response to contain '62', got %s", response)
-	// }
-	// t.Logf("Response: %s", response)
 }
