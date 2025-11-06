@@ -15,7 +15,7 @@
 
 # next.js
 /.next/
-/out/
+# Note: /out/ is NOT ignored because Go embeds these files at compile time
 
 # production
 /build
