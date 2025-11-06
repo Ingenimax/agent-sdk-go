@@ -53,13 +53,14 @@ export function MainLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-full bg-background fixed inset-0">
       {/* Sidebar */}
       <div className={`
         ${sidebarOpen ? 'w-80' : 'w-0'}
         transition-all duration-300 ease-in-out
         overflow-hidden
         border-r border-border
+        flex-shrink-0
       `}>
         <Sidebar
           agentConfig={agentConfig}
@@ -69,9 +70,9 @@ export function MainLayout() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-14 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className="h-14 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
           <Button
             variant="ghost"
             size="icon"
@@ -92,7 +93,7 @@ export function MainLayout() {
         </header>
 
         {/* Chat Area */}
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden">
           <ChatArea agentConfig={agentConfig} />
         </div>
       </div>

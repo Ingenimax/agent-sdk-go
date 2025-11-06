@@ -164,37 +164,41 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Messages Area */}
-      <ScrollArea className="flex-1 p-4">
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <Card className="p-8 text-center max-w-md">
-              <h2 className="text-2xl font-semibold mb-4">Welcome to Agent UI</h2>
-              <p className="text-muted-foreground mb-4">
-                Start a conversation by typing a message below.
-              </p>
-              {agentConfig && (
-                <div className="space-y-2">
-                  <Badge variant="outline">Agent: {agentConfig.name}</Badge>
-                  <Badge variant="outline">Model: {agentConfig.model}</Badge>
-                </div>
-              )}
-            </Card>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {messages.map((message) => (
-              <ChatMessageComponent key={message.id} message={message} />
-            ))}
-            {isLoading && (
-              <div className="flex items-center space-x-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Agent is thinking...</span>
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="p-4">
+            {messages.length === 0 ? (
+              <div className="flex items-center justify-center min-h-[400px]">
+                <Card className="p-8 text-center max-w-md">
+                  <h2 className="text-2xl font-semibold mb-4">Welcome to Agent UI</h2>
+                  <p className="text-muted-foreground mb-4">
+                    Start a conversation by typing a message below.
+                  </p>
+                  {agentConfig && (
+                    <div className="space-y-2">
+                      <Badge variant="outline">Agent: {agentConfig.name}</Badge>
+                      <Badge variant="outline">Model: {agentConfig.model}</Badge>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {messages.map((message) => (
+                  <ChatMessageComponent key={message.id} message={message} />
+                ))}
+                {isLoading && (
+                  <div className="flex items-center space-x-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Agent is thinking...</span>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
-        )}
-      </ScrollArea>
+        </ScrollArea>
+      </div>
 
       {/* Input Area */}
       <div className="border-t border-border p-4">

@@ -96,7 +96,7 @@ type DelegateRequest struct {
 }
 
 // Embed UI files (will be populated at build time)
-//go:embed all:ui/dist
+//go:embed all:ui-nextjs/out
 var defaultUIFiles embed.FS
 
 // NewHTTPServerWithUI creates a new HTTP server with embedded UI
@@ -119,11 +119,11 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 	// Extract the embedded UI files
 	var uiFS fs.FS
 	var err error
-	uiFS, err = fs.Sub(defaultUIFiles, "ui/dist")
+	uiFS, err = fs.Sub(defaultUIFiles, "ui-nextjs/out")
 	if err != nil {
 		// Fallback to serving from local directory in dev mode
 		if config.DevMode {
-			uiFS = os.DirFS("./ui/dist")
+			uiFS = os.DirFS("./pkg/microservice/ui-nextjs/out")
 		}
 	}
 

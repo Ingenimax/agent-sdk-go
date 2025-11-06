@@ -7,6 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Copy, User, Bot } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css';
 
 interface ChatMessageProps {
   message: ChatMessage;
@@ -65,10 +69,60 @@ export function ChatMessage({ message }: ChatMessageProps) {
             </div>
 
             {/* Content */}
-            <div className="prose prose-sm max-w-none">
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+            <div className="prose prose-sm max-w-none dark:prose-invert">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={{
+                  // Custom components for better styling
+                  code: ({ node, inline, className, children, ...props }: any) => {
+                    const match = /language-(\w+)/.exec(className || '');
+                    return !inline && match ? (
+                      <pre className="overflow-x-auto rounded-md bg-muted p-4">
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      </pre>
+                    ) : (
+                      <code
+                        className="rounded bg-muted px-1 py-0.5 text-sm font-mono"
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
+                  pre: ({ children }) => (
+                    <div className="overflow-x-auto rounded-md bg-muted">
+                      {children}
+                    </div>
+                  ),
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-muted-foreground/40 pl-4 italic">
+                      {children}
+                    </blockquote>
+                  ),
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-muted">
+                        {children}
+                      </table>
+                    </div>
+                  ),
+                  th: ({ children }) => (
+                    <th className="border border-muted bg-muted/50 px-3 py-2 text-left font-semibold">
+                      {children}
+                    </th>
+                  ),
+                  td: ({ children }) => (
+                    <td className="border border-muted px-3 py-2">
+                      {children}
+                    </td>
+                  ),
+                }}
+              >
                 {message.content}
-              </pre>
+              </ReactMarkdown>
             </div>
           </CardContent>
         </Card>

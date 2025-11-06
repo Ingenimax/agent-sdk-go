@@ -117,10 +117,10 @@ The UI communicates with these endpoints:
 ## Frontend Stack
 
 ### Technology
-- **React 18** with TypeScript
+- **Next.js 15** with TypeScript
 - **shadcn/ui** components
 - **Tailwind CSS** for styling
-- **Vite** for development and building
+- **Static export** for embedding in Go binaries
 - **WebSocket/SSE** for real-time communication
 
 ### Key Components
@@ -171,12 +171,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 The UI is **automatically embedded** in your Go binary:
 
-1. **Frontend**: React app with shadcn/ui components (pre-built)
+1. **Frontend**: Next.js app with shadcn/ui components (statically exported)
 2. **Backend**: Extends existing HTTP server to serve UI files
 3. **Single Binary**: No separate frontend deployment needed
 
 ```go
-//go:embed ui/dist/*
+//go:embed all:ui-nextjs/out
 var uiFiles embed.FS
 
 // UI automatically served at root path
@@ -272,3 +272,15 @@ See `examples/ui/` directory for complete implementation examples:
 - Custom configuration
 - Multi-agent setup
 - Development workflow
+
+## UI Development
+
+The Next.js UI source code is located in `pkg/microservice/ui-nextjs/`. To modify the UI:
+
+1. Navigate to the UI directory: `cd pkg/microservice/ui-nextjs/`
+2. Install dependencies: `npm install`
+3. Start development server: `npm run dev`
+4. Build for production: `npm run build` (outputs to `out/` directory)
+5. The Go application automatically embeds the `out/` directory
+
+For UI customization, edit the React components in the `components/` and `app/` directories.
