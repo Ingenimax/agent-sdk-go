@@ -634,6 +634,7 @@ func TestRemoteAgentClient_StreamWithAuthHandlers(t *testing.T) {
 
 	// Execute with handlers and auth
 	ctx := context.Background()
+	// #nosec G101 - Test auth token, not a real credential
 	authToken := "test-auth-token"
 	err := client.StreamWithAuth(ctx, "authenticated request", authToken)
 	if err != nil {

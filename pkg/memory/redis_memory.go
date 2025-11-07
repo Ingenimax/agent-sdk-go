@@ -590,6 +590,197 @@ func (r *RedisMemory) rotateSummaries(ctx context.Context) error {
 	return nil
 }
 
+// GetAllConversations returns all conversation IDs for the current org
+func (r *RedisMemory) GetAllConversations(ctx context.Context) ([]string, error) {
+	// Get organization ID from context
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("organization ID not found in context: %w", err)
+	}
+
+	// Search for all keys matching the pattern for this org
+	pattern := fmt.Sprintf("%s%s:*", r.keyPrefix, orgID)
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation keys: %w", err)
+	}
+
+	// Extract conversation IDs from keys
+	conversations := make([]string, 0, len(keys))
+	expectedPrefix := fmt.Sprintf("%s%s:", r.keyPrefix, orgID)
+
+	for _, key := range keys {
+		if strings.HasPrefix(key, expectedPrefix) {
+			conversationID := strings.TrimPrefix(key, expectedPrefix)
+			conversations = append(conversations, conversationID)
+		}
+	}
+
+	return conversations, nil
+}
+
+// GetConversationMessages gets all messages for a specific conversation in current org
+func (r *RedisMemory) GetConversationMessages(ctx context.Context, conversationID string) ([]interfaces.Message, error) {
+	// Get organization ID from context
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("organization ID not found in context: %w", err)
+	}
+
+	// Create Redis key
+	key := fmt.Sprintf("%s%s:%s", r.keyPrefix, orgID, conversationID)
+
+	// Get all messages from Redis list
+	data, err := r.client.LRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conversation messages: %w", err)
+	}
+
+	messages := make([]interfaces.Message, 0, len(data))
+	for _, item := range data {
+		var msg interfaces.Message
+		if err := json.Unmarshal([]byte(item), &msg); err != nil {
+			continue // Skip invalid messages
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
+// GetMemoryStatistics returns basic memory statistics for current org
+func (r *RedisMemory) GetMemoryStatistics(ctx context.Context) (totalConversations, totalMessages int, err error) {
+	// Get organization ID from context
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("organization ID not found in context: %w", err)
+	}
+
+	// Search for all keys matching the pattern for this org
+	pattern := fmt.Sprintf("%s%s:*", r.keyPrefix, orgID)
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get conversation keys: %w", err)
+	}
+
+	totalConversations = len(keys)
+	totalMessages = 0
+
+	// Count messages in each conversation
+	for _, key := range keys {
+		count, err := r.client.LLen(ctx, key).Result()
+		if err != nil {
+			continue // Skip if we can't get count
+		}
+		totalMessages += int(count)
+	}
+
+	return totalConversations, totalMessages, nil
+}
+
+// GetAllConversationsAcrossOrgs returns all conversation IDs from all organizations
+func (r *RedisMemory) GetAllConversationsAcrossOrgs() (map[string][]string, error) {
+	ctx := context.Background()
+
+	// Search for all keys matching any org pattern
+	pattern := fmt.Sprintf("%s*", r.keyPrefix)
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all conversation keys: %w", err)
+	}
+
+	orgConversations := make(map[string][]string)
+
+	for _, key := range keys {
+		// Extract orgID and conversationID from key
+		// Key format: keyPrefix + orgID + ":" + conversationID
+		if strings.HasPrefix(key, r.keyPrefix) {
+			remainder := strings.TrimPrefix(key, r.keyPrefix)
+			parts := strings.SplitN(remainder, ":", 2)
+			if len(parts) == 2 {
+				orgID := parts[0]
+				conversationID := parts[1]
+				orgConversations[orgID] = append(orgConversations[orgID], conversationID)
+			}
+		}
+	}
+
+	return orgConversations, nil
+}
+
+// GetConversationMessagesAcrossOrgs finds conversation in any org and returns messages
+func (r *RedisMemory) GetConversationMessagesAcrossOrgs(conversationID string) ([]interfaces.Message, string, error) {
+	ctx := context.Background()
+
+	// Search for the conversation across all orgs
+	pattern := fmt.Sprintf("%s*:%s", r.keyPrefix, conversationID)
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to search for conversation: %w", err)
+	}
+
+	if len(keys) == 0 {
+		return []interfaces.Message{}, "", nil // Conversation not found
+	}
+
+	// Use the first match (there should typically be only one)
+	key := keys[0]
+
+	// Extract orgID from key
+	if strings.HasPrefix(key, r.keyPrefix) {
+		remainder := strings.TrimPrefix(key, r.keyPrefix)
+		parts := strings.SplitN(remainder, ":", 2)
+		if len(parts) == 2 {
+			orgID := parts[0]
+
+			// Get messages from Redis
+			data, err := r.client.LRange(ctx, key, 0, -1).Result()
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to get conversation messages: %w", err)
+			}
+
+			messages := make([]interfaces.Message, 0, len(data))
+			for _, item := range data {
+				var msg interfaces.Message
+				if err := json.Unmarshal([]byte(item), &msg); err != nil {
+					continue // Skip invalid messages
+				}
+				messages = append(messages, msg)
+			}
+
+			return messages, orgID, nil
+		}
+	}
+
+	return []interfaces.Message{}, "", nil
+}
+
+// GetMemoryStatisticsAcrossOrgs returns memory statistics across all organizations
+func (r *RedisMemory) GetMemoryStatisticsAcrossOrgs() (totalConversations, totalMessages int, err error) {
+	ctx := context.Background()
+
+	// Search for all keys matching any org pattern
+	pattern := fmt.Sprintf("%s*", r.keyPrefix)
+	keys, err := r.client.Keys(ctx, pattern).Result()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get all conversation keys: %w", err)
+	}
+
+	totalConversations = len(keys)
+	totalMessages = 0
+
+	// Count messages in each conversation
+	for _, key := range keys {
+		count, err := r.client.LLen(ctx, key).Result()
+		if err != nil {
+			continue // Skip if we can't get count
+		}
+		totalMessages += int(count)
+	}
+
+	return totalConversations, totalMessages, nil
+}
+
 // Close closes the underlying Redis connection
 func (r *RedisMemory) Close() error {
 	if r.client != nil {

@@ -57,6 +57,34 @@ type Memory interface {
 	Clear(ctx context.Context) error
 }
 
+// ConversationMemory extends Memory interface with conversation-level operations
+type ConversationMemory interface {
+	Memory
+
+	// GetAllConversations returns all conversation IDs for current org
+	GetAllConversations(ctx context.Context) ([]string, error)
+
+	// GetConversationMessages gets all messages for a specific conversation in current org
+	GetConversationMessages(ctx context.Context, conversationID string) ([]Message, error)
+
+	// GetMemoryStatistics returns basic memory statistics for current org
+	GetMemoryStatistics(ctx context.Context) (totalConversations, totalMessages int, err error)
+}
+
+// AdminConversationMemory extends ConversationMemory with cross-org operations
+type AdminConversationMemory interface {
+	ConversationMemory
+
+	// GetAllConversationsAcrossOrgs returns all conversation IDs from all organizations
+	GetAllConversationsAcrossOrgs() (map[string][]string, error) // map[orgID][]conversationID
+
+	// GetConversationMessagesAcrossOrgs finds conversation in any org and returns messages
+	GetConversationMessagesAcrossOrgs(conversationID string) ([]Message, string, error) // messages, orgID, error
+
+	// GetMemoryStatisticsAcrossOrgs returns memory statistics across all organizations
+	GetMemoryStatisticsAcrossOrgs() (totalConversations, totalMessages int, err error)
+}
+
 // GetMessagesOptions contains options for retrieving messages
 type GetMessagesOptions struct {
 	// Limit is the maximum number of messages to retrieve

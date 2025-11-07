@@ -113,6 +113,7 @@ func TestMultiTenancy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get API key: %v", err)
 	}
+	// #nosec G101 - Test API keys, not real credentials
 	if apiKey1 != "org1-api-key" {
 		t.Errorf("Expected API key 'org1-api-key', got '%s'", apiKey1)
 	}
@@ -121,6 +122,7 @@ func TestMultiTenancy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get API key: %v", err)
 	}
+	// #nosec G101 - Test API keys, not real credentials
 	if apiKey2 != "org2-api-key" {
 		t.Errorf("Expected API key 'org2-api-key', got '%s'", apiKey2)
 	}

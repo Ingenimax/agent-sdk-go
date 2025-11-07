@@ -1092,9 +1092,59 @@ func (a *Agent) GetMemory() interfaces.Memory {
 	return a.memory
 }
 
+// GetAllConversations returns all conversation IDs from memory
+func (a *Agent) GetAllConversations(ctx context.Context) ([]string, error) {
+	if a.memory == nil {
+		return []string{}, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetAllConversations(ctx)
+	}
+
+	// Fallback: return empty list for memories that don't support conversations
+	return []string{}, nil
+}
+
+// GetConversationMessages gets all messages for a specific conversation
+func (a *Agent) GetConversationMessages(ctx context.Context, conversationID string) ([]interfaces.Message, error) {
+	if a.memory == nil {
+		return []interfaces.Message{}, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetConversationMessages(ctx, conversationID)
+	}
+
+	// Fallback: return empty list for memories that don't support conversations
+	return []interfaces.Message{}, nil
+}
+
+// GetMemoryStatistics returns basic memory statistics
+func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, totalMessages int, err error) {
+	if a.memory == nil {
+		return 0, 0, nil
+	}
+
+	// Check if memory supports conversation operations
+	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+		return convMem.GetMemoryStatistics(ctx)
+	}
+
+	// Fallback: return basic stats for memories that don't support conversations
+	return 0, 0, nil
+}
+
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
 	return a.tools
+}
+
+// GetSubAgents returns the sub-agents slice
+func (a *Agent) GetSubAgents() []*Agent {
+	return a.subAgents
 }
 
 // GetLogger returns the logger instance (for use in custom functions)
@@ -1170,4 +1220,29 @@ func (a *Agent) Disconnect() error {
 		return a.remoteClient.Disconnect()
 	}
 	return nil
+}
+
+// GetRemoteMetadata returns metadata for remote agents, nil for local agents
+func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
+	if !a.isRemote || a.remoteClient == nil {
+		return nil, fmt.Errorf("not a remote agent")
+	}
+
+	metadata, err := a.remoteClient.GetMetadata(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to a simple map for easier access
+	result := make(map[string]string)
+	result["name"] = metadata.GetName()
+	result["description"] = metadata.GetDescription()
+	result["system_prompt"] = metadata.GetSystemPrompt()
+
+	// Include properties
+	for k, v := range metadata.GetProperties() {
+		result[k] = v
+	}
+
+	return result, nil
 }
