@@ -21,11 +21,12 @@ import (
 
 // UIConfig represents UI configuration options
 type UIConfig struct {
-	Enabled     bool       `json:"enabled"`
-	DefaultPath string     `json:"default_path"`
-	DevMode     bool       `json:"dev_mode"`
-	Theme       string     `json:"theme"`
-	Features    UIFeatures `json:"features"`
+	Enabled     bool             `json:"enabled"`
+	DefaultPath string           `json:"default_path"`
+	DevMode     bool             `json:"dev_mode"`
+	Theme       string           `json:"theme"`
+	Features    UIFeatures       `json:"features"`
+	Tracing     *UITracingConfig `json:"tracing,omitempty"`
 }
 
 // UIFeatures represents available UI features
@@ -34,6 +35,7 @@ type UIFeatures struct {
 	Memory    bool `json:"memory"`
 	AgentInfo bool `json:"agent_info"`
 	Settings  bool `json:"settings"`
+	Traces    bool `json:"traces"`
 }
 
 // HTTPServerWithUI extends HTTPServer with embedded UI
@@ -44,6 +46,9 @@ type HTTPServerWithUI struct {
 
 	// Simple in-memory conversation storage
 	conversationHistory []MemoryEntry
+
+	// Trace collector for UI
+	traceCollector *UITraceCollector
 }
 
 // SubAgentInfo represents sub-agent information for UI
@@ -120,6 +125,11 @@ type DelegateRequest struct {
 //go:embed all:ui-nextjs/out
 var defaultUIFiles embed.FS
 
+// GetTraceCollector returns the UI trace collector if enabled
+func (h *HTTPServerWithUI) GetTraceCollector() *UITraceCollector {
+	return h.traceCollector
+}
+
 // NewHTTPServerWithUI creates a new HTTP server with embedded UI
 func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPServerWithUI {
 	if config == nil {
@@ -133,7 +143,18 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 				Memory:    true,
 				AgentInfo: true,
 				Settings:  true,
+				Traces:    false, // Disabled by default
 			},
+		}
+	}
+
+	// Set default tracing config if traces are enabled
+	if config.Features.Traces && config.Tracing == nil {
+		config.Tracing = &UITracingConfig{
+			Enabled:         true,
+			MaxBufferSizeKB: 10240, // 10MB
+			MaxTraceAge:     "1h",
+			RetentionCount:  100,
 		}
 	}
 
@@ -148,7 +169,7 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 		}
 	}
 
-	return &HTTPServerWithUI{
+	server := &HTTPServerWithUI{
 		HTTPServer: HTTPServer{
 			agent: agent,
 			port:  port,
@@ -157,6 +178,28 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 		uiFS:                uiFS,
 		conversationHistory: make([]MemoryEntry, 0),
 	}
+
+	// Initialize trace collector if enabled
+	if config.Features.Traces && config.Tracing != nil && config.Tracing.Enabled {
+		// Check if agent already has a UITraceCollector
+		if agent.GetTracer() != nil {
+			if uiCollector, ok := agent.GetTracer().(*UITraceCollector); ok {
+				// Agent already has a UITraceCollector, use it
+				server.traceCollector = uiCollector
+				log.Printf("[UI Server] Using existing UITraceCollector from agent")
+			} else {
+				// Agent has a different tracer, wrap it with new UITraceCollector
+				server.traceCollector = NewUITraceCollector(config.Tracing, agent.GetTracer())
+				log.Printf("[UI Server] Created new UITraceCollector wrapping agent's tracer")
+			}
+		} else {
+			// Agent has no tracer, create new UITraceCollector
+			server.traceCollector = NewUITraceCollector(config.Tracing, nil)
+			log.Printf("[UI Server] Created new UITraceCollector (agent has no tracer)")
+		}
+	}
+
+	return server
 }
 
 // Start starts the HTTP server with UI
@@ -244,6 +287,14 @@ func (h *HTTPServerWithUI) Start() error {
 		fmt.Printf("  - GET /api/v1/memory\n")
 		fmt.Printf("  - GET /api/v1/memory/search\n")
 		fmt.Printf("  - GET /api/v1/tools\n")
+
+		if h.uiConfig.Features.Traces && h.traceCollector != nil {
+			fmt.Printf("Trace endpoints:\n")
+			fmt.Printf("  - GET /api/v1/traces\n")
+			fmt.Printf("  - GET /api/v1/traces/{id}\n")
+			fmt.Printf("  - DELETE /api/v1/traces/{id}\n")
+			fmt.Printf("  - GET /api/v1/traces/stats\n")
+		}
 	}
 
 	return h.server.ListenAndServe()
@@ -268,6 +319,14 @@ func (h *HTTPServerWithUI) registerAPIEndpoints(mux *http.ServeMux) {
 		mux.HandleFunc("/api/v1/memory/search", h.withOrgContext(h.handleMemorySearch))
 		mux.HandleFunc("/api/v1/tools", h.handleTools)
 		mux.HandleFunc("/ws/chat", h.handleWebSocketChat)
+
+		// Trace endpoints (only when traces feature is enabled)
+		if h.uiConfig.Features.Traces && h.traceCollector != nil {
+			mux.HandleFunc("/api/v1/traces", h.handleTraces)
+			mux.HandleFunc("/api/v1/traces/stats", h.handleTraceStats)
+			// Pattern matching for /api/v1/traces/{id}
+			mux.HandleFunc("/api/v1/traces/", h.handleTrace)
+		}
 	}
 }
 
@@ -1553,4 +1612,105 @@ func (h *HTTPServerWithUI) getRemoteMemoryMessages(conversationID string, limit,
 	}
 
 	return remoteResponse
+}
+
+// handleTraces handles GET /api/v1/traces endpoint
+func (h *HTTPServerWithUI) handleTraces(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		// Get traces list with pagination
+		limit := 50
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+				limit = l
+			}
+		}
+
+		offset := 0
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+
+		traces, total := h.traceCollector.GetTraces(limit, offset)
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"traces": traces,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		}); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		}
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleTrace handles GET/DELETE /api/v1/traces/{id} endpoint
+func (h *HTTPServerWithUI) handleTrace(w http.ResponseWriter, r *http.Request) {
+	// Extract trace ID from path
+	path := r.URL.Path
+	prefix := "/api/v1/traces/"
+	if !strings.HasPrefix(path, prefix) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	traceID := strings.TrimPrefix(path, prefix)
+	if traceID == "" || traceID == "stats" { // Skip stats endpoint
+		http.Error(w, "Trace ID required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		// Get specific trace
+		trace, err := h.traceCollector.GetTrace(traceID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(trace); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		}
+
+	case "DELETE":
+		// Delete specific trace
+		if err := h.traceCollector.DeleteTrace(traceID); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"status": "deleted",
+			"id":     traceID,
+		}); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		}
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleTraceStats handles GET /api/v1/traces/stats endpoint
+func (h *HTTPServerWithUI) handleTraceStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	stats := h.traceCollector.GetStats()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }

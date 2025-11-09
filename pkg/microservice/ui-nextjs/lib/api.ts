@@ -9,7 +9,10 @@ import {
   StreamRequest,
   RunResponse,
   StreamResponse,
-  StreamEventData
+  StreamEventData,
+  UITrace,
+  TracesResponse,
+  TraceStats
 } from '@/types/agent';
 
 const API_BASE_URL = '/api/v1';
@@ -175,6 +178,29 @@ class AgentAPI {
       throw new Error(`Health check failed: ${response.status}`);
     }
     return response.json();
+  }
+
+  // Trace endpoints
+  async getTraces(limit = 50, offset = 0): Promise<TracesResponse> {
+    return this.get<TracesResponse>(`/traces?limit=${limit}&offset=${offset}`);
+  }
+
+  async getTrace(id: string): Promise<UITrace> {
+    return this.get<UITrace>(`/traces/${id}`);
+  }
+
+  async deleteTrace(id: string): Promise<{ status: string; id: string }> {
+    const response = await fetch(`${this.baseUrl}/traces/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw new Error(`Delete trace failed: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getTraceStats(): Promise<TraceStats> {
+    return this.get<TraceStats>('/traces/stats');
   }
 }
 

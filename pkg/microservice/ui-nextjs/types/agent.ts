@@ -27,6 +27,7 @@ export interface UIFeatures {
   memory: boolean;
   agent_info: boolean;
   settings: boolean;
+  traces: boolean;
 }
 
 export interface LLMConfig {
@@ -193,4 +194,66 @@ export interface RunResponse {
   output: string;
   agent: string;
   metadata?: Record<string, unknown>;
+}
+
+// Trace-related types
+export interface UITrace {
+  id: string;
+  name: string;
+  start_time: string;
+  end_time?: string;
+  duration_ms: number;
+  status: 'running' | 'completed' | 'error';
+  spans: UITraceSpan[];
+  metadata?: Record<string, unknown>;
+  conversation_id?: string;
+  org_id?: string;
+  size_bytes: number;
+}
+
+export interface UITraceSpan {
+  id: string;
+  trace_id: string;
+  parent_id?: string;
+  name: string;
+  type: 'generation' | 'tool_call' | 'span' | 'event';
+  start_time: string;
+  end_time?: string;
+  duration_ms: number;
+  events?: UITraceEvent[];
+  attributes?: Record<string, unknown>;
+  error?: UITraceError;
+  input?: string;
+  output?: string;
+}
+
+export interface UITraceEvent {
+  name: string;
+  timestamp: string;
+  attributes?: Record<string, unknown>;
+}
+
+export interface UITraceError {
+  message: string;
+  type?: string;
+  stacktrace?: string;
+  timestamp: string;
+}
+
+export interface TracesResponse {
+  traces: UITrace[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TraceStats {
+  total_traces: number;
+  running_traces: number;
+  error_count: number;
+  error_rate: number;
+  avg_duration_ms: number;
+  buffer_size_bytes: number;
+  buffer_usage: number;
+  tool_usage: Record<string, number>;
 }
