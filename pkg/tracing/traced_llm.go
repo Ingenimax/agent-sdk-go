@@ -134,6 +134,15 @@ func (m *TracedLLM) SupportsStreaming() bool {
 	return m.llm.SupportsStreaming()
 }
 
+// GetModel returns the model name from the underlying LLM
+func (m *TracedLLM) GetModel() string {
+	if modelProvider, ok := m.llm.(interface{ GetModel() string }); ok {
+		return modelProvider.GetModel()
+	}
+	// Fallback to provider name if GetModel is not available
+	return m.llm.Name()
+}
+
 // GenerateStream implements interfaces.StreamingLLM.GenerateStream
 func (m *TracedLLM) GenerateStream(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (<-chan interfaces.StreamEvent, error) {
 	// Check if underlying LLM supports streaming
