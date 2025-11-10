@@ -154,94 +154,106 @@ export function TraceDetailViewer({ trace, onClose }: TraceDetailViewerProps) {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="ml-6 mb-4">
-              <Card>
-                <CardContent className="p-4 space-y-4">
-                  {span.input && (
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Input:</label>
-                      <div className="text-sm p-2 bg-muted rounded-md mt-1 max-h-20 overflow-y-auto">
-                        {span.input}
-                      </div>
-                    </div>
-                  )}
+              {(() => {
+                const hasContent = span.input ||
+                                 span.output ||
+                                 span.error ||
+                                 (span.events && span.events.length > 0) ||
+                                 (span.attributes && Object.keys(span.attributes).length > 0);
 
-                  {span.output && (
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Output:</label>
-                      <div className="text-sm p-2 bg-muted rounded-md mt-1 max-h-20 overflow-y-auto">
-                        {span.output}
-                      </div>
-                    </div>
-                  )}
+                if (!hasContent) return null;
 
-                  {span.error && (
-                    <div>
-                      <label className="text-sm font-medium text-destructive">Error:</label>
-                      <div className="text-sm p-2 bg-destructive/10 border border-destructive/20 rounded-md mt-1">
-                        <div className="font-medium">{span.error.message}</div>
-                        {span.error.type && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Type: {span.error.type}
+                return (
+                  <Card>
+                    <CardContent className="p-4 space-y-4">
+                      {span.input && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Input:</label>
+                          <div className="text-sm p-2 bg-muted rounded-md mt-1 max-h-20 overflow-y-auto">
+                            {span.input}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                        </div>
+                      )}
 
-                  {span.events && span.events.length > 0 && (
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Events:</label>
-                      <div className="space-y-1 mt-1">
-                        {span.events.map((event, idx) => (
-                          <div key={idx} className="text-sm p-2 bg-muted rounded-md">
-                            <div className="font-medium">{event.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatTimestamp(event.timestamp)}
-                            </div>
-                            {event.attributes && Object.keys(event.attributes).length > 0 && (
-                              <div className="text-xs mt-1">
-                                {JSON.stringify(event.attributes)}
+                      {span.output && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Output:</label>
+                          <div className="text-sm p-2 bg-muted rounded-md mt-1 max-h-20 overflow-y-auto">
+                            {span.output}
+                          </div>
+                        </div>
+                      )}
+
+                      {span.error && (
+                        <div>
+                          <label className="text-sm font-medium text-destructive">Error:</label>
+                          <div className="text-sm p-2 bg-destructive/10 border border-destructive/20 rounded-md mt-1">
+                            <div className="font-medium">{span.error.message}</div>
+                            {span.error.type && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Type: {span.error.type}
                               </div>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        </div>
+                      )}
 
-                  {span.attributes && Object.keys(span.attributes).length > 0 && (
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Attributes:</label>
-                      <div className="space-y-2 mt-1">
-                        {Object.entries(span.attributes).map(([key, value]) => {
-                          const stringValue = String(value);
-                          const isLongContent = stringValue.length > 500;
-
-                          return (
-                            <div key={key} className="border rounded-md p-2 bg-muted">
-                              <div className="text-xs font-medium text-muted-foreground mb-1">{key}:</div>
-                              <div className="text-xs">
-                                {isLongContent ? (
-                                  <details className="cursor-pointer">
-                                    <summary className="text-blue-600 hover:text-blue-800">
-                                      {stringValue.slice(0, 100)}... (click to expand {stringValue.length} chars)
-                                    </summary>
-                                    <div className="mt-2 p-2 bg-background rounded border max-h-40 overflow-y-auto">
-                                      <pre className="whitespace-pre-wrap text-xs">{stringValue}</pre>
-                                    </div>
-                                  </details>
-                                ) : (
-                                  <span className="break-words">{stringValue}</span>
+                      {span.events && span.events.length > 0 && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Events:</label>
+                          <div className="space-y-1 mt-1">
+                            {span.events.map((event, idx) => (
+                              <div key={idx} className="text-sm p-2 bg-muted rounded-md">
+                                <div className="font-medium">{event.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatTimestamp(event.timestamp)}
+                                </div>
+                                {event.attributes && Object.keys(event.attributes).length > 0 && (
+                                  <div className="text-xs mt-1">
+                                    {JSON.stringify(event.attributes)}
+                                  </div>
                                 )}
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {span.attributes && Object.keys(span.attributes).length > 0 && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Attributes:</label>
+                          <div className="space-y-2 mt-1">
+                            {Object.entries(span.attributes).map(([key, value]) => {
+                              const stringValue = String(value);
+                              const isLongContent = stringValue.length > 500;
+
+                              return (
+                                <div key={key} className="border rounded-md p-2 bg-muted">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">{key}:</div>
+                                  <div className="text-xs">
+                                    {isLongContent ? (
+                                      <details className="cursor-pointer">
+                                        <summary className="text-blue-600 hover:text-blue-800">
+                                          {stringValue.slice(0, 100)}... (click to expand {stringValue.length} chars)
+                                        </summary>
+                                        <div className="mt-2 p-2 bg-background rounded border max-h-40 overflow-y-auto">
+                                          <pre className="whitespace-pre-wrap text-xs">{stringValue}</pre>
+                                        </div>
+                                      </details>
+                                    ) : (
+                                      <span className="break-words">{stringValue}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })()}
             </div>
             {span.children.length > 0 && renderSpanTree(span.children, level + 1)}
           </CollapsibleContent>
@@ -253,8 +265,14 @@ export function TraceDetailViewer({ trace, onClose }: TraceDetailViewerProps) {
   const spanHierarchy = buildSpanHierarchy(trace.spans);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <Card className="max-w-6xl w-full h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-transparent flex items-center justify-center p-4 z-50"
+      onClick={onClose}
+    >
+      <Card
+        className="max-w-6xl w-full h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         <CardHeader className="border-b">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -307,30 +325,42 @@ export function TraceDetailViewer({ trace, onClose }: TraceDetailViewerProps) {
             <div className="p-6">
               {selectedTab === 'timeline' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    <Card>
-                      <CardContent className="pt-6">
-                        <div className="text-2xl font-bold">{trace.spans.length}</div>
-                        <div className="text-sm text-muted-foreground">Total Spans</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-6">
-                        <div className="text-2xl font-bold">
-                          {trace.spans.filter(s => s.type === 'tool_call').length}
-                        </div>
-                        <div className="text-sm text-muted-foreground">Tool Calls</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-6">
-                        <div className="text-2xl font-bold">
-                          {trace.spans.filter(s => s.error).length}
-                        </div>
-                        <div className="text-sm text-muted-foreground">Errors</div>
-                      </CardContent>
-                    </Card>
-                  </div>
+                  {(() => {
+                    const toolCallsCount = trace.spans.filter(s => s.type === 'tool_call').length;
+                    const errorsCount = trace.spans.filter(s => s.error).length;
+                    const hasData = toolCallsCount > 0 || errorsCount > 0;
+
+                    if (!hasData) return null;
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        {trace.spans.length > 0 && (
+                          <Card>
+                            <CardContent className="pt-6">
+                              <div className="text-2xl font-bold">{trace.spans.length}</div>
+                              <div className="text-sm text-muted-foreground">Total Spans</div>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {toolCallsCount > 0 && (
+                          <Card>
+                            <CardContent className="pt-6">
+                              <div className="text-2xl font-bold">{toolCallsCount}</div>
+                              <div className="text-sm text-muted-foreground">Tool Calls</div>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {errorsCount > 0 && (
+                          <Card>
+                            <CardContent className="pt-6">
+                              <div className="text-2xl font-bold">{errorsCount}</div>
+                              <div className="text-sm text-muted-foreground">Errors</div>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <h3 className="text-lg font-semibold mb-4">Execution Timeline</h3>
