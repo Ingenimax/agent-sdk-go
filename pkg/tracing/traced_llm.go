@@ -239,12 +239,12 @@ func (m *TracedLLM) GenerateWithToolsStream(ctx context.Context, prompt string, 
 
 				// Create spans using TraceGeneration which handles tool calls correctly
 				if adapter, ok := m.tracer.(*OTELTracerAdapter); ok {
-					adapter.otelTracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{
+					_, _ = adapter.otelTracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{ //nolint:gosec
 						"streaming": true,
 						"tools":     len(tools),
 					})
 				} else if tracer, ok := m.tracer.(*OTELLangfuseTracer); ok {
-					tracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{
+					_, _ = tracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{ //nolint:gosec
 						"streaming": true,
 						"tools":     len(tools),
 					})

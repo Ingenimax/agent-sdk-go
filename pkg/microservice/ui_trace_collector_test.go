@@ -45,7 +45,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartSpan(ctx, "test-operation")
+		_, span := collector.StartSpan(ctx, "test-operation")
 		require.NotNil(t, span)
 
 		// Check that trace was created
@@ -77,7 +77,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 		ctx, parentSpan := collector.StartSpan(ctx, "parent-operation")
 
 		// Create child span
-		ctx, childSpan := collector.StartSpan(ctx, "child-operation")
+		_, childSpan := collector.StartSpan(ctx, "child-operation")
 
 		traces, _ := collector.GetTraces(10, 0)
 		assert.Len(t, traces, 1)
@@ -102,7 +102,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartSpan(ctx, "test-operation")
+		_, span := collector.StartSpan(ctx, "test-operation")
 		require.NotNil(t, span)
 
 		// Check that no trace was created
@@ -125,7 +125,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartSpan(ctx, "test-operation")
+		_, span := collector.StartSpan(ctx, "test-operation")
 
 		// Add events
 		span.AddEvent("event1", map[string]interface{}{"key1": "value1"})
@@ -149,7 +149,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartSpan(ctx, "test-operation")
+		_, span := collector.StartSpan(ctx, "test-operation")
 
 		// Set attributes
 		span.SetAttribute("attr1", "value1")
@@ -177,7 +177,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartSpan(ctx, "test-operation")
+		_, span := collector.StartSpan(ctx, "test-operation")
 
 		// Record error
 		testErr := assert.AnError
@@ -203,7 +203,7 @@ func TestUITraceCollector_TraceSession(t *testing.T) {
 		collector := NewUITraceCollector(config, nil)
 
 		ctx := context.Background()
-		ctx, span := collector.StartTraceSession(ctx, "test-session")
+		_, span := collector.StartTraceSession(ctx, "test-session")
 		require.NotNil(t, span)
 
 		traces, total := collector.GetTraces(10, 0)
