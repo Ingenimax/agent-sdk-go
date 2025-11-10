@@ -72,6 +72,7 @@ type AgentConfigResponse struct {
 	Memory       MemoryInfo             `json:"memory"`
 	SubAgents    []SubAgentInfo         `json:"sub_agents,omitempty"`
 	Features     UIFeatures             `json:"features"`
+	UITheme      string                 `json:"ui_theme,omitempty"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -359,6 +360,7 @@ func (h *HTTPServerWithUI) handleConfig(w http.ResponseWriter, r *http.Request) 
 		Tools:        tools,
 		Memory:       memInfo,
 		Features:     h.uiConfig.Features,
+		UITheme:      h.uiConfig.Theme,
 		SubAgents:    h.getSubAgentsList(),
 	}
 
@@ -957,6 +959,14 @@ func (h *HTTPServerWithUI) getModelName() string {
 	if modelGetter, ok := llm.(interface{ GetModel() string }); ok {
 		model := modelGetter.GetModel()
 		if model != "" {
+			// Special handling for Azure OpenAI deployments
+			if llm.Name() == "azure-openai" {
+				// Try to extract model name from deployment name
+				if inferredModel := inferAzureModelFromDeployment(model); inferredModel != "" {
+					return inferredModel + " (deployment: " + model + ")"
+				}
+				return "Azure OpenAI (deployment: " + model + ")"
+			}
 			return model
 		}
 	}
@@ -968,6 +978,43 @@ func (h *HTTPServerWithUI) getModelName() string {
 	}
 
 	return "Unknown LLM"
+}
+
+// inferAzureModelFromDeployment attempts to infer the actual model name from Azure deployment name
+func inferAzureModelFromDeployment(deployment string) string {
+	deployment = strings.ToLower(deployment)
+
+	// Common Azure OpenAI model patterns
+	if strings.Contains(deployment, "gpt-4o") {
+		if strings.Contains(deployment, "mini") {
+			return "gpt-4o-mini"
+		}
+		return "gpt-4o"
+	}
+	if strings.Contains(deployment, "gpt-4-turbo") || strings.Contains(deployment, "gpt4-turbo") {
+		return "gpt-4-turbo"
+	}
+	if strings.Contains(deployment, "gpt-4") || strings.Contains(deployment, "gpt4") {
+		return "gpt-4"
+	}
+	if strings.Contains(deployment, "gpt-35-turbo") || strings.Contains(deployment, "gpt-3.5-turbo") {
+		return "gpt-3.5-turbo"
+	}
+	if strings.Contains(deployment, "o1-preview") {
+		return "o1-preview"
+	}
+	if strings.Contains(deployment, "o1-mini") {
+		return "o1-mini"
+	}
+	if strings.Contains(deployment, "text-embedding") {
+		return "text-embedding-ada-002"
+	}
+	if strings.Contains(deployment, "dall-e") || strings.Contains(deployment, "dalle") {
+		return "dall-e-3"
+	}
+
+	// If no pattern matches, return empty string
+	return ""
 }
 
 // getMemoryInfo extracts memory information from the agent

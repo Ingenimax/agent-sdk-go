@@ -78,6 +78,30 @@ export function MainLayout() {
     loadAgentConfig();
   }, []);
 
+  // System theme detection when agent config is loaded
+  useEffect(() => {
+    if (agentConfig?.ui_theme === 'system') {
+      const applySystemTheme = () => {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      };
+
+      // Apply initial theme
+      applySystemTheme();
+
+      // Listen for system theme changes
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applySystemTheme();
+
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+  }, [agentConfig?.ui_theme]);
+
   const loadAgentConfig = async () => {
     try {
       setLoading(true);

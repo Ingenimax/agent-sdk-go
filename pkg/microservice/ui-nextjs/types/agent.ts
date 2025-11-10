@@ -69,6 +69,7 @@ export interface AgentConfig {
   memory: MemoryInfo;
   sub_agents?: SubAgentInfo[];
   features: UIFeatures;
+  ui_theme?: string;
   metadata?: Record<string, unknown>;
 }
 
