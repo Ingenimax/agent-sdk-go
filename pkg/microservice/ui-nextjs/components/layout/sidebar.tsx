@@ -22,6 +22,7 @@ import {
   Brain,
   Settings,
   History,
+  Activity,
 } from 'lucide-react';
 import { MemoryBrowser } from '../memory/memory-browser';
 
@@ -36,6 +37,7 @@ export function Sidebar({ agentConfig, isOpen, onClose }: SidebarProps) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [subAgentsOpen, setSubAgentsOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [tracesOpen, setTracesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memoryBrowserOpen, setMemoryBrowserOpen] = useState(false);
 
@@ -259,6 +261,46 @@ export function Sidebar({ agentConfig, isOpen, onClose }: SidebarProps) {
                 </Card>
               </CollapsibleContent>
             </Collapsible>
+
+            {/* Traces */}
+            {agentConfig?.features.traces && (
+              <Collapsible open={tracesOpen} onOpenChange={setTracesOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between p-0 h-auto">
+                    <div className="flex items-center space-x-2">
+                      <Activity className="h-4 w-4" />
+                      <span className="font-medium">Traces</span>
+                    </div>
+                    {tracesOpen ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <Card>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="text-sm text-muted-foreground">
+                        Monitor agent execution traces and performance metrics
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          // TODO: Navigate to traces view
+                          console.log('Navigate to traces view');
+                        }}
+                      >
+                        <Activity className="h-4 w-4 mr-2" />
+                        View Traces
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
             {/* Settings */}
             <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>

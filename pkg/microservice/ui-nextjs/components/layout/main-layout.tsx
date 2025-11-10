@@ -7,13 +7,14 @@ import { ToolsScreen } from '../screens/tools-screen';
 import { MemoryScreen } from '../screens/memory-screen';
 import { SubAgentsScreen } from '../screens/sub-agents-screen';
 import { SettingsScreen } from '../screens/settings-screen';
+import { TracesScreen } from '../screens/traces-screen';
 import { AgentConfig } from '@/types/agent';
 import { agentAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Bot, Wrench, Database, Users, Settings } from 'lucide-react';
+import { MessageSquare, Bot, Wrench, Database, Users, Settings, Activity } from 'lucide-react';
 
-type ActiveScreen = 'chat' | 'agent-info' | 'tools' | 'memory' | 'sub-agents' | 'settings';
+type ActiveScreen = 'chat' | 'agent-info' | 'tools' | 'memory' | 'sub-agents' | 'traces' | 'settings';
 
 interface NavigationItem {
   id: ActiveScreen;
@@ -54,6 +55,12 @@ const navigationItems: NavigationItem[] = [
     description: 'Manage and delegate tasks to sub-agents'
   },
   {
+    id: 'traces',
+    label: 'Traces',
+    icon: Activity,
+    description: 'Monitor agent execution traces and performance'
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: Settings,
@@ -70,6 +77,30 @@ export function MainLayout() {
   useEffect(() => {
     loadAgentConfig();
   }, []);
+
+  // System theme detection when agent config is loaded
+  useEffect(() => {
+    if (agentConfig?.ui_theme === 'system') {
+      const applySystemTheme = () => {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      };
+
+      // Apply initial theme
+      applySystemTheme();
+
+      // Listen for system theme changes
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applySystemTheme();
+
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+  }, [agentConfig?.ui_theme]);
 
   const loadAgentConfig = async () => {
     try {
@@ -95,6 +126,8 @@ export function MainLayout() {
         return <MemoryScreen />;
       case 'sub-agents':
         return <SubAgentsScreen />;
+      case 'traces':
+        return <TracesScreen />;
       case 'settings':
         return <SettingsScreen agentConfig={agentConfig} />;
       default:
@@ -155,7 +188,15 @@ export function MainLayout() {
       {/* Navigation */}
       <nav className="border-b border-border bg-background px-4">
         <div className="flex space-x-1 py-2">
-          {navigationItems.map((item) => {
+          {navigationItems
+            .filter((item) => {
+              // Only show traces tab if the feature is enabled
+              if (item.id === 'traces') {
+                return agentConfig?.features?.traces === true;
+              }
+              return true;
+            })
+            .map((item) => {
             const Icon = item.icon;
             const isActive = activeScreen === item.id;
 

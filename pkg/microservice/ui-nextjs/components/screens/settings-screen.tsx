@@ -16,14 +16,23 @@ export function SettingsScreen({ agentConfig }: SettingsScreenProps) {
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  // Check if theme switching should be disabled (when ui_theme is set to "system")
+  const isThemeSwitchDisabled = agentConfig?.ui_theme === 'system';
+
   useEffect(() => {
-    // Apply theme
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    // Only handle manual theme changes when not in system mode
+    if (agentConfig?.ui_theme !== 'system') {
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
     }
-  }, [theme]);
+
+    // Update local state to reflect current theme (for display purposes)
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    setTheme(isDarkMode ? 'dark' : 'light');
+  }, [theme, agentConfig?.ui_theme]);
 
   return (
     <div className="h-full flex flex-col">
@@ -46,20 +55,33 @@ export function SettingsScreen({ agentConfig }: SettingsScreenProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium">Theme</label>
-                  <p className="text-xs text-muted-foreground">Choose your preferred theme</p>
+              {isThemeSwitchDisabled ? (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium">Theme</label>
+                    <p className="text-xs text-muted-foreground">Following system theme preference</p>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                    <span className="text-sm">System</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Sun className="h-4 w-4" />
-                  <Switch
-                    checked={theme === 'dark'}
-                    onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                  />
-                  <Moon className="h-4 w-4" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-medium">Theme</label>
+                    <p className="text-xs text-muted-foreground">Choose your preferred theme</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Sun className="h-4 w-4" />
+                    <Switch
+                      checked={theme === 'dark'}
+                      onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                    />
+                    <Moon className="h-4 w-4" />
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 

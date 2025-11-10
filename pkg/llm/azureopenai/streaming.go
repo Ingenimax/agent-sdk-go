@@ -8,6 +8,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/shared"
 )
@@ -603,17 +604,74 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 					c.logger.Error(ctx, "Tool not found", map[string]interface{}{
 						"tool_name": toolCall.Function.Name,
 					})
+
+					// Add tool not found error to tracing context
+					toolCallTrace := tracing.ToolCall{
+						Name:       toolCall.Function.Name,
+						Arguments:  toolCall.Function.Arguments,
+						ID:         toolCall.ID,
+						Timestamp:  time.Now().Format(time.RFC3339),
+						StartTime:  time.Now(),
+						Duration:   0,
+						DurationMs: 0,
+						Error:      fmt.Sprintf("tool not found: %s", toolCall.Function.Name),
+						Result:     fmt.Sprintf("Error: tool not found: %s", toolCall.Function.Name),
+					}
+					tracing.AddToolCallToContext(ctx, toolCallTrace)
+
+					// Store failed tool call in memory if provided
+					errorMessage := fmt.Sprintf("Error: tool not found: %s", toolCall.Function.Name)
+					if params.Memory != nil {
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []interfaces.ToolCall{{
+								ID:        toolCall.ID,
+								Name:      toolCall.Function.Name,
+								Arguments: toolCall.Function.Arguments,
+							}},
+						})
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:       "tool",
+							Content:    errorMessage,
+							ToolCallID: toolCall.ID,
+							Metadata: map[string]interface{}{
+								"tool_name": toolCall.Function.Name,
+							},
+						})
+					}
+
 					continue
 				}
 
 				// Execute the tool
+				c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": foundTool.Name()})
+				toolStartTime := time.Now()
 				result, err := foundTool.Execute(ctx, toolCall.Function.Arguments)
+				toolEndTime := time.Now()
+
+				// Add tool call to tracing context
+				executionDuration := toolEndTime.Sub(toolStartTime)
+				toolCallTrace := tracing.ToolCall{
+					Name:       toolCall.Function.Name,
+					Arguments:  toolCall.Function.Arguments,
+					ID:         toolCall.ID,
+					Timestamp:  toolStartTime.Format(time.RFC3339),
+					StartTime:  toolStartTime,
+					Duration:   executionDuration,
+					DurationMs: executionDuration.Milliseconds(),
+				}
+
 				if err != nil {
 					c.logger.Error(ctx, "Tool execution error", map[string]interface{}{
 						"tool_name": toolCall.Function.Name,
 						"error":     err.Error(),
 					})
 					result = fmt.Sprintf("Error executing tool: %v", err)
+					toolCallTrace.Error = err.Error()
+					toolCallTrace.Result = result
+				} else {
+					toolCallTrace.Result = result
 				}
 
 				// Send tool result event
@@ -646,6 +704,60 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 						"id_length": len(toolCall.ID),
 					})
 					continue
+				}
+
+				// Add the tool call to the tracing context
+				fmt.Printf("DEBUG AzureOpenAI: Adding tool call %s to tracing context\n", toolCallTrace.Name)
+				tracing.AddToolCallToContext(ctx, toolCallTrace)
+
+				// Debug: Check context after adding
+				if currentToolCalls := tracing.GetToolCallsFromContext(ctx); currentToolCalls != nil {
+					fmt.Printf("DEBUG AzureOpenAI: Context now has %d tool calls\n", len(currentToolCalls))
+				} else {
+					fmt.Printf("DEBUG AzureOpenAI: WARNING: Context has nil tool calls after adding\n")
+				}
+
+				// Store tool call and result in memory if provided
+				if params.Memory != nil {
+					if err != nil {
+						// Store failed tool call result
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []interfaces.ToolCall{{
+								ID:        toolCall.ID,
+								Name:      toolCall.Function.Name,
+								Arguments: toolCall.Function.Arguments,
+							}},
+						})
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:       "tool",
+							Content:    result,
+							ToolCallID: toolCall.ID,
+							Metadata: map[string]interface{}{
+								"tool_name": toolCall.Function.Name,
+							},
+						})
+					} else {
+						// Store successful tool call and result
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:    "assistant",
+							Content: "",
+							ToolCalls: []interfaces.ToolCall{{
+								ID:        toolCall.ID,
+								Name:      toolCall.Function.Name,
+								Arguments: toolCall.Function.Arguments,
+							}},
+						})
+						_ = params.Memory.AddMessage(ctx, interfaces.Message{
+							Role:       "tool",
+							Content:    result,
+							ToolCallID: toolCall.ID,
+							Metadata: map[string]interface{}{
+								"tool_name": toolCall.Function.Name,
+							},
+						})
+					}
 				}
 
 				// Create tool message - correct parameter order: content first, then tool_call_id

@@ -99,6 +99,9 @@ func (m *TracedLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
 			span.SetAttribute("tools", strings.Join(toolNames, ","))
 		}
 
+		// Initialize tool calls collection in context for tracing
+		ctx = WithToolCallsCollection(ctx)
+
 		// Call the underlying LLM's GenerateWithTools method
 		response, err := llmWithTools.GenerateWithTools(ctx, prompt, tools, options...)
 
@@ -170,8 +173,8 @@ func (m *TracedLLM) GenerateWithToolsStream(ctx context.Context, prompt string, 
 	}
 
 	// Start span
+	startTime := time.Now()
 	ctx, span := m.tracer.StartSpan(ctx, "llm.generate_with_tools_stream")
-	defer span.End()
 
 	// Add attributes
 	span.SetAttribute("prompt.length", len(prompt))
@@ -198,5 +201,64 @@ func (m *TracedLLM) GenerateWithToolsStream(ctx context.Context, prompt string, 
 		span.SetAttribute("tools", strings.Join(toolNames, ","))
 	}
 
-	return streamingLLM.GenerateWithToolsStream(ctx, prompt, tools, options...)
+	// Initialize tool calls collection in context for tracing
+	ctx = WithToolCallsCollection(ctx)
+
+	// Get the original stream
+	originalChan, err := streamingLLM.GenerateWithToolsStream(ctx, prompt, tools, options...)
+	if err != nil {
+		span.RecordError(err)
+		span.End()
+		return nil, err
+	}
+
+	// Create a new channel to wrap the original
+	wrappedChan := make(chan interfaces.StreamEvent, 10)
+
+	// Start a goroutine to proxy events and handle span completion
+	go func() {
+		defer close(wrappedChan)
+		defer func() {
+			// When streaming is complete, create tool call spans and end main span
+			endTime := time.Now()
+			duration := endTime.Sub(startTime)
+			span.SetAttribute("duration_ms", duration.Milliseconds())
+
+			// Get tool calls from context and create spans using TraceGeneration if any exist
+			toolCalls := GetToolCallsFromContext(ctx)
+
+			if len(toolCalls) > 0 {
+				// Extract model name
+				model := "unknown"
+				if modelProvider, ok := streamingLLM.(interface{ GetModel() string }); ok {
+					model = modelProvider.GetModel()
+				}
+				if model == "" {
+					model = streamingLLM.Name()
+				}
+
+				// Create spans using TraceGeneration which handles tool calls correctly
+				if adapter, ok := m.tracer.(*OTELTracerAdapter); ok {
+					_, _ = adapter.otelTracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{ //nolint:gosec
+						"streaming": true,
+						"tools":     len(tools),
+					})
+				} else if tracer, ok := m.tracer.(*OTELLangfuseTracer); ok {
+					_, _ = tracer.TraceGeneration(ctx, model, prompt, "streaming_response", startTime, endTime, map[string]any{ //nolint:gosec
+						"streaming": true,
+						"tools":     len(tools),
+					})
+				}
+			}
+
+			span.End()
+		}()
+
+		// Proxy all events from the original channel
+		for event := range originalChan {
+			wrappedChan <- event
+		}
+	}()
+
+	return wrappedChan, nil
 }

@@ -78,7 +78,10 @@ func main() {
   - Export options
 
 - **Settings**
-  - Theme toggle (light/dark)
+  - Theme toggle (light/dark/system)
+    - System: Automatically adapts to OS theme preference
+    - Light: Force light theme
+    - Dark: Force dark theme
   - Streaming preferences
   - API configuration
 
@@ -186,6 +189,38 @@ mux.Handle("/", http.FileServer(http.FS(uiFiles)))
 
 ## Configuration Options
 
+### Theme Configuration
+
+The UI supports three theme modes:
+
+1. **System** (default) - Automatically follows the user's operating system theme preference
+   - Uses `prefers-color-scheme` CSS media query
+   - Switches between light/dark based on OS settings
+
+2. **Light** - Forces light theme regardless of system preference
+
+3. **Dark** - Forces dark theme regardless of system preference
+
+```go
+// Use system theme (default)
+uiConfig := &microservice.UIConfig{
+    Theme: "system",  // Adapts to user's OS preference
+    // ... other config
+}
+
+// Force light theme
+uiConfig := &microservice.UIConfig{
+    Theme: "light",
+    // ... other config
+}
+
+// Force dark theme
+uiConfig := &microservice.UIConfig{
+    Theme: "dark",
+    // ... other config
+}
+```
+
 ### Agent Configuration
 ```go
 // Enable UI with default settings
@@ -196,7 +231,7 @@ uiConfig := &microservice.UIConfig{
     Enabled:     true,
     DefaultPath: "/",           // Serve UI at root
     DevMode:     false,         // Production mode
-    Theme:       "light",       // Default theme
+    Theme:       "system",      // Use system default theme (options: "system", "light", "dark")
     Features: microservice.UIFeatures{
         Chat:         true,      // Enable chat interface
         Memory:       true,      // Enable memory browser
@@ -211,7 +246,7 @@ uiConfig := &microservice.UIConfig{
 AGENT_UI_ENABLED=true          # Enable/disable UI
 AGENT_UI_PATH=/                # UI path (default: /)
 AGENT_UI_DEV_MODE=false        # Development mode
-AGENT_UI_THEME=light           # Default theme
+AGENT_UI_THEME=system          # Theme setting (system/light/dark, default: system)
 ```
 
 ## Features
