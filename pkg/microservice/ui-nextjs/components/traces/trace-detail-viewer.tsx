@@ -212,8 +212,31 @@ export function TraceDetailViewer({ trace, onClose }: TraceDetailViewerProps) {
                   {span.attributes && Object.keys(span.attributes).length > 0 && (
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Attributes:</label>
-                      <div className="text-sm p-2 bg-muted rounded-md mt-1 max-h-32 overflow-y-auto">
-                        <pre className="text-xs">{JSON.stringify(span.attributes, null, 2)}</pre>
+                      <div className="space-y-2 mt-1">
+                        {Object.entries(span.attributes).map(([key, value]) => {
+                          const stringValue = String(value);
+                          const isLongContent = stringValue.length > 500;
+
+                          return (
+                            <div key={key} className="border rounded-md p-2 bg-muted">
+                              <div className="text-xs font-medium text-muted-foreground mb-1">{key}:</div>
+                              <div className="text-xs">
+                                {isLongContent ? (
+                                  <details className="cursor-pointer">
+                                    <summary className="text-blue-600 hover:text-blue-800">
+                                      {stringValue.slice(0, 100)}... (click to expand {stringValue.length} chars)
+                                    </summary>
+                                    <div className="mt-2 p-2 bg-background rounded border max-h-40 overflow-y-auto">
+                                      <pre className="whitespace-pre-wrap text-xs">{stringValue}</pre>
+                                    </div>
+                                  </details>
+                                ) : (
+                                  <span className="break-words">{stringValue}</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
