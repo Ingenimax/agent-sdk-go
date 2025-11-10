@@ -274,7 +274,10 @@ func (s *uiCollectorSpan) End() {
 	isComplete := s.collector.isTraceComplete(s.spanContext.trace)
 	log.Printf("[UITraceCollector] Trace %s complete: %v", s.spanContext.trace.ID, isComplete)
 	if isComplete {
-		s.spanContext.trace.Status = "completed"
+		// Only set status to completed if it's not already an error
+		if s.spanContext.trace.Status != "error" {
+			s.spanContext.trace.Status = "completed"
+		}
 		traceEndTime := s.collector.getTraceEndTime(s.spanContext.trace)
 		s.spanContext.trace.EndTime = &traceEndTime
 		s.spanContext.trace.Duration = traceEndTime.Sub(s.spanContext.trace.StartTime).Milliseconds()
@@ -366,11 +369,12 @@ func (s *uiCollectorSpan) RecordError(err error) {
 				Type:      fmt.Sprintf("%T", err),
 				Timestamp: time.Now(),
 			}
+			// Update trace status to error
+			s.spanContext.trace.Status = "error"
 			break
 		}
 	}
 
-	s.spanContext.trace.Status = "error"
 	s.collector.updateTraceSize(s.spanContext.trace)
 }
 
