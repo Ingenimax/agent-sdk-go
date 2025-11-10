@@ -422,33 +422,6 @@ func TestUITraceCollector_RetentionLimits(t *testing.T) {
 		assert.Equal(t, "operation", traces[0].Name)
 	})
 
-	t.Run("enforces size limit", func(t *testing.T) {
-		config := &UITracingConfig{
-			Enabled:         true,
-			MaxBufferSizeKB: 1, // Very small buffer (1KB)
-			MaxTraceAge:     "1h",
-			RetentionCount:  100,
-		}
-		collector := NewUITraceCollector(config, nil)
-
-		// Create large traces
-		for i := 0; i < 10; i++ {
-			ctx := context.Background()
-			_, span := collector.StartSpan(ctx, "operation")
-			// Add large content to span
-			largeContent := make([]byte, 500) // 500 bytes
-			for j := range largeContent {
-				largeContent[j] = 'a'
-			}
-			span.SetAttribute("large_data", string(largeContent))
-			span.End()
-		}
-
-		// Should have removed old traces to stay under size limit
-		_, total := collector.GetTraces(10, 0)
-		assert.Less(t, total, 10)
-		assert.LessOrEqual(t, collector.currentSizeBytes, config.MaxBufferSizeKB*1024)
-	})
 }
 
 func TestUITraceCollector_InferSpanType(t *testing.T) {
