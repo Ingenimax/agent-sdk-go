@@ -57,9 +57,31 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *op
 		return &userMsg
 
 	case interfaces.MessageRoleAssistant:
-		// For Azure OpenAI, treat assistant messages with tool calls as regular assistant messages
-		// The tool results will be added separately as tool messages
-		if msg.Content != "" {
+		if len(msg.ToolCalls) > 0 {
+			// Assistant message with tool calls
+			var toolCalls []openai.ChatCompletionMessageToolCallUnion
+
+			for _, toolCall := range msg.ToolCalls {
+				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnion{
+					ID:   toolCall.ID,
+					Type: "function",
+					Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+						Name:      toolCall.Name,
+						Arguments: toolCall.Arguments,
+					},
+				})
+			}
+
+			// Create assistant message with tool calls
+			assistantMsg := openai.ChatCompletionMessage{
+				Role:      "assistant",
+				Content:   msg.Content,
+				ToolCalls: toolCalls,
+			}
+			param := assistantMsg.ToParam()
+			return &param
+		} else if msg.Content != "" {
+			// Regular assistant message
 			assistantMsg := openai.AssistantMessage(msg.Content)
 			return &assistantMsg
 		}
