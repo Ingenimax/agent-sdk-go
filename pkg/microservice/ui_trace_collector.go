@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/google/uuid"
 )
 
@@ -609,14 +611,16 @@ func (c *UITraceCollector) getParentSpanID(ctx context.Context) string {
 }
 
 func (c *UITraceCollector) getConversationID(ctx context.Context) string {
-	// This would need to be implemented based on how conversation IDs are stored in context
-	// For now, returning empty string
+	if id, ok := memory.GetConversationID(ctx); ok {
+		return id
+	}
 	return ""
 }
 
 func (c *UITraceCollector) getOrgID(ctx context.Context) string {
-	// This would need to be implemented based on how org IDs are stored in context
-	// For now, returning empty string
+	if orgID, err := multitenancy.GetOrgID(ctx); err == nil {
+		return orgID
+	}
 	return ""
 }
 
