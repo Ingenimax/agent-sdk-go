@@ -167,6 +167,47 @@ func (m *mockLLMForIntegration) GenerateWithTools(ctx context.Context, prompt st
 	return m.Generate(ctx, prompt, options...)
 }
 
+func (m *mockLLMForIntegration) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	content, err := m.Generate(ctx, prompt, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      "mock-llm",
+		StopReason: "complete",
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		Metadata: map[string]interface{}{
+			"provider": "mock",
+		},
+	}, nil
+}
+
+func (m *mockLLMForIntegration) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	content, err := m.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      "mock-llm",
+		StopReason: "complete",
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		Metadata: map[string]interface{}{
+			"provider":   "mock",
+			"tools_used": true,
+		},
+	}, nil
+}
+
 func TestJSONConcatenationPrevention(t *testing.T) {
 	mockLLM := &mockLLMForIntegration{}
 	conversationMemory := memory.NewConversationBuffer()

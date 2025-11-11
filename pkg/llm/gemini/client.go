@@ -270,6 +270,15 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 
 // Generate generates text from a prompt
 func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
+	response, err := c.generateInternal(ctx, prompt, options...)
+	if err != nil {
+		return "", err
+	}
+	return response.Content, nil
+}
+
+// generateInternal performs the actual generation and returns the full response
+func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	// Apply options
 	params := &interfaces.GenerateOptions{
 		LLMConfig: &interfaces.LLMConfig{
@@ -429,7 +438,7 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 	}
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Extract response and separate thinking from final content
@@ -466,10 +475,43 @@ func (c *GeminiClient) Generate(ctx context.Context, prompt string, options ...i
 			})
 		}
 
-		return strings.Join(textParts, ""), nil
+		content := strings.Join(textParts, "")
+
+		// Create detailed response with token usage
+		response := &interfaces.LLMResponse{
+			Content:    content,
+			Model:      c.model,
+			StopReason: "", // Gemini doesn't provide specific stop reason
+			Metadata: map[string]interface{}{
+				"provider": "gemini",
+			},
+		}
+
+		// Extract token usage if available
+		if result.UsageMetadata != nil {
+			usage := &interfaces.TokenUsage{
+				InputTokens:  int(result.UsageMetadata.PromptTokenCount),
+				OutputTokens: int(result.UsageMetadata.CandidatesTokenCount),
+				TotalTokens:  int(result.UsageMetadata.TotalTokenCount),
+			}
+
+			// Add thinking tokens if available (for 2.5 series models)
+			// Note: Thinking token count may not be directly available in current genai library version
+			if len(thinkingParts) > 0 {
+				// For now, we note that thinking tokens were used but don't have the exact count
+				// This will be updated when the genai library supports thinking token counting
+				c.logger.Debug(ctx, "Thinking tokens used but count not available", map[string]interface{}{
+					"thinkingParts": len(thinkingParts),
+				})
+			}
+
+			response.Usage = usage
+		}
+
+		return response, nil
 	}
 
-	return "", fmt.Errorf("no response from Gemini API")
+	return nil, fmt.Errorf("no response from Gemini API")
 }
 
 // GenerateWithTools implements interfaces.LLM.GenerateWithTools
@@ -1097,4 +1139,32 @@ func (c *GeminiClient) GetModel() string {
 func (c *GeminiClient) buildContentsWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) []*genai.Content {
 	builder := newMessageHistoryBuilder(c.logger)
 	return builder.buildContents(ctx, prompt, params)
+}
+
+// GenerateDetailed generates text and returns detailed response information including token usage
+func (c *GeminiClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	return c.generateInternal(ctx, prompt, options...)
+}
+
+// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+func (c *GeminiClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// For now, call the existing method and construct a detailed response
+	// TODO: Implement full detailed version that tracks token usage across all tool iterations
+	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a basic detailed response without usage information for now
+	// This will be enhanced to track usage across all tool iterations
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.model,
+		StopReason: "",
+		Usage:      nil, // TODO: Implement token usage tracking for tool iterations
+		Metadata: map[string]interface{}{
+			"provider":   "gemini",
+			"tools_used": true,
+		},
+	}, nil
 }

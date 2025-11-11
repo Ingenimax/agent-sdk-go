@@ -128,6 +128,15 @@ func NewClient(apiKey string, options ...Option) *OpenAIClient {
 
 // Generate generates text from a prompt
 func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
+	response, err := c.generateInternal(ctx, prompt, options...)
+	if err != nil {
+		return "", err
+	}
+	return response.Content, nil
+}
+
+// generateInternal performs the actual generation and returns the full response
+func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	// Apply options
 	params := &interfaces.GenerateOptions{
 		LLMConfig: &interfaces.LLMConfig{
@@ -248,7 +257,7 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 	}
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Return response
@@ -256,10 +265,35 @@ func (c *OpenAIClient) Generate(ctx context.Context, prompt string, options ...i
 		c.logger.Debug(ctx, "Successfully received response from OpenAI", map[string]interface{}{
 			"model": c.Model,
 		})
-		return resp.Choices[0].Message.Content, nil
+
+		// Create detailed response with token usage
+		response := &interfaces.LLMResponse{
+			Content:    resp.Choices[0].Message.Content,
+			Model:      string(resp.Model),
+			StopReason: string(resp.Choices[0].FinishReason),
+			Metadata: map[string]interface{}{
+				"provider": "openai",
+			},
+		}
+
+		// Extract token usage if available
+		usage := &interfaces.TokenUsage{
+			InputTokens:  int(resp.Usage.PromptTokens),
+			OutputTokens: int(resp.Usage.CompletionTokens),
+			TotalTokens:  int(resp.Usage.TotalTokens),
+		}
+
+		// Add reasoning tokens if available (for o1 models)
+		if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
+			usage.ReasoningTokens = int(resp.Usage.CompletionTokensDetails.ReasoningTokens)
+		}
+
+		response.Usage = usage
+
+		return response, nil
 	}
 
-	return "", fmt.Errorf("no response from OpenAI API")
+	return nil, fmt.Errorf("no response from OpenAI API")
 }
 
 // Chat uses the ChatCompletion API to have a conversation (messages) with a model
@@ -1018,4 +1052,32 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 		}
 		options.LLMConfig.Reasoning = reasoning
 	}
+}
+
+// GenerateDetailed generates text and returns detailed response information including token usage
+func (c *OpenAIClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	return c.generateInternal(ctx, prompt, options...)
+}
+
+// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+func (c *OpenAIClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// For now, call the existing method and construct a detailed response
+	// TODO: Implement full detailed version that tracks token usage across all tool iterations
+	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a basic detailed response without usage information for now
+	// This will be enhanced to track usage across all tool iterations
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // TODO: Implement token usage tracking for tool iterations
+		Metadata: map[string]interface{}{
+			"provider":   "openai",
+			"tools_used": true,
+		},
+	}, nil
 }

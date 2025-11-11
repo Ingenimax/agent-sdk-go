@@ -428,3 +428,44 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 func (c *OllamaClient) buildPromptWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) string {
 	return memory.BuildInlineHistoryPrompt(ctx, prompt, params.Memory, c.logger)
 }
+
+// GenerateDetailed generates text and returns detailed response information including token usage
+func (c *OllamaClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// Call the existing method and construct a detailed response
+	content, err := c.Generate(ctx, prompt, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a detailed response without usage information (Ollama doesn't provide token usage)
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // Ollama doesn't provide token usage information
+		Metadata: map[string]interface{}{
+			"provider": "ollama",
+		},
+	}, nil
+}
+
+// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+func (c *OllamaClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// Call the existing method and construct a detailed response
+	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a detailed response without usage information
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // Ollama doesn't provide token usage information
+		Metadata: map[string]interface{}{
+			"provider":   "ollama",
+			"tools_used": true,
+		},
+	}, nil
+}
