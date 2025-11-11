@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -523,17 +524,20 @@ func (c *AnthropicClient) executeStreamingWithTools(
 					"capturedEvents": len(capturedContentEvents),
 				})
 
-				// Replay the captured content events to stream the final response
-				c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Replaying captured content events", map[string]interface{}{
-					"iteration":   iteration + 1,
-					"eventsCount": len(capturedContentEvents),
-				})
+				// Only replay if content was filtered (not already forwarded)
+				if filterContentDeltas {
+					// Replay the captured content events to stream the final response
+					c.logger.Debug(ctx, "[LLM RESPONSE DEBUG] Replaying captured content events", map[string]interface{}{
+						"iteration":   iteration + 1,
+						"eventsCount": len(capturedContentEvents),
+					})
 
-				for _, contentEvent := range capturedContentEvents {
-					select {
-					case eventChan <- contentEvent:
-					case <-ctx.Done():
-						return ctx.Err()
+					for _, contentEvent := range capturedContentEvents {
+						select {
+						case eventChan <- contentEvent:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
 					}
 				}
 
@@ -575,6 +579,23 @@ func (c *AnthropicClient) executeStreamingWithTools(
 			"iteration":    iteration + 1,
 			"responseType": "tool_calls",
 		})
+
+		// Add assistant message to conversation history (matching non-streaming behavior)
+		// Build assistant content from captured events
+		var assistantContent strings.Builder
+		for _, event := range capturedContentEvents {
+			if event.Type == interfaces.StreamEventContentDelta {
+				assistantContent.WriteString(event.Content)
+			}
+		}
+
+		// Add assistant message only if there's text content (matching client.go:1196-1200)
+		if strings.TrimSpace(assistantContent.String()) != "" {
+			messages = append(messages, Message{
+				Role:    "assistant",
+				Content: assistantContent.String(),
+			})
+		}
 
 		// Send a line break before tool execution for clarity
 		select {
@@ -818,17 +839,18 @@ func (c *AnthropicClient) createFilteredEventForwarder(
 	var capturedContentEvents []interfaces.StreamEvent
 
 	for event := range tempEventChan {
-		// Capture content events if filtering is enabled
-		if filterContentDeltas && event.Type == interfaces.StreamEventContentDelta {
-			// Store content events for potential later replay
-			if event.Content != "" {
-				hasContent = true
-				capturedContentEvents = append(capturedContentEvents, event)
+		// Always capture content events for conversation history (not just when filtering)
+		if event.Type == interfaces.StreamEventContentDelta && event.Content != "" {
+			hasContent = true
+			capturedContentEvents = append(capturedContentEvents, event)
+
+			// If filtering is enabled, don't forward the content yet
+			if filterContentDeltas {
+				continue // Skip forwarding
 			}
-			continue // Don't forward now
 		}
 
-		// Forward event to main channel
+		// Forward event to main channel (unless it was filtered above)
 		select {
 		case eventChan <- event:
 		case <-ctx.Done():
@@ -838,11 +860,6 @@ func (c *AnthropicClient) createFilteredEventForwarder(
 		// Capture tool calls
 		if event.Type == interfaces.StreamEventToolUse && event.ToolCall != nil {
 			toolCalls = append(toolCalls, *event.ToolCall)
-		}
-
-		// Check for content (when not filtered)
-		if event.Type == interfaces.StreamEventContentDelta && event.Content != "" {
-			hasContent = true
 		}
 
 		// Check for errors
