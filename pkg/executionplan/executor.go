@@ -2,6 +2,7 @@ package executionplan
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -44,9 +45,27 @@ func (e *Executor) ExecutePlan(ctx context.Context, plan *ExecutionPlan) (string
 			return "", fmt.Errorf("unknown tool: %s", step.ToolName)
 		}
 
-		fmt.Println("step.Input", step.Input)
-		// Execute the tool
-		result, err := tool.Execute(ctx, step.Input)
+		// Marshal parameters to JSON for the Execute method
+		// This ensures tools receive the expected JSON format
+		var inputJSON string
+		if len(step.Parameters) > 0 {
+			jsonBytes, err := json.Marshal(step.Parameters)
+			if err != nil {
+				plan.Status = StatusFailed
+				return "", fmt.Errorf("failed to marshal parameters for step %d: %w", i+1, err)
+			}
+			inputJSON = string(jsonBytes)
+		} else if step.Input != "" {
+			// Fallback to step.Input if no parameters are provided
+			// This maintains backward compatibility
+			inputJSON = step.Input
+		} else {
+			// If neither parameters nor input is provided, use empty JSON object
+			inputJSON = "{}"
+		}
+
+		// Execute the tool with JSON input
+		result, err := tool.Execute(ctx, inputJSON)
 		if err != nil {
 			plan.Status = StatusFailed
 			return "", fmt.Errorf("failed to execute step %d: %w", i+1, err)
