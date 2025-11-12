@@ -502,7 +502,12 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 		if err != nil {
 			return fmt.Errorf("failed to send request to %s: %w", apiType, err)
 		}
-		defer httpResp.Body.Close()
+		defer func() {
+			if err := httpResp.Body.Close(); err != nil {
+				// Log error but don't fail the request
+				fmt.Printf("Warning: failed to close response body: %v\n", err)
+			}
+		}()
 
 		// Read response body
 		body, err := io.ReadAll(httpResp.Body)
