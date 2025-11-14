@@ -202,6 +202,81 @@ func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 	}
 }
 
+// WithMCPURLs adds MCP servers from URL strings
+// Supports formats:
+// - stdio://command/path/to/executable
+// - http://localhost:8080/mcp
+// - https://api.example.com/mcp?token=xxx
+// - mcp://preset-name (for presets)
+func WithMCPURLs(urls ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, url := range urls {
+			builder.AddServer(url)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to parse some MCP URLs", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
+	}
+}
+
+// WithMCPPresets adds predefined MCP server configurations
+func WithMCPPresets(presetNames ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, preset := range presetNames {
+			builder.AddPreset(preset)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to load some MCP presets", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
+	}
+}
+
 // WithMaxIterations sets the maximum number of tool-calling iterations for the agent
 func WithMaxIterations(maxIterations int) Option {
 	return func(a *Agent) {

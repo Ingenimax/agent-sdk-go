@@ -93,10 +93,13 @@ func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, er
 
 	resp, err := s.session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
+		mcpErr := ClassifyError(err, "ListTools", "server", "unknown")
 		s.logger.Error(ctx, "Failed to list MCP tools", map[string]interface{}{
-			"error": err.Error(),
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
 		})
-		return nil, err
+		return nil, mcpErr
 	}
 
 	tools := make([]interfaces.MCPTool, 0, len(resp.Tools))
@@ -129,11 +132,15 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 
 	resp, err := s.session.CallTool(ctx, params)
 	if err != nil {
+		mcpErr := ClassifyError(err, "CallTool", "server", "unknown")
+		_ = mcpErr.WithMetadata("tool_name", name)
 		s.logger.Error(ctx, "Failed to call MCP tool", map[string]interface{}{
-			"tool_name": name,
-			"error":     err.Error(),
+			"tool_name":  name,
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
 		})
-		return nil, err
+		return nil, mcpErr
 	}
 
 	if resp.IsError {
@@ -177,7 +184,11 @@ type StdioServerConfig struct {
 
 // NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
 func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.MCPServer, error) {
+	return NewStdioServerWithRetry(ctx, config, nil)
+}
 
+// NewStdioServerWithRetry creates a new MCPServer with retry logic
+func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retryConfig *RetryConfig) (interfaces.MCPServer, error) {
 	// Create logger if not configured
 	logger := config.Logger
 	if logger == nil {
@@ -228,18 +239,29 @@ func NewStdioServer(ctx context.Context, config StdioServerConfig) (interfaces.M
 	// Connect to the server using the transport
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		mcpErr := ClassifyError(err, "Connect", "stdio-server", "stdio")
 		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
-			"error": err.Error(),
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+			"command":    config.Command,
 		})
-		return nil, err
+		return nil, mcpErr
 	}
 
 	logger.Debug(ctx, "MCP server connection established", nil)
 
-	return &MCPServerImpl{
+	server := &MCPServerImpl{
 		session: session,
 		logger:  logger,
-	}, nil
+	}
+
+	// Wrap with retry logic if configured
+	if retryConfig != nil {
+		return NewRetryableServer(server, retryConfig), nil
+	}
+
+	return server, nil
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server
@@ -284,6 +306,11 @@ func customHTTPClient(token string) *http.Client {
 
 // NewHTTPServer creates a new MCPServer that communicates over HTTP using the official SDK
 func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCPServer, error) {
+	return NewHTTPServerWithRetry(ctx, config, nil)
+}
+
+// NewHTTPServerWithRetry creates a new HTTP MCPServer with retry logic
+func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryConfig *RetryConfig) (interfaces.MCPServer, error) {
 	// Create logger if not configured
 	logger := config.Logger
 	if logger == nil {
@@ -332,19 +359,29 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 	// Connect to the server using the transport
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		mcpErr := ClassifyError(err, "Connect", "http-server", "http")
 		logger.Error(ctx, "Failed to connect to HTTP MCP server", map[string]interface{}{
-			"error":    err.Error(),
-			"base_url": config.BaseURL,
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+			"base_url":   config.BaseURL,
 		})
-		return nil, err
+		return nil, mcpErr
 	}
 
 	logger.Debug(ctx, "HTTP MCP server connection established", map[string]interface{}{
 		"base_url": config.BaseURL,
 	})
 
-	return &MCPServerImpl{
+	server := &MCPServerImpl{
 		session: session,
 		logger:  logger,
-	}, nil
+	}
+
+	// Wrap with retry logic if configured
+	if retryConfig != nil {
+		return NewRetryableServer(server, retryConfig), nil
+	}
+
+	return server, nil
 }
