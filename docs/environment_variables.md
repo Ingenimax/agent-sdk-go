@@ -80,3 +80,9 @@ This document lists all environment variables used by the Agent SDK.
 
 - `GUARDRAILS_ENABLED`: Enable guardrails (default: false)
 - `GUARDRAILS_CONFIG_PATH`: Path to guardrails configuration file
+
+## Logging Configuration
+
+- `LOG_LEVEL`: Log level (default: "info"). Options: "debug", "info", "warn", "error"
+- `LOG_FORMAT`: Log format (default: "console"). Set to "json" for JSON output
+- `LOG_JSON`: Alternative way to enable JSON logging. Set to "true", "1", or "yes" to enable
