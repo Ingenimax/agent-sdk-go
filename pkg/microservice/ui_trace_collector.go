@@ -66,26 +66,26 @@ type UITraceError struct {
 type UITracingConfig struct {
 	Enabled         bool   `json:"enabled"`
 	MaxBufferSizeKB int    `json:"max_buffer_size_kb"` // Default: 10240 (10MB)
-	MaxTraceAge     string `json:"max_trace_age"`       // Default: "1h"
-	RetentionCount  int    `json:"retention_count"`     // Default: 100 traces
+	MaxTraceAge     string `json:"max_trace_age"`      // Default: "1h"
+	RetentionCount  int    `json:"retention_count"`    // Default: 100 traces
 }
 
 // UITraceCollector collects traces for the UI
 type UITraceCollector struct {
-	config          *UITracingConfig
-	wrappedTracer   interfaces.Tracer
-	traces          map[string]*UITrace
-	activeSpans     map[string]*uiSpanContext
-	mu              sync.RWMutex
-	maxSizeBytes    int
+	config           *UITracingConfig
+	wrappedTracer    interfaces.Tracer
+	traces           map[string]*UITrace
+	activeSpans      map[string]*uiSpanContext
+	mu               sync.RWMutex
+	maxSizeBytes     int
 	currentSizeBytes int
-	maxAge          time.Duration
+	maxAge           time.Duration
 }
 
 // uiSpanContext holds context for an active span
 type uiSpanContext struct {
-	span       *UITraceSpan
-	trace      *UITrace
+	span        *UITraceSpan
+	trace       *UITrace
 	wrappedSpan interfaces.Span
 }
 
@@ -113,12 +113,12 @@ func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Trace
 	}
 
 	return &UITraceCollector{
-		config:          config,
-		wrappedTracer:   wrappedTracer,
-		traces:          make(map[string]*UITrace),
-		activeSpans:     make(map[string]*uiSpanContext),
-		maxSizeBytes:    config.MaxBufferSizeKB * 1024,
-		maxAge:          maxAge,
+		config:        config,
+		wrappedTracer: wrappedTracer,
+		traces:        make(map[string]*UITrace),
+		activeSpans:   make(map[string]*uiSpanContext),
+		maxSizeBytes:  config.MaxBufferSizeKB * 1024,
+		maxAge:        maxAge,
 	}
 }
 
@@ -480,14 +480,14 @@ func (c *UITraceCollector) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_traces":       len(c.traces),
-		"running_traces":     c.countRunningTraces(),
-		"error_count":        errorCount,
-		"error_rate":         float64(errorCount) / float64(max(len(c.traces), 1)),
-		"avg_duration_ms":    avgDuration,
-		"buffer_size_bytes":  c.currentSizeBytes,
-		"buffer_usage":       float64(c.currentSizeBytes) / float64(c.maxSizeBytes),
-		"tool_usage":         toolUsage,
+		"total_traces":      len(c.traces),
+		"running_traces":    c.countRunningTraces(),
+		"error_count":       errorCount,
+		"error_rate":        float64(errorCount) / float64(max(len(c.traces), 1)),
+		"avg_duration_ms":   avgDuration,
+		"buffer_size_bytes": c.currentSizeBytes,
+		"buffer_usage":      float64(c.currentSizeBytes) / float64(c.maxSizeBytes),
+		"tool_usage":        toolUsage,
 	}
 }
 
@@ -634,10 +634,10 @@ type spanIDKey struct{}
 // noOpSpan is a no-op implementation of interfaces.Span
 type noOpSpan struct{}
 
-func (s *noOpSpan) End()                                                  {}
+func (s *noOpSpan) End()                                                    {}
 func (s *noOpSpan) AddEvent(name string, attributes map[string]interface{}) {}
-func (s *noOpSpan) SetAttribute(key string, value interface{})            {}
-func (s *noOpSpan) RecordError(err error)                                 {}
+func (s *noOpSpan) SetAttribute(key string, value interface{})              {}
+func (s *noOpSpan) RecordError(err error)                                   {}
 
 // Utility functions
 func contains(s string, substrs []string) bool {

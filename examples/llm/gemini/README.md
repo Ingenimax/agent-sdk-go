@@ -20,7 +20,7 @@ Before running these examples, you need one of the following:
    export GEMINI_VERTEX_PROJECT_ID="your-gcp-project-id"
    export GEMINI_VERTEX_REGION="us-central1"  # Optional, defaults to us-central1 if not set
    ```
-   
+
    **Supported Regions**: Common Vertex AI regions include:
    - `us-central1` (Iowa) - Default
    - `us-east4` (Virginia)
@@ -35,7 +35,7 @@ Before running these examples, you need one of the following:
      ```bash
      # Option A: Base64-encoded service account JSON
      export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat service-account.json | base64)"
-     
+
      # Option B: Raw JSON string (will be auto-detected)
      export GOOGLE_APPLICATION_CREDENTIALS_JSON='{"type":"service_account",...}'
      ```
@@ -44,12 +44,12 @@ Before running these examples, you need one of the following:
      export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
      ```
    - **Application Default Credentials (ADC)**: Run `gcloud auth application-default login`
-   
-   **Credential Priority**: 
+
+   **Credential Priority**:
    1. `GOOGLE_APPLICATION_CREDENTIALS_JSON` (base64 or raw JSON) - takes highest precedence
    2. `GOOGLE_APPLICATION_CREDENTIALS` (file path)
    3. Application Default Credentials (ADC)
-   
+
    The example will automatically detect whether the JSON is base64-encoded or raw JSON and handle it accordingly.
 
 ## Available Examples

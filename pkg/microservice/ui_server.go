@@ -717,8 +717,6 @@ func (h *HTTPServerWithUI) getToolDescriptionFromSystemPrompt(toolName, systemPr
 	return "Sub-agent tool"
 }
 
-
-
 // getConversationHistory returns conversation history with pagination
 func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEntry {
 	// First, try to get from agent's memory system if available

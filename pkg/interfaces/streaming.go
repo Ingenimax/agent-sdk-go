@@ -116,3 +116,13 @@ func WithIncludeIntermediateMessages(include bool) func(*StreamConfig) {
 		cfg.IncludeIntermediateMessages = include
 	}
 }
+
+// StreamForwarder is a function that forwards stream events to a parent stream
+// This is used to enable nested streaming from sub-agents to parent agents
+type StreamForwarder func(event AgentStreamEvent)
+
+// streamForwarderContextKey is the context key for storing stream forwarders
+type streamForwarderContextKey struct{}
+
+// StreamForwarderKey is the exported context key for stream forwarders
+var StreamForwarderKey = streamForwarderContextKey{}

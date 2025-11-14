@@ -111,6 +111,40 @@ The `WithDescription()` option is crucial for sub-agents. It helps the main agen
 
 ## Additional Examples
 
+### Streaming Demo
+
+To see **real-time streaming from sub-agents with extended thinking**, run the streaming demo:
+
+**Requirements:**
+- Anthropic API key (get one at [console.anthropic.com](https://console.anthropic.com/))
+
+```bash
+export ANTHROPIC_API_KEY=your_api_key_here
+cd streaming
+go run main.go
+```
+
+This demo shows:
+- Sub-agent streaming events forwarded to parent agents in real-time
+- **Claude's extended thinking process** streamed as it happens
+- Visibility into mathematical reasoning and tool usage
+- How events flow through the agent hierarchy
+
+**Key Features:**
+- 📡 Real-time event streaming from sub-agents
+- 🧠 See Claude's extended thinking/reasoning as it unfolds
+- 🔍 Watch step-by-step problem solving in real-time
+- ⚡ Progressive updates instead of waiting for final result
+- 🎯 Transparent sub-agent decision-making and tool calls
+
+**What You'll See:**
+- Parent agent's thinking about task delegation
+- Sub-agent's mathematical reasoning process
+- Calculator tool calls in real-time
+- Progressive content generation
+
+For full documentation on sub-agent streaming, see: [`docs/SUB_AGENT_STREAMING.md`](../../docs/SUB_AGENT_STREAMING.md)
+
 ### Depth Validation Example
 
 To see a demonstration of the recursion depth validation system, check out the depth validation example:

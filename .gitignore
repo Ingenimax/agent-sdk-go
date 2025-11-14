@@ -63,6 +63,7 @@ bin/
 dist/
 # But allow UI dist files for Go embedding
 !pkg/microservice/ui/dist/
+pkg/microservice/ui-nextjs/out/
 
 # Python virtualenv
 venv/
