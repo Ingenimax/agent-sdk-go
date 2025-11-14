@@ -1133,8 +1133,8 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		"org_id":          req.OrgID,
 	})
 
-	// Execute agent
-	result, err := h.agent.Run(ctx, req.Input)
+	// Execute agent with detailed tracking
+	response, err := h.agent.RunDetailed(ctx, req.Input)
 
 	// Add response to conversation history
 	if err != nil {
@@ -1151,16 +1151,46 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.addToConversationHistory("assistant", result, map[string]interface{}{
+	// Log detailed execution information for UI chat
+	{
+		executionDetails := map[string]interface{}{
+			"endpoint":               "ui_chat",
+			"conversation_id":        req.ConversationID,
+			"org_id":                 req.OrgID,
+			"agent_name":             response.AgentName,
+			"model_used":             response.Model,
+			"response_length":        len(response.Content),
+			"llm_calls":              response.ExecutionSummary.LLMCalls,
+			"tool_calls":             response.ExecutionSummary.ToolCalls,
+			"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
+			"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
+			"used_tools":             response.ExecutionSummary.UsedTools,
+			"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+		}
+		if response.Usage != nil {
+			executionDetails["input_tokens"] = response.Usage.InputTokens
+			executionDetails["output_tokens"] = response.Usage.OutputTokens
+			executionDetails["total_tokens"] = response.Usage.TotalTokens
+			executionDetails["reasoning_tokens"] = response.Usage.ReasoningTokens
+		}
+		log.Printf("[UI Server] Agent execution completed via UI chat: %+v", executionDetails)
+	}
+
+	h.addToConversationHistory("assistant", response.Content, map[string]interface{}{
 		"conversation_id": req.ConversationID,
 		"org_id":          req.OrgID,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"output": result,
+	responseData := map[string]interface{}{
+		"output": response.Content,
 		"error":  "",
-	})
+		"execution_summary": response.ExecutionSummary,
+	}
+	if response.Usage != nil {
+		responseData["usage"] = response.Usage
+	}
+	_ = json.NewEncoder(w).Encode(responseData)
 }
 
 // handleStream handles streaming agent requests and captures conversations
@@ -1207,8 +1237,8 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	// Check if agent supports streaming
 	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
 	if !ok {
-		// Fall back to non-streaming
-		result, err := h.agent.Run(ctx, req.Input)
+		// Fall back to non-streaming with detailed tracking
+		response, err := h.agent.RunDetailed(ctx, req.Input)
 
 		if err != nil {
 			h.addToConversationHistory("error", err.Error(), map[string]interface{}{
@@ -1225,14 +1255,39 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		h.addToConversationHistory("assistant", result, map[string]interface{}{
+		// Log detailed execution information for UI streaming fallback
+		{
+			executionDetails := map[string]interface{}{
+				"endpoint":               "ui_stream_fallback",
+				"conversation_id":        req.ConversationID,
+				"org_id":                 req.OrgID,
+				"agent_name":             response.AgentName,
+				"model_used":             response.Model,
+				"response_length":        len(response.Content),
+				"llm_calls":              response.ExecutionSummary.LLMCalls,
+				"tool_calls":             response.ExecutionSummary.ToolCalls,
+				"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
+				"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
+				"used_tools":             response.ExecutionSummary.UsedTools,
+				"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+			}
+			if response.Usage != nil {
+				executionDetails["input_tokens"] = response.Usage.InputTokens
+				executionDetails["output_tokens"] = response.Usage.OutputTokens
+				executionDetails["total_tokens"] = response.Usage.TotalTokens
+				executionDetails["reasoning_tokens"] = response.Usage.ReasoningTokens
+			}
+			log.Printf("[UI Server] Agent execution completed via UI streaming fallback: %+v", executionDetails)
+		}
+
+		h.addToConversationHistory("assistant", response.Content, map[string]interface{}{
 			"conversation_id": req.ConversationID,
 			"org_id":          req.OrgID,
 		})
 
 		event := SSEEvent{
 			Event:     "content",
-			Data:      StreamEventData{Type: "content", Content: result, IsFinal: true},
+			Data:      StreamEventData{Type: "content", Content: response.Content, IsFinal: true},
 			Timestamp: time.Now().UnixMilli(),
 		}
 		h.sendSSEEvent(w, event)

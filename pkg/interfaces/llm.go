@@ -10,6 +10,12 @@ type LLM interface {
 	// GenerateWithTools generates text and can use tools
 	GenerateWithTools(ctx context.Context, prompt string, tools []Tool, options ...GenerateOption) (string, error)
 
+	// GenerateDetailed generates text and returns detailed response information including token usage
+	GenerateDetailed(ctx context.Context, prompt string, options ...GenerateOption) (*LLMResponse, error)
+
+	// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+	GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []Tool, options ...GenerateOption) (*LLMResponse, error)
+
 	// Name returns the name of the LLM provider
 	Name() string
 
@@ -71,6 +77,39 @@ func WithReasoning(enabled bool, budget ...int) GenerateOption {
 			options.LLMConfig.ReasoningBudget = budget[0]
 		}
 	}
+}
+
+// LLMResponse represents the detailed response from an LLM generation request
+type LLMResponse struct {
+	// Content is the generated text response
+	Content string
+
+	// Usage contains token usage information (nil if not available)
+	Usage *TokenUsage
+
+	// Model indicates which model was used for generation
+	Model string
+
+	// StopReason indicates why the generation stopped (optional)
+	StopReason string
+
+	// Metadata contains provider-specific additional information
+	Metadata map[string]interface{}
+}
+
+// TokenUsage represents token usage information for an LLM request
+type TokenUsage struct {
+	// InputTokens is the number of tokens in the input/prompt
+	InputTokens int
+
+	// OutputTokens is the number of tokens in the generated response
+	OutputTokens int
+
+	// TotalTokens is the total number of tokens used (input + output)
+	TotalTokens int
+
+	// ReasoningTokens is the number of tokens used for reasoning (optional, for models that support it)
+	ReasoningTokens int
 }
 
 // WithSystemMessage creates a GenerateOption to set the system message

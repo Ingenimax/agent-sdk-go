@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
 // MockSubAgent is a mock implementation of the SubAgent interface
@@ -20,6 +22,34 @@ func (m *MockSubAgent) Run(ctx context.Context, input string) (string, error) {
 		return m.runFunc(ctx, input)
 	}
 	return "mock response: " + input, nil
+}
+
+func (m *MockSubAgent) RunDetailed(ctx context.Context, input string) (*interfaces.AgentResponse, error) {
+	result, err := m.Run(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.AgentResponse{
+		Content:   result,
+		AgentName: m.name,
+		Model:     "mock-model",
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		ExecutionSummary: interfaces.ExecutionSummary{
+			LLMCalls:        1,
+			ToolCalls:       0,
+			SubAgentCalls:   0,
+			ExecutionTimeMs: 100,
+			UsedTools:       []string{},
+			UsedSubAgents:   []string{},
+		},
+		Metadata: map[string]interface{}{
+			"mock": true,
+		},
+	}, nil
 }
 
 func (m *MockSubAgent) GetName() string {
