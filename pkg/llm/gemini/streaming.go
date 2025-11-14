@@ -603,6 +603,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 				"iteration": iteration + 1,
 			})
 
+			// Execute the tool (context already contains stream event channel from agent)
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
 				toolResult = fmt.Sprintf("Error: %v", err)

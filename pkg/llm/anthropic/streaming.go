@@ -663,6 +663,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 				"iteration": iteration + 1,
 			})
 
+			// Execute the tool (context already contains stream event channel from agent)
 			toolResult, err := selectedTool.Execute(ctx, toolCall.Arguments)
 			if err != nil {
 				toolResult = fmt.Sprintf("Error: %v", err)
