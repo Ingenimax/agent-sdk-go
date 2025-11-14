@@ -54,7 +54,7 @@ func main() {
     // Create LLM client
     llmClient := anthropic.NewAnthropicClient(
         apiKey,
-        anthropic.WithModel("claude-3-5-haiku-20241022"),
+        anthropic.WithModel("claude-sonnet-4-5-20250929"),
     )
 
     // Configure streaming with intermediate messages
