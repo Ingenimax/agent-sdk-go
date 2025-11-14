@@ -61,6 +61,32 @@ func main() {
 
 ### Enable JSON Output
 
+#### Using Environment Variables (Recommended)
+
+Set one of these environment variables before running your application:
+
+```bash
+# Option 1: Using LOG_FORMAT
+export LOG_FORMAT=json
+
+# Option 2: Using LOG_JSON
+export LOG_JSON=true
+# Also accepts: LOG_JSON=1 or LOG_JSON=yes
+```
+
+Then create the logger as usual:
+
+```go
+import "github.com/your-org/agent-sdk-go/pkg/logging"
+
+// Logger will automatically use JSON format based on environment variable
+logger := logging.New()
+```
+
+#### Programmatic Configuration
+
+You can also enable JSON output programmatically:
+
 ```go
 import "github.com/your-org/agent-sdk-go/pkg/logging"
 
@@ -70,6 +96,8 @@ logging.SetZeroLogJsonEnabled()
 // Create logger with JSON output
 logger := logging.New()
 ```
+
+Note: Programmatic configuration overrides environment variable settings.
 
 ### Set Log Level
 
