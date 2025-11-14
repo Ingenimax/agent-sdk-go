@@ -8,6 +8,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
@@ -241,6 +242,10 @@ func (a *Agent) runStreamingGeneration(
 		options = append(options, interfaces.WithStreamConfig(*a.streamConfig))
 	}
 
+	// Add agent event channel to context for sub-agent streaming support
+	// This allows AgentTool to forward sub-agent events to this agent's stream
+	ctx = a.withAgentEventChannel(ctx, eventChan)
+
 	// Start LLM streaming
 	var llmEventChan <-chan interfaces.StreamEvent
 	var err error
@@ -451,4 +456,9 @@ func (a *Agent) runRemoteStream(ctx context.Context, input string) (<-chan inter
 	}
 
 	return a.remoteClient.RunStream(ctx, input)
+}
+
+// withAgentEventChannel adds the agent event channel to context for sub-agent streaming
+func (a *Agent) withAgentEventChannel(ctx context.Context, eventChan chan<- interfaces.AgentStreamEvent) context.Context {
+	return tools.WithStreamEventChan(ctx, eventChan)
 }

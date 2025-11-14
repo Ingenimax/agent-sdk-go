@@ -594,7 +594,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					continue
 				}
 
-				// Execute the tool
+				// Execute the tool (context already contains stream event channel from agent)
 				result, err := foundTool.Execute(ctx, toolCall.Function.Arguments)
 				if err != nil {
 					c.logger.Error(ctx, "Tool execution error", map[string]interface{}{

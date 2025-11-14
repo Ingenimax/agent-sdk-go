@@ -19,6 +19,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
+// Compile-time check to ensure Agent implements StreamingSubAgent interface
+var _ tools.StreamingSubAgent = (*Agent)(nil)
+
 // LazyMCPConfig holds configuration for lazy MCP server initialization
 type LazyMCPConfig struct {
 	Name    string

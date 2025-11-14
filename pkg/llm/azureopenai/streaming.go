@@ -644,7 +644,7 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 					continue
 				}
 
-				// Execute the tool
+				// Execute the tool (context already contains stream event channel from agent)
 				c.logger.Info(ctx, "Executing tool", map[string]interface{}{"toolName": foundTool.Name()})
 				toolStartTime := time.Now()
 				result, err := foundTool.Execute(ctx, toolCall.Function.Arguments)
