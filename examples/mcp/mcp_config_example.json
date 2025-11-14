@@ -1,0 +1,68 @@
+{
+  "global": {
+    "timeout": "30s",
+    "retry_attempts": 3,
+    "health_check": true,
+    "enable_resources": true,
+    "enable_prompts": true,
+    "enable_sampling": true,
+    "enable_schemas": true,
+    "log_level": "info"
+  },
+  "servers": [
+    {
+      "name": "filesystem",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "/Users/username/projects"],
+      "enabled": true,
+      "description": "Provides access to local filesystem operations",
+      "tags": ["filesystem", "local"]
+    },
+    {
+      "name": "github",
+      "type": "http",
+      "url": "https://api.github.com/mcp",
+      "token": "${GITHUB_TOKEN}",
+      "enabled": true,
+      "description": "GitHub repository and issue management",
+      "tags": ["github", "git", "repository"],
+      "config": {
+        "rate_limit": "5000",
+        "timeout": "15s"
+      }
+    },
+    {
+      "name": "weather",
+      "type": "http",
+      "url": "https://weather-mcp-server.example.com",
+      "token": "${WEATHER_API_KEY}",
+      "enabled": true,
+      "description": "Weather information and forecasts",
+      "tags": ["weather", "api"]
+    },
+    {
+      "name": "database",
+      "type": "stdio",
+      "command": "./bin/db-mcp-server",
+      "args": ["--config", "config.json", "--database", "production"],
+      "env": [
+        "DB_HOST=localhost",
+        "DB_PORT=5432",
+        "DB_NAME=myapp"
+      ],
+      "enabled": false,
+      "description": "Database query and management operations",
+      "tags": ["database", "sql"]
+    },
+    {
+      "name": "calculator",
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_calculator"],
+      "enabled": true,
+      "description": "Mathematical calculations and computations",
+      "tags": ["math", "calculator"]
+    }
+  ]
+}

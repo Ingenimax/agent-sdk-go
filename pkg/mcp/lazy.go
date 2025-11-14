@@ -438,6 +438,37 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 					Description: fmt.Sprintf("%v", propMap["description"]),
 				}
 
+				// Handle array items
+				if paramType == "array" {
+					if items, ok := propMap["items"]; ok {
+						if itemsMap, ok := items.(map[string]interface{}); ok {
+							if itemType, ok := itemsMap["type"].(string); ok {
+								paramSpec.Items = &interfaces.ParameterSpec{
+									Type: itemType,
+								}
+								// Handle enum for items if present
+								if enum, ok := itemsMap["enum"]; ok {
+									if enumSlice, ok := enum.([]interface{}); ok {
+										paramSpec.Items.Enum = enumSlice
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// Handle enum values
+				if enum, ok := propMap["enum"]; ok {
+					if enumSlice, ok := enum.([]interface{}); ok {
+						paramSpec.Enum = enumSlice
+					}
+				}
+
+				// Handle default values
+				if defaultVal, ok := propMap["default"]; ok {
+					paramSpec.Default = defaultVal
+				}
+
 				// Check if the parameter is required
 				if required, ok := schemaMap["required"].([]interface{}); ok {
 					for _, req := range required {
@@ -460,4 +491,9 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 func (t *LazyMCPTool) Execute(ctx context.Context, args string) (string, error) {
 	// This is the same as Run for LazyMCPTool
 	return t.Run(ctx, args)
+}
+
+// GetOrCreateServerFromCache provides public access to the global server cache
+func GetOrCreateServerFromCache(ctx context.Context, config LazyMCPServerConfig) (interfaces.MCPServer, error) {
+	return globalServerCache.getOrCreateServer(ctx, config)
 }

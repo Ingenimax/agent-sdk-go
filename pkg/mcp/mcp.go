@@ -1,12 +1,15 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -104,11 +107,25 @@ func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, er
 
 	tools := make([]interfaces.MCPTool, 0, len(resp.Tools))
 	for _, t := range resp.Tools {
-		tools = append(tools, interfaces.MCPTool{
+		tool := interfaces.MCPTool{
 			Name:        t.Name,
 			Description: t.Description,
 			Schema:      t.InputSchema,
-		})
+			Metadata:    make(map[string]interface{}),
+		}
+
+		// Add output schema if available (this might not be in the current Go SDK yet)
+		// This is forward-compatible for when the Go SDK adds output schema support
+		if t.Annotations != nil {
+			// For now, just store the annotations as metadata
+			// The ToolAnnotations type might have different fields than expected
+			tool.Metadata["annotations"] = "present"
+		}
+
+		// Placeholder for future output schema support
+		// tool.OutputSchema = t.OutputSchema // This field doesn't exist in current Go SDK yet
+
+		tools = append(tools, tool)
 	}
 
 	s.logger.Info(ctx, "Successfully listed MCP tools", map[string]interface{}{
@@ -116,6 +133,380 @@ func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, er
 	})
 
 	return tools, nil
+}
+
+// ListResources lists the resources available on the MCP server
+func (s *MCPServerImpl) ListResources(ctx context.Context) ([]interfaces.MCPResource, error) {
+	s.logger.Debug(ctx, "Listing MCP resources", nil)
+
+	resp, err := s.session.ListResources(ctx, &mcp.ListResourcesParams{})
+	if err != nil {
+		mcpErr := ClassifyError(err, "ListResources", "server", "unknown")
+		s.logger.Error(ctx, "Failed to list MCP resources", map[string]interface{}{
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+		})
+		return nil, mcpErr
+	}
+
+	resources := make([]interfaces.MCPResource, 0, len(resp.Resources))
+	for _, r := range resp.Resources {
+		resource := interfaces.MCPResource{
+			URI:         r.URI,
+			Name:        r.Name,
+			Description: r.Description,
+			MimeType:    r.MIMEType,
+			Metadata:    make(map[string]string),
+		}
+
+		// Convert annotations to metadata if present
+		if r.Annotations != nil {
+			if len(r.Annotations.Audience) > 0 {
+				// Convert audience roles to comma-separated string
+				var audienceStrs []string
+				for _, role := range r.Annotations.Audience {
+					audienceStrs = append(audienceStrs, string(role))
+				}
+				resource.Metadata["audience"] = strings.Join(audienceStrs, ",")
+			}
+			if r.Annotations.LastModified != "" {
+				resource.Metadata["lastModified"] = r.Annotations.LastModified
+			}
+			if r.Annotations.Priority > 0 {
+				resource.Metadata["priority"] = fmt.Sprintf("%.2f", r.Annotations.Priority)
+			}
+		}
+
+		resources = append(resources, resource)
+	}
+
+	s.logger.Info(ctx, "Successfully listed MCP resources", map[string]interface{}{
+		"resource_count": len(resources),
+	})
+
+	return resources, nil
+}
+
+// GetResource retrieves a specific resource by URI
+func (s *MCPServerImpl) GetResource(ctx context.Context, uri string) (*interfaces.MCPResourceContent, error) {
+	s.logger.Debug(ctx, "Getting MCP resource", map[string]interface{}{
+		"uri": uri,
+	})
+
+	resp, err := s.session.ReadResource(ctx, &mcp.ReadResourceParams{
+		URI: uri,
+	})
+	if err != nil {
+		mcpErr := ClassifyError(err, "GetResource", "server", "unknown")
+		_ = mcpErr.WithMetadata("uri", uri)
+		s.logger.Error(ctx, "Failed to get MCP resource", map[string]interface{}{
+			"uri":        uri,
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+		})
+		return nil, mcpErr
+	}
+
+	content := &interfaces.MCPResourceContent{
+		URI:      uri,
+		Metadata: make(map[string]string),
+	}
+
+	// Process contents
+	if len(resp.Contents) > 0 {
+		firstContent := resp.Contents[0]
+
+		// ResourceContents is a struct with Text and Blob fields
+		if firstContent.Text != "" {
+			content.Text = firstContent.Text
+			content.MimeType = firstContent.MIMEType
+			if content.MimeType == "" {
+				content.MimeType = "text/plain"
+			}
+		} else if len(firstContent.Blob) > 0 {
+			content.Blob = firstContent.Blob
+			content.MimeType = firstContent.MIMEType
+			if content.MimeType == "" {
+				content.MimeType = "application/octet-stream"
+			}
+		}
+	}
+
+	s.logger.Debug(ctx, "Successfully retrieved MCP resource", map[string]interface{}{
+		"uri":       uri,
+		"mime_type": content.MimeType,
+		"size":      len(content.Text) + len(content.Blob),
+	})
+
+	return content, nil
+}
+
+// WatchResource watches for changes to a resource (if supported)
+func (s *MCPServerImpl) WatchResource(ctx context.Context, uri string) (<-chan interfaces.MCPResourceUpdate, error) {
+	s.logger.Debug(ctx, "Setting up resource watch", map[string]interface{}{
+		"uri": uri,
+	})
+
+	// Create update channel
+	updates := make(chan interfaces.MCPResourceUpdate, 10)
+
+	// For now, we'll implement basic polling since the Go SDK doesn't have built-in watching
+	// In a real implementation, this would use server-sent events or websockets
+	go func() {
+		defer close(updates)
+
+		ticker := time.NewTicker(5 * time.Second) // Poll every 5 seconds
+		defer ticker.Stop()
+
+		var lastContent *interfaces.MCPResourceContent
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				content, err := s.GetResource(ctx, uri)
+				if err != nil {
+					updates <- interfaces.MCPResourceUpdate{
+						URI:       uri,
+						Type:      interfaces.MCPResourceUpdateTypeError,
+						Timestamp: time.Now(),
+						Error:     err,
+					}
+					continue
+				}
+
+				// Check if content has changed
+				if lastContent == nil ||
+					content.Text != lastContent.Text ||
+					!bytes.Equal(content.Blob, lastContent.Blob) {
+
+					updates <- interfaces.MCPResourceUpdate{
+						URI:       uri,
+						Type:      interfaces.MCPResourceUpdateTypeChanged,
+						Content:   content,
+						Timestamp: time.Now(),
+					}
+					lastContent = content
+				}
+			}
+		}
+	}()
+
+	return updates, nil
+}
+
+// ListPrompts lists the prompts available on the MCP server
+func (s *MCPServerImpl) ListPrompts(ctx context.Context) ([]interfaces.MCPPrompt, error) {
+	s.logger.Debug(ctx, "Listing MCP prompts", nil)
+
+	resp, err := s.session.ListPrompts(ctx, &mcp.ListPromptsParams{})
+	if err != nil {
+		mcpErr := ClassifyError(err, "ListPrompts", "server", "unknown")
+		s.logger.Error(ctx, "Failed to list MCP prompts", map[string]interface{}{
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+		})
+		return nil, mcpErr
+	}
+
+	prompts := make([]interfaces.MCPPrompt, 0, len(resp.Prompts))
+	for _, p := range resp.Prompts {
+		prompt := interfaces.MCPPrompt{
+			Name:        p.Name,
+			Description: p.Description,
+			Arguments:   make([]interfaces.MCPPromptArgument, 0, len(p.Arguments)),
+			Metadata:    make(map[string]string),
+		}
+
+		// Convert arguments
+		for _, arg := range p.Arguments {
+			prompt.Arguments = append(prompt.Arguments, interfaces.MCPPromptArgument{
+				Name:        arg.Name,
+				Description: arg.Description,
+				Required:    arg.Required,
+			})
+		}
+
+		prompts = append(prompts, prompt)
+	}
+
+	s.logger.Info(ctx, "Successfully listed MCP prompts", map[string]interface{}{
+		"prompt_count": len(prompts),
+	})
+
+	return prompts, nil
+}
+
+// GetPrompt retrieves a specific prompt with variables
+func (s *MCPServerImpl) GetPrompt(ctx context.Context, name string, variables map[string]interface{}) (*interfaces.MCPPromptResult, error) {
+	s.logger.Debug(ctx, "Getting MCP prompt", map[string]interface{}{
+		"name":      name,
+		"variables": variables,
+	})
+
+	// Convert variables from map[string]interface{} to map[string]string
+	args := make(map[string]string)
+	for k, v := range variables {
+		if str, ok := v.(string); ok {
+			args[k] = str
+		} else {
+			args[k] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	resp, err := s.session.GetPrompt(ctx, &mcp.GetPromptParams{
+		Name:      name,
+		Arguments: args,
+	})
+	if err != nil {
+		mcpErr := ClassifyError(err, "GetPrompt", "server", "unknown")
+		_ = mcpErr.WithMetadata("prompt_name", name)
+		s.logger.Error(ctx, "Failed to get MCP prompt", map[string]interface{}{
+			"name":       name,
+			"error":      err.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+		})
+		return nil, mcpErr
+	}
+
+	result := &interfaces.MCPPromptResult{
+		Variables: variables,
+		Messages:  make([]interfaces.MCPPromptMessage, 0, len(resp.Messages)),
+		Metadata:  make(map[string]string),
+	}
+
+	// Convert messages
+	for _, msg := range resp.Messages {
+		message := interfaces.MCPPromptMessage{
+			Role: string(msg.Role),
+		}
+
+		// Extract content from message content
+		if msg.Content != nil {
+			if textContent, ok := msg.Content.(*mcp.TextContent); ok {
+				message.Content = textContent.Text
+			} else {
+				// Handle other content types
+				message.Content = fmt.Sprintf("%v", msg.Content)
+			}
+		}
+
+		result.Messages = append(result.Messages, message)
+	}
+
+	// If there's only one message, also set it as the prompt field for backwards compatibility
+	if len(result.Messages) == 1 {
+		result.Prompt = result.Messages[0].Content
+	}
+
+	s.logger.Debug(ctx, "Successfully retrieved MCP prompt", map[string]interface{}{
+		"name":          name,
+		"message_count": len(result.Messages),
+	})
+
+	return result, nil
+}
+
+// CreateMessage requests the client to generate a completion using its LLM
+func (s *MCPServerImpl) CreateMessage(ctx context.Context, request *interfaces.MCPSamplingRequest) (*interfaces.MCPSamplingResponse, error) {
+	s.logger.Debug(ctx, "Creating message via sampling", map[string]interface{}{
+		"message_count": len(request.Messages),
+		"system_prompt": request.SystemPrompt != "",
+		"max_tokens":    request.MaxTokens,
+	})
+
+	// Convert our request format to the Go SDK format
+	samplingRequest := &mcp.CreateMessageParams{
+		Messages: make([]*mcp.SamplingMessage, 0, len(request.Messages)),
+	}
+
+	// Convert messages
+	for _, msg := range request.Messages {
+		samplingMsg := &mcp.SamplingMessage{
+			Role: mcp.Role(msg.Role),
+		}
+
+		// Convert content based on type
+		switch msg.Content.Type {
+		case "text":
+			samplingMsg.Content = &mcp.TextContent{
+				Text: msg.Content.Text,
+			}
+		case "image":
+			// Convert base64 string to byte slice
+			var imageData []byte
+			if msg.Content.Data != "" {
+				// For now, assume it's already base64 decoded bytes
+				// In production, you might need to decode from base64
+				imageData = []byte(msg.Content.Data)
+			}
+			samplingMsg.Content = &mcp.ImageContent{
+				Data:     imageData,
+				MIMEType: msg.Content.MimeType,
+			}
+		default:
+			// Default to text content
+			samplingMsg.Content = &mcp.TextContent{
+				Text: msg.Content.Text,
+			}
+		}
+
+		samplingRequest.Messages = append(samplingRequest.Messages, samplingMsg)
+	}
+
+	// Add system prompt if provided
+	if request.SystemPrompt != "" {
+		samplingRequest.SystemPrompt = request.SystemPrompt
+	}
+
+	// Add model preferences if provided
+	if request.ModelPreferences != nil {
+		samplingRequest.ModelPreferences = &mcp.ModelPreferences{
+			CostPriority:         request.ModelPreferences.CostPriority,
+			SpeedPriority:        request.ModelPreferences.SpeedPriority,
+			IntelligencePriority: request.ModelPreferences.IntelligencePriority,
+		}
+
+		// Convert model hints
+		if len(request.ModelPreferences.Hints) > 0 {
+			hints := make([]*mcp.ModelHint, 0, len(request.ModelPreferences.Hints))
+			for _, hint := range request.ModelPreferences.Hints {
+				hints = append(hints, &mcp.ModelHint{
+					Name: hint.Name,
+				})
+			}
+			samplingRequest.ModelPreferences.Hints = hints
+		}
+	}
+
+	// Add optional parameters
+	if request.MaxTokens != nil {
+		maxTokens := int64(*request.MaxTokens)
+		samplingRequest.MaxTokens = maxTokens
+	}
+	if request.Temperature != nil {
+		samplingRequest.Temperature = *request.Temperature
+	}
+	if len(request.StopSequences) > 0 {
+		samplingRequest.StopSequences = request.StopSequences
+	}
+	if request.IncludeContext != "" {
+		samplingRequest.IncludeContext = request.IncludeContext
+	}
+
+	// For now, implement a placeholder since the Go SDK might not have sampling yet
+	// This is a forward-compatible implementation for when sampling is available
+	s.logger.Warn(ctx, "MCP Sampling feature not yet implemented in Go SDK", map[string]interface{}{
+		"message_count": len(request.Messages),
+		"system_prompt": request.SystemPrompt != "",
+	})
+
+	return nil, fmt.Errorf("MCP Sampling is not yet available in the Go SDK - this is a placeholder implementation for the 2025 specification")
 }
 
 // CallTool calls a tool on the MCP server
@@ -154,10 +545,25 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 		})
 	}
 
-	return &interfaces.MCPToolResponse{
-		Content: resp.Content,
-		IsError: resp.IsError,
-	}, nil
+	response := &interfaces.MCPToolResponse{
+		Content:  resp.Content,
+		IsError:  resp.IsError,
+		Metadata: make(map[string]interface{}),
+	}
+
+	// Check for structured content (this is forward-compatible)
+	// The current Go SDK might not have this field yet, but this prepares us for when it does
+	if resp.Meta != nil {
+		response.Metadata = resp.Meta
+	}
+
+	// Try to extract structured content from metadata if present
+	// This is a placeholder for when the Go SDK adds proper structured content support
+	if metadata, ok := resp.Meta["structuredContent"]; ok {
+		response.StructuredContent = metadata
+	}
+
+	return response, nil
 }
 
 // Close closes the connection to the MCP server
@@ -271,6 +677,8 @@ type HTTPServerConfig struct {
 	Token        string
 	ProtocolType ServerProtocolType
 	Logger       logging.Logger
+
+	ResourceIndicator string        `json:"resource_indicator,omitempty"`
 }
 
 // ServerProtocolType defines the protocol type for the MCP server communication
@@ -327,8 +735,10 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 	client.AddSendingMiddleware(tracingMiddleware)
 
 	httpClient := http.DefaultClient
+
+	// Handle token-based authentication
 	if config.Token != "" {
-		// Create a custom HTTP client that adds the Authorization header
+		// Fallback to legacy token-based authentication
 		httpClient = customHTTPClient(config.Token)
 	}
 

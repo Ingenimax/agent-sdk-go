@@ -1,0 +1,39 @@
+# Simple Agent Configuration with MCP
+# This is a minimal example showing how to embed MCP configuration in agent YAML
+
+# Simple Development Assistant
+simple_dev:
+  role: "Software Developer Assistant"
+  goal: "Help with basic development tasks"
+  backstory: "You are a helpful coding assistant with access to filesystem and calculation tools."
+
+  # Simple MCP configuration with just 2 servers
+  mcp:
+    global:
+      enable_resources: true
+      enable_prompts: true
+      health_check: true
+
+    servers:
+      # Local filesystem access
+      - name: "filesystem"
+        type: "stdio"
+        command: "npx"
+        args: ["@modelcontextprotocol/server-filesystem", "."]
+        enabled: true
+        description: "Local file operations"
+
+      # Calculator server
+      - name: "calculator"
+        type: "stdio"
+        command: "python"
+        args: ["-m", "mcp_calculator"]
+        enabled: true
+        description: "Mathematical calculations"
+
+# Agent without MCP (for comparison)
+basic_agent:
+  role: "General Assistant"
+  goal: "Provide general assistance without specialized tools"
+  backstory: "You are a helpful general-purpose assistant."
+  # Note: No MCP section - this agent won't have MCP tools

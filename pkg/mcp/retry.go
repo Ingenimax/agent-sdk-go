@@ -92,6 +92,81 @@ func (r *RetryableServer) CallTool(ctx context.Context, name string, args interf
 	return result, err
 }
 
+// ListResources lists resources with retry logic
+func (r *RetryableServer) ListResources(ctx context.Context) ([]interfaces.MCPResource, error) {
+	var result []interfaces.MCPResource
+	err := r.retryOperation(ctx, "ListResources", func() error {
+		resources, err := r.server.ListResources(ctx)
+		if err != nil {
+			return err
+		}
+		result = resources
+		return nil
+	})
+	return result, err
+}
+
+// GetResource gets a resource with retry logic
+func (r *RetryableServer) GetResource(ctx context.Context, uri string) (*interfaces.MCPResourceContent, error) {
+	var result *interfaces.MCPResourceContent
+	err := r.retryOperation(ctx, fmt.Sprintf("GetResource(%s)", uri), func() error {
+		resource, err := r.server.GetResource(ctx, uri)
+		if err != nil {
+			return err
+		}
+		result = resource
+		return nil
+	})
+	return result, err
+}
+
+// WatchResource watches a resource (no retry needed as it's a continuous operation)
+func (r *RetryableServer) WatchResource(ctx context.Context, uri string) (<-chan interfaces.MCPResourceUpdate, error) {
+	return r.server.WatchResource(ctx, uri)
+}
+
+// ListPrompts lists prompts with retry logic
+func (r *RetryableServer) ListPrompts(ctx context.Context) ([]interfaces.MCPPrompt, error) {
+	var result []interfaces.MCPPrompt
+	err := r.retryOperation(ctx, "ListPrompts", func() error {
+		prompts, err := r.server.ListPrompts(ctx)
+		if err != nil {
+			return err
+		}
+		result = prompts
+		return nil
+	})
+	return result, err
+}
+
+// GetPrompt gets a prompt with retry logic
+func (r *RetryableServer) GetPrompt(ctx context.Context, name string, variables map[string]interface{}) (*interfaces.MCPPromptResult, error) {
+	var result *interfaces.MCPPromptResult
+	err := r.retryOperation(ctx, fmt.Sprintf("GetPrompt(%s)", name), func() error {
+		prompt, err := r.server.GetPrompt(ctx, name, variables)
+		if err != nil {
+			return err
+		}
+		result = prompt
+		return nil
+	})
+	return result, err
+}
+
+// CreateMessage creates a message with retry logic
+func (r *RetryableServer) CreateMessage(ctx context.Context, request *interfaces.MCPSamplingRequest) (*interfaces.MCPSamplingResponse, error) {
+	var result *interfaces.MCPSamplingResponse
+	err := r.retryOperation(ctx, "CreateMessage", func() error {
+		response, err := r.server.CreateMessage(ctx, request)
+		if err != nil {
+			return err
+		}
+		result = response
+		return nil
+	})
+	return result, err
+}
+
 // Close closes the connection (no retry needed)
 func (r *RetryableServer) Close() error {
 	return r.server.Close()
