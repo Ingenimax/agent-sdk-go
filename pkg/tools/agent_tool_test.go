@@ -6,13 +6,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
 // MockSubAgent is a mock implementation of the SubAgent interface
 type MockSubAgent struct {
-	name        string
-	description string
-	runFunc     func(ctx context.Context, input string) (string, error)
+	name          string
+	description   string
+	runFunc       func(ctx context.Context, input string) (string, error)
+	runStreamFunc func(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error)
 }
 
 func (m *MockSubAgent) Run(ctx context.Context, input string) (string, error) {
@@ -20,6 +23,37 @@ func (m *MockSubAgent) Run(ctx context.Context, input string) (string, error) {
 		return m.runFunc(ctx, input)
 	}
 	return "mock response: " + input, nil
+}
+
+func (m *MockSubAgent) RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
+	if m.runStreamFunc != nil {
+		return m.runStreamFunc(ctx, input)
+	}
+
+	// Default implementation: create a simple streaming response
+	eventChan := make(chan interfaces.AgentStreamEvent, 1)
+	go func() {
+		defer close(eventChan)
+		result, err := m.Run(ctx, input)
+		if err != nil {
+			eventChan <- interfaces.AgentStreamEvent{
+				Type:      interfaces.AgentEventError,
+				Error:     err,
+				Timestamp: time.Now(),
+			}
+		} else {
+			eventChan <- interfaces.AgentStreamEvent{
+				Type:      interfaces.AgentEventContent,
+				Content:   result,
+				Timestamp: time.Now(),
+			}
+			eventChan <- interfaces.AgentStreamEvent{
+				Type:      interfaces.AgentEventComplete,
+				Timestamp: time.Now(),
+			}
+		}
+	}()
+	return eventChan, nil
 }
 
 func (m *MockSubAgent) GetName() string {

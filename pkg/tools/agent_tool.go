@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -37,6 +38,7 @@ type AgentTool struct {
 // SubAgent interface defines the minimal interface needed for a sub-agent
 type SubAgent interface {
 	Run(ctx context.Context, input string) (string, error)
+	RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error)
 	GetName() string
 	GetDescription() string
 }
@@ -165,8 +167,18 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 		"timeout":         at.timeout.String(),
 	})
 
-	// Run the sub-agent
-	result, err := at.agent.Run(ctx, input)
+	// Check if we have a stream forwarder in the context
+	var result string
+	var err error
+
+	if forwarder, ok := ctx.Value(interfaces.StreamForwarderKey).(interfaces.StreamForwarder); ok && forwarder != nil {
+		// Use streaming to forward events to parent
+		result, err = at.runWithStreaming(ctx, input, forwarder, span, agentName)
+	} else {
+		// Fall back to blocking execution
+		result, err = at.agent.Run(ctx, input)
+	}
+
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -286,4 +298,74 @@ func withSubAgentContext(ctx context.Context, parentAgent, subAgentName string) 
 	ctx = context.WithValue(ctx, parentAgentKey, parentAgent)
 	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
 	return ctx
+}
+
+// runWithStreaming runs the sub-agent with streaming and forwards events to the parent
+func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forwarder interfaces.StreamForwarder, span interfaces.Span, agentName string) (string, error) {
+	// Start streaming from the sub-agent
+	eventChan, err := at.agent.RunStream(ctx, input)
+	if err != nil {
+		at.logger.Error(ctx, "Failed to start sub-agent streaming", map[string]interface{}{
+			"sub_agent": agentName,
+			"error":     err.Error(),
+		})
+		return "", fmt.Errorf("failed to start sub-agent streaming: %w", err)
+	}
+
+	// Log that we're streaming
+	at.logger.Debug(ctx, "Sub-agent streaming started", map[string]interface{}{
+		"sub_agent": agentName,
+		"tool_name": at.name,
+	})
+
+	// Collect content for final result
+	var contentBuilder strings.Builder
+	var finalError error
+
+	// Forward all events and collect content
+	for event := range eventChan {
+		// Forward the event to the parent stream
+		forwarder(event)
+
+		// Collect content for the final result
+		if event.Type == interfaces.AgentEventContent {
+			contentBuilder.WriteString(event.Content)
+		}
+
+		// Track errors
+		if event.Error != nil {
+			finalError = event.Error
+			at.logger.Error(ctx, "Sub-agent streaming error", map[string]interface{}{
+				"sub_agent": agentName,
+				"error":     event.Error.Error(),
+			})
+		}
+
+		// Add event to span if available
+		if span != nil {
+			span.AddEvent(fmt.Sprintf("sub_agent_%s", event.Type), map[string]interface{}{
+				"type":      string(event.Type),
+				"sub_agent": agentName,
+				"has_error": event.Error != nil,
+			})
+		}
+	}
+
+	at.logger.Debug(ctx, "Sub-agent streaming completed", map[string]interface{}{
+		"sub_agent":    agentName,
+		"tool_name":    at.name,
+		"response_len": contentBuilder.Len(),
+	})
+
+	// Return error if we encountered one
+	if finalError != nil {
+		return "", finalError
+	}
+
+	return contentBuilder.String(), nil
+}
+
+// WithStreamForwarder adds a stream forwarder to the context
+func WithStreamForwarder(ctx context.Context, forwarder interfaces.StreamForwarder) context.Context {
+	return context.WithValue(ctx, interfaces.StreamForwarderKey, forwarder)
 }

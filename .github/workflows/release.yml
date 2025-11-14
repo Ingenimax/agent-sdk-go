@@ -29,17 +29,17 @@ jobs:
           # Get the latest tag
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "Latest tag: $LATEST_TAG"
-          
+
           # Extract version numbers
           VERSION=${LATEST_TAG#v}
           MAJOR=$(echo $VERSION | cut -d. -f1)
           MINOR=$(echo $VERSION | cut -d. -f2)
           PATCH=$(echo $VERSION | cut -d. -f3)
-          
+
           # Increment patch version
           NEW_PATCH=$((PATCH + 1))
           NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
-          
+
           echo "New tag: $NEW_TAG"
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
 
