@@ -11,6 +11,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 // Example showing how to use the MCP builder for advanced configuration
@@ -81,7 +82,10 @@ func main() {
 		log.Fatalf("Failed to create agent: %v", err)
 	}
 
+	// Create context with organization ID and conversation ID
 	ctx := context.Background()
+	ctx = multitenancy.WithOrgID(ctx, "default-org")
+	ctx = context.WithValue(ctx, memory.ConversationIDKey, "conversation-123")
 
 	// Example queries
 	queries := []string{

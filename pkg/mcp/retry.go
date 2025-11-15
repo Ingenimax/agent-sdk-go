@@ -271,7 +271,7 @@ func (r *RetryableServer) calculateBackoff(currentDelay time.Duration) time.Dura
 // containsIgnoreCase checks if a string contains a substring (case-insensitive)
 func containsIgnoreCase(str, substr string) bool {
 	return len(str) >= len(substr) &&
-		   strings.Contains(strings.ToLower(str), strings.ToLower(substr))
+		strings.Contains(strings.ToLower(str), strings.ToLower(substr))
 }
 
 // randomFloat returns a random float between 0 and 1

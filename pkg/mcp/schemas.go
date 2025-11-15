@@ -254,9 +254,9 @@ func (tm *ToolManager) CallToolWithValidation(ctx context.Context, toolName stri
 	}
 
 	tm.logger.Debug(ctx, "Tool called successfully", map[string]interface{}{
-		"tool_name":          toolName,
-		"has_structured":     response.StructuredContent != nil,
-		"has_output_schema":  tool.OutputSchema != nil,
+		"tool_name":         toolName,
+		"has_structured":    response.StructuredContent != nil,
+		"has_output_schema": tool.OutputSchema != nil,
 	})
 
 	return response, nil
@@ -336,7 +336,7 @@ func (tm *ToolManager) matchesCategory(tool interfaces.MCPTool, category string)
 // containsIgnoreCaseFunc is a helper function for case-insensitive string matching
 func containsIgnoreCaseFunc(str, substr string) bool {
 	return len(str) >= len(substr) &&
-		   containsIgnoreCase(str, substr)
+		containsIgnoreCase(str, substr)
 }
 
 // Schema builder utilities

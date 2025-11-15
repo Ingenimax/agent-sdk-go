@@ -24,9 +24,9 @@ type Builder struct {
 
 // RetryOptions configures retry behavior for MCP connections
 type RetryOptions struct {
-	MaxAttempts     int
-	InitialDelay    time.Duration
-	MaxDelay        time.Duration
+	MaxAttempts       int
+	InitialDelay      time.Duration
+	MaxDelay          time.Duration
 	BackoffMultiplier float64
 }
 
@@ -319,8 +319,8 @@ func (b *Builder) retryConnection(ctx context.Context, config LazyMCPServerConfi
 
 	for attempt := 1; attempt <= b.retryOptions.MaxAttempts; attempt++ {
 		b.logger.Debug(ctx, "Retrying MCP connection", map[string]interface{}{
-			"server_name": config.Name,
-			"attempt":     attempt,
+			"server_name":  config.Name,
+			"attempt":      attempt,
 			"max_attempts": b.retryOptions.MaxAttempts,
 		})
 

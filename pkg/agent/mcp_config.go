@@ -42,7 +42,7 @@ type MCPConfiguration struct {
 
 // MCPGlobalConfig represents global MCP settings
 type MCPGlobalConfig struct {
-	Timeout         string `json:"timeout,omitempty" yaml:"timeout,omitempty"`         // e.g., "30s"
+	Timeout         string `json:"timeout,omitempty" yaml:"timeout,omitempty"` // e.g., "30s"
 	RetryAttempts   int    `json:"retry_attempts,omitempty" yaml:"retry_attempts,omitempty"`
 	HealthCheck     bool   `json:"health_check" yaml:"health_check"`
 	EnableResources bool   `json:"enable_resources" yaml:"enable_resources"`

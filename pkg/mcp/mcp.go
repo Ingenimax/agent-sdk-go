@@ -199,7 +199,7 @@ func (s *MCPServerImpl) GetResource(ctx context.Context, uri string) (*interface
 	})
 	if err != nil {
 		mcpErr := ClassifyError(err, "GetResource", "server", "unknown")
-		_ = mcpErr.WithMetadata("uri", uri)
+		mcpErr = mcpErr.WithMetadata("uri", uri)
 		s.logger.Error(ctx, "Failed to get MCP resource", map[string]interface{}{
 			"uri":        uri,
 			"error":      err.Error(),
@@ -678,7 +678,7 @@ type HTTPServerConfig struct {
 	ProtocolType ServerProtocolType
 	Logger       logging.Logger
 
-	ResourceIndicator string        `json:"resource_indicator,omitempty"`
+	ResourceIndicator string `json:"resource_indicator,omitempty"`
 }
 
 // ServerProtocolType defines the protocol type for the MCP server communication

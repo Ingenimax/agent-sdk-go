@@ -255,10 +255,10 @@ func IsTextResource(resource interfaces.MCPResource) bool {
 	}
 
 	return strings.HasPrefix(resource.MimeType, "text/") ||
-		   resource.MimeType == "application/json" ||
-		   resource.MimeType == "application/xml" ||
-		   strings.HasSuffix(resource.MimeType, "+json") ||
-		   strings.HasSuffix(resource.MimeType, "+xml")
+		resource.MimeType == "application/json" ||
+		resource.MimeType == "application/xml" ||
+		strings.HasSuffix(resource.MimeType, "+json") ||
+		strings.HasSuffix(resource.MimeType, "+xml")
 }
 
 // IsBinaryResource checks if a resource contains binary content

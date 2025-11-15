@@ -258,7 +258,7 @@ func (pm *PromptManager) matchesPattern(prompt interfaces.MCPPrompt, pattern str
 	// Check metadata
 	for key, value := range prompt.Metadata {
 		if strings.Contains(strings.ToLower(key), pattern) ||
-		   strings.Contains(strings.ToLower(value), pattern) {
+			strings.Contains(strings.ToLower(value), pattern) {
 			return true
 		}
 	}
@@ -277,8 +277,8 @@ func (pm *PromptManager) matchesCategory(prompt interfaces.MCPPrompt, category s
 		// Try alternative keys
 		for key, value := range prompt.Metadata {
 			if strings.ToLower(key) == "category" ||
-			   strings.ToLower(key) == "type" ||
-			   strings.ToLower(key) == "group" {
+				strings.ToLower(key) == "type" ||
+				strings.ToLower(key) == "group" {
 				promptCategory = value
 				break
 			}

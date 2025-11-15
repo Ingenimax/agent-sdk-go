@@ -41,20 +41,20 @@ func NewRegistryClient(baseURL string) *RegistryClient {
 
 // RegistryServer represents a server entry in the MCP Registry
 type RegistryServer struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Namespace   string            `json:"namespace"`
-	Version     string            `json:"version"`
-	Tags        []string          `json:"tags,omitempty"`
-	Category    string            `json:"category,omitempty"`
-	Author      RegistryAuthor    `json:"author"`
-	Repository  RepositoryInfo    `json:"repository,omitempty"`
-	License     string            `json:"license,omitempty"`
-	Homepage    string            `json:"homepage,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Namespace   string         `json:"namespace"`
+	Version     string         `json:"version"`
+	Tags        []string       `json:"tags,omitempty"`
+	Category    string         `json:"category,omitempty"`
+	Author      RegistryAuthor `json:"author"`
+	Repository  RepositoryInfo `json:"repository,omitempty"`
+	License     string         `json:"license,omitempty"`
+	Homepage    string         `json:"homepage,omitempty"`
 
 	// Installation and configuration
-	Installation InstallationInfo `json:"installation"`
+	Installation  InstallationInfo  `json:"installation"`
 	Configuration ConfigurationInfo `json:"configuration,omitempty"`
 
 	// Capabilities
@@ -63,19 +63,19 @@ type RegistryServer struct {
 	Prompts   []RegistryPrompt   `json:"prompts,omitempty"`
 
 	// Registry metadata
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Downloads   int       `json:"downloads,omitempty"`
-	Rating      float64   `json:"rating,omitempty"`
-	Verified    bool      `json:"verified"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Downloads int       `json:"downloads,omitempty"`
+	Rating    float64   `json:"rating,omitempty"`
+	Verified  bool      `json:"verified"`
 }
 
 // RegistryAuthor represents the author of a registry server
 type RegistryAuthor struct {
-	Name     string `json:"name"`
-	Email    string `json:"email,omitempty"`
-	URL      string `json:"url,omitempty"`
-	GitHub   string `json:"github,omitempty"`
+	Name   string `json:"name"`
+	Email  string `json:"email,omitempty"`
+	URL    string `json:"url,omitempty"`
+	GitHub string `json:"github,omitempty"`
 }
 
 // RepositoryInfo represents repository information
@@ -104,11 +104,11 @@ type ConfigurationInfo struct {
 type ConfigOption struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
-	Type        string      `json:"type"`        // "string", "number", "boolean", "array"
+	Type        string      `json:"type"` // "string", "number", "boolean", "array"
 	Default     interface{} `json:"default,omitempty"`
 	Enum        []string    `json:"enum,omitempty"`
 	Required    bool        `json:"required"`
-	Sensitive   bool        `json:"sensitive"`   // For API keys, passwords, etc.
+	Sensitive   bool        `json:"sensitive"` // For API keys, passwords, etc.
 }
 
 // RegistryTool represents a tool advertised by the server
@@ -121,9 +121,9 @@ type RegistryTool struct {
 
 // RegistryResource represents a resource advertised by the server
 type RegistryResource struct {
-	Type        string `json:"type"` // "file", "database", "api", etc.
-	Description string `json:"description"`
-	Pattern     string `json:"pattern,omitempty"` // URI pattern
+	Type        string   `json:"type"` // "file", "database", "api", etc.
+	Description string   `json:"description"`
+	Pattern     string   `json:"pattern,omitempty"` // URI pattern
 	MimeTypes   []string `json:"mime_types,omitempty"`
 }
 
@@ -213,9 +213,9 @@ func (rc *RegistryClient) ListServers(ctx context.Context, opts *SearchOptions) 
 	}
 
 	rc.logger.Debug(ctx, "Retrieved servers from registry", map[string]interface{}{
-		"count":  len(searchResp.Servers),
-		"total":  searchResp.Total,
-		"query":  opts.Query,
+		"count": len(searchResp.Servers),
+		"total": searchResp.Total,
+		"query": opts.Query,
 	})
 
 	return &searchResp, nil
@@ -447,8 +447,8 @@ func (rm *RegistryManager) serverProvidesCapability(server *RegistryServer, capa
 	// Check tools
 	for _, tool := range server.Tools {
 		if strings.Contains(strings.ToLower(tool.Name), capability) ||
-		   strings.Contains(strings.ToLower(tool.Description), capability) ||
-		   strings.Contains(strings.ToLower(tool.Category), capability) {
+			strings.Contains(strings.ToLower(tool.Description), capability) ||
+			strings.Contains(strings.ToLower(tool.Category), capability) {
 			return true
 		}
 	}
@@ -456,7 +456,7 @@ func (rm *RegistryManager) serverProvidesCapability(server *RegistryServer, capa
 	// Check resources
 	for _, resource := range server.Resources {
 		if strings.Contains(strings.ToLower(resource.Type), capability) ||
-		   strings.Contains(strings.ToLower(resource.Description), capability) {
+			strings.Contains(strings.ToLower(resource.Description), capability) {
 			return true
 		}
 	}
@@ -464,8 +464,8 @@ func (rm *RegistryManager) serverProvidesCapability(server *RegistryServer, capa
 	// Check prompts
 	for _, prompt := range server.Prompts {
 		if strings.Contains(strings.ToLower(prompt.Name), capability) ||
-		   strings.Contains(strings.ToLower(prompt.Description), capability) ||
-		   strings.Contains(strings.ToLower(prompt.Category), capability) {
+			strings.Contains(strings.ToLower(prompt.Description), capability) ||
+			strings.Contains(strings.ToLower(prompt.Category), capability) {
 			return true
 		}
 	}
@@ -478,7 +478,7 @@ func (rm *RegistryManager) serverProvidesCapability(server *RegistryServer, capa
 	}
 
 	if strings.Contains(strings.ToLower(server.Description), capability) ||
-	   strings.Contains(strings.ToLower(server.Category), capability) {
+		strings.Contains(strings.ToLower(server.Category), capability) {
 		return true
 	}
 

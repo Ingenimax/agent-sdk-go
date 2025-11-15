@@ -9,6 +9,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 // Simple example showing the easiest way to add MCP servers to an agent
@@ -41,7 +42,10 @@ func main() {
 		log.Fatalf("Failed to create agent: %v", err)
 	}
 
+	// Create context with organization ID and conversation ID
 	ctx := context.Background()
+	ctx = multitenancy.WithOrgID(ctx, "default-org")
+	ctx = context.WithValue(ctx, memory.ConversationIDKey, "conversation-123")
 
 	// Example queries that will use MCP tools
 	queries := []string{

@@ -13,6 +13,12 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
+const (
+	// Constants for server readiness retry logic
+	defaultMaxRetryAttempts = 5
+	defaultRetryInterval    = 3 * time.Second
+)
+
 // LazyMCPServerCache manages shared MCP server instances
 type LazyMCPServerCache struct {
 	servers map[string]interfaces.MCPServer
@@ -86,11 +92,11 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 	// Wait for MCP server to be ready with retries
 	cache.logger.Info(ctx, "Waiting for MCP server to be ready", map[string]interface{}{
 		"server_name":    config.Name,
-		"max_retries":    5,
-		"retry_interval": "3s",
+		"max_retries":    defaultMaxRetryAttempts,
+		"retry_interval": defaultRetryInterval.String(),
 	})
 
-	for attempt := 1; attempt <= 5; attempt++ {
+	for attempt := 1; attempt <= defaultMaxRetryAttempts; attempt++ {
 		// Try to list tools to check if server is ready
 		_, err := server.ListTools(ctx)
 		if err == nil {
@@ -101,13 +107,13 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 			break
 		}
 
-		if attempt < 5 {
+		if attempt < defaultMaxRetryAttempts {
 			cache.logger.Debug(ctx, "MCP server not ready, retrying", map[string]interface{}{
 				"server_name": config.Name,
 				"attempt":     attempt,
 				"error":       err.Error(),
 			})
-			time.Sleep(3 * time.Second)
+			time.Sleep(defaultRetryInterval)
 		} else {
 			cache.logger.Warn(ctx, "MCP server may not be fully ready after retries", map[string]interface{}{
 				"server_name": config.Name,
@@ -246,11 +252,6 @@ func (t *LazyMCPTool) Run(ctx context.Context, input string) (string, error) {
 		})
 		return "", fmt.Errorf("MCP server call failed: %v", err)
 	}
-	/* 	t.logger.Debug(ctx, "MCP tool response", map[string]interface{}{
-		"tool_name": t.name,
-		"is_error":  resp.IsError,
-		"content":   resp.Content,
-	}) */
 
 	// Handle error response
 	if resp.IsError {
@@ -281,10 +282,6 @@ func (t *LazyMCPTool) Run(ctx context.Context, input string) (string, error) {
 
 	// Convert successful response to string
 	result := extractTextFromMCPContent(resp.Content)
-	/* 	t.logger.Debug(ctx, "✅ MCP tool '%s' extracted result: %s\n", map[string]interface{}{
-		"tool_name": t.name,
-		"result":    result,
-	}) */
 	return result, nil
 }
 

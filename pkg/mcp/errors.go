@@ -7,13 +7,13 @@ import (
 
 // MCPError represents a structured error from MCP operations
 type MCPError struct {
-	Operation   string            // The operation that failed (e.g., "ListTools", "CallTool")
-	ServerName  string            // Name of the MCP server
-	ServerType  string            // Type of server (stdio, http, etc.)
-	ErrorType   MCPErrorType      // Category of error
-	Cause       error             // The underlying error
-	Retryable   bool              // Whether the error might succeed on retry
-	Metadata    map[string]string // Additional context
+	Operation  string            // The operation that failed (e.g., "ListTools", "CallTool")
+	ServerName string            // Name of the MCP server
+	ServerType string            // Type of server (stdio, http, etc.)
+	ErrorType  MCPErrorType      // Category of error
+	Cause      error             // The underlying error
+	Retryable  bool              // Whether the error might succeed on retry
+	Metadata   map[string]string // Additional context
 }
 
 // MCPErrorType categorizes different types of MCP errors
@@ -26,25 +26,25 @@ const (
 	MCPErrorTypeAuthentication MCPErrorType = "AUTHENTICATION_ERROR"
 
 	// Server errors
-	MCPErrorTypeServerNotFound   MCPErrorType = "SERVER_NOT_FOUND"
-	MCPErrorTypeServerStartup    MCPErrorType = "SERVER_STARTUP_ERROR"
-	MCPErrorTypeServerCrash      MCPErrorType = "SERVER_CRASH"
+	MCPErrorTypeServerNotFound MCPErrorType = "SERVER_NOT_FOUND"
+	MCPErrorTypeServerStartup  MCPErrorType = "SERVER_STARTUP_ERROR"
+	MCPErrorTypeServerCrash    MCPErrorType = "SERVER_CRASH"
 
 	// Tool errors
-	MCPErrorTypeToolNotFound     MCPErrorType = "TOOL_NOT_FOUND"
-	MCPErrorTypeToolInvalidArgs  MCPErrorType = "TOOL_INVALID_ARGS"
-	MCPErrorTypeToolExecution    MCPErrorType = "TOOL_EXECUTION_ERROR"
+	MCPErrorTypeToolNotFound    MCPErrorType = "TOOL_NOT_FOUND"
+	MCPErrorTypeToolInvalidArgs MCPErrorType = "TOOL_INVALID_ARGS"
+	MCPErrorTypeToolExecution   MCPErrorType = "TOOL_EXECUTION_ERROR"
 
 	// Protocol errors
-	MCPErrorTypeProtocol         MCPErrorType = "PROTOCOL_ERROR"
-	MCPErrorTypeSerialization    MCPErrorType = "SERIALIZATION_ERROR"
+	MCPErrorTypeProtocol      MCPErrorType = "PROTOCOL_ERROR"
+	MCPErrorTypeSerialization MCPErrorType = "SERIALIZATION_ERROR"
 
 	// Configuration errors
-	MCPErrorTypeConfiguration    MCPErrorType = "CONFIGURATION_ERROR"
-	MCPErrorTypeValidation       MCPErrorType = "VALIDATION_ERROR"
+	MCPErrorTypeConfiguration MCPErrorType = "CONFIGURATION_ERROR"
+	MCPErrorTypeValidation    MCPErrorType = "VALIDATION_ERROR"
 
 	// Unknown errors
-	MCPErrorTypeUnknown          MCPErrorType = "UNKNOWN_ERROR"
+	MCPErrorTypeUnknown MCPErrorType = "UNKNOWN_ERROR"
 )
 
 // Error implements the error interface
@@ -139,18 +139,18 @@ func NewConfigurationError(operation string, cause error) *MCPError {
 func isRetryableErrorType(errorType MCPErrorType) bool {
 	switch errorType {
 	case MCPErrorTypeConnection,
-		 MCPErrorTypeTimeout,
-		 MCPErrorTypeServerStartup,
-		 MCPErrorTypeServerCrash:
+		MCPErrorTypeTimeout,
+		MCPErrorTypeServerStartup,
+		MCPErrorTypeServerCrash:
 		return true
 	case MCPErrorTypeAuthentication,
-		 MCPErrorTypeServerNotFound,
-		 MCPErrorTypeToolNotFound,
-		 MCPErrorTypeToolInvalidArgs,
-		 MCPErrorTypeProtocol,
-		 MCPErrorTypeSerialization,
-		 MCPErrorTypeConfiguration,
-		 MCPErrorTypeValidation:
+		MCPErrorTypeServerNotFound,
+		MCPErrorTypeToolNotFound,
+		MCPErrorTypeToolInvalidArgs,
+		MCPErrorTypeProtocol,
+		MCPErrorTypeSerialization,
+		MCPErrorTypeConfiguration,
+		MCPErrorTypeValidation:
 		return false
 	default:
 		return false
@@ -174,24 +174,24 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 	var errorType MCPErrorType
 	switch {
 	case strings.Contains(errMsg, "connection refused") ||
-		 strings.Contains(errMsg, "connection reset") ||
-		 strings.Contains(errMsg, "no route to host") ||
-		 strings.Contains(errMsg, "network unreachable"):
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "no route to host") ||
+		strings.Contains(errMsg, "network unreachable"):
 		errorType = MCPErrorTypeConnection
 
 	case strings.Contains(errMsg, "timeout") ||
-		 strings.Contains(errMsg, "deadline exceeded") ||
-		 strings.Contains(errMsg, "context deadline exceeded"):
+		strings.Contains(errMsg, "deadline exceeded") ||
+		strings.Contains(errMsg, "context deadline exceeded"):
 		errorType = MCPErrorTypeTimeout
 
 	case strings.Contains(errMsg, "authentication") ||
-		 strings.Contains(errMsg, "unauthorized") ||
-		 strings.Contains(errMsg, "forbidden") ||
-		 strings.Contains(errMsg, "invalid token"):
+		strings.Contains(errMsg, "unauthorized") ||
+		strings.Contains(errMsg, "forbidden") ||
+		strings.Contains(errMsg, "invalid token"):
 		errorType = MCPErrorTypeAuthentication
 
 	case strings.Contains(errMsg, "not found") ||
-		 strings.Contains(errMsg, "no such file"):
+		strings.Contains(errMsg, "no such file"):
 		if operation == "CallTool" {
 			errorType = MCPErrorTypeToolNotFound
 		} else {
@@ -199,28 +199,28 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 		}
 
 	case strings.Contains(errMsg, "invalid argument") ||
-		 strings.Contains(errMsg, "invalid parameter") ||
-		 strings.Contains(errMsg, "bad request"):
+		strings.Contains(errMsg, "invalid parameter") ||
+		strings.Contains(errMsg, "bad request"):
 		errorType = MCPErrorTypeToolInvalidArgs
 
 	case strings.Contains(errMsg, "json") ||
-		 strings.Contains(errMsg, "unmarshal") ||
-		 strings.Contains(errMsg, "marshal") ||
-		 strings.Contains(errMsg, "parse"):
+		strings.Contains(errMsg, "unmarshal") ||
+		strings.Contains(errMsg, "marshal") ||
+		strings.Contains(errMsg, "parse"):
 		errorType = MCPErrorTypeSerialization
 
 	case strings.Contains(errMsg, "protocol") ||
-		 strings.Contains(errMsg, "invalid response") ||
-		 strings.Contains(errMsg, "unexpected"):
+		strings.Contains(errMsg, "invalid response") ||
+		strings.Contains(errMsg, "unexpected"):
 		errorType = MCPErrorTypeProtocol
 
 	case strings.Contains(errMsg, "config") ||
-		 strings.Contains(errMsg, "validation"):
+		strings.Contains(errMsg, "validation"):
 		errorType = MCPErrorTypeConfiguration
 
 	case strings.Contains(errMsg, "server crashed") ||
-		 strings.Contains(errMsg, "process exited") ||
-		 strings.Contains(errMsg, "broken pipe"):
+		strings.Contains(errMsg, "process exited") ||
+		strings.Contains(errMsg, "broken pipe"):
 		errorType = MCPErrorTypeServerCrash
 
 	default:
