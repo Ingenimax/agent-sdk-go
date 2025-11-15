@@ -787,6 +787,7 @@ For more detailed information, refer to the following documents:
 - [Memory](docs/memory.md)
 - [Tracing](docs/tracing.md)
 - [Vector Store](docs/vectorstore.md)
+- [DataStore](docs/datastore.md) - PostgreSQL and Supabase integration for structured data
 - [LLM](docs/llm.md)
 - [Multitenancy](docs/multitenancy.md)
 - [Task](docs/task.md)
