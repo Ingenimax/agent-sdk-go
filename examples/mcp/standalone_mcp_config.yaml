@@ -1,0 +1,85 @@
+# Standalone DevOps MCP Configuration
+# This file demonstrates how to configure MCP servers for DevOps workflows
+
+global:
+  timeout: "30s"
+  retry_attempts: 3
+  health_check: true
+  enable_resources: true
+  enable_prompts: true
+  enable_sampling: true
+  enable_schemas: true
+  log_level: "info"
+
+servers:
+  # Essential filesystem access for DevOps tasks
+  - name: "filesystem"
+    type: "stdio"
+    command: "npx"
+    args: ["@modelcontextprotocol/server-filesystem", "."]
+    enabled: true
+    description: "File system operations for config management"
+    tags: ["files", "config", "logs"]
+
+  # System monitoring (example server)
+  - name: "system_metrics"
+    type: "stdio"
+    command: "python3"
+    args: ["-m", "mcp_system_monitor", "--interval", "5"]
+    enabled: true
+    description: "Real-time system monitoring and metrics"
+    tags: ["monitoring", "performance", "alerts"]
+    env:
+      - "MONITOR_CPU=true"
+      - "MONITOR_MEMORY=true"
+      - "MONITOR_DISK=true"
+
+  # Git operations for deployment tracking
+  - name: "git_tools"
+    type: "stdio"
+    command: "git-mcp-server"
+    args: ["--repo-path", "."]
+    enabled: true
+    description: "Git operations and repository management"
+    tags: ["git", "version_control", "deployment"]
+
+  # Docker container management
+  - name: "docker_manager"
+    type: "stdio"
+    command: "docker-mcp-server"
+    args: ["--socket", "/var/run/docker.sock"]
+    enabled: false  # Requires Docker daemon
+    description: "Docker container lifecycle management"
+    tags: ["docker", "containers", "orchestration"]
+
+  # HTTP example: GitHub API integration
+  - name: "github_devops"
+    type: "http"
+    url: "https://api.github.com/mcp"
+    token: "${GITHUB_TOKEN}"
+    enabled: false  # Requires authentication token
+    description: "GitHub API for repository and deployment management"
+    tags: ["github", "api", "ci_cd", "deployment"]
+    config:
+      rate_limit: "5000"
+      timeout: "10s"
+
+  # Kubernetes cluster operations
+  - name: "k8s_cluster"
+    type: "stdio"
+    command: "kubectl-mcp-server"
+    args: ["--context", "${K8S_CONTEXT:-default}"]
+    enabled: false  # Requires cluster access
+    description: "Kubernetes cluster monitoring and management"
+    tags: ["kubernetes", "k8s", "orchestration", "deployment"]
+    env:
+      - "KUBECONFIG=${HOME}/.kube/config"
+
+  # Log aggregation and analysis
+  - name: "log_analyzer"
+    type: "stdio"
+    command: "log-mcp-server"
+    args: ["--log-dir", "/var/log", "--pattern", "*.log"]
+    enabled: false  # Requires log directory access
+    description: "Log file analysis and pattern detection"
+    tags: ["logs", "analysis", "debugging", "monitoring"]

@@ -1,0 +1,142 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ],
+      "enabled": true,
+      "description": "File system operations for config management",
+      "tags": [
+        "files",
+        "config",
+        "logs"
+      ]
+    },
+    {
+      "name": "system_metrics",
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "-m",
+        "mcp_system_monitor",
+        "--interval",
+        "5"
+      ],
+      "env": [
+        "MONITOR_CPU=true",
+        "MONITOR_MEMORY=true",
+        "MONITOR_DISK=true"
+      ],
+      "enabled": true,
+      "description": "Real-time system monitoring and metrics",
+      "tags": [
+        "monitoring",
+        "performance",
+        "alerts"
+      ]
+    },
+    {
+      "name": "git_tools",
+      "type": "stdio",
+      "command": "git-mcp-server",
+      "args": [
+        "--repo-path",
+        "."
+      ],
+      "enabled": true,
+      "description": "Git operations and repository management",
+      "tags": [
+        "git",
+        "version_control",
+        "deployment"
+      ]
+    },
+    {
+      "name": "docker_manager",
+      "type": "stdio",
+      "command": "docker-mcp-server",
+      "args": [
+        "--socket",
+        "/var/run/docker.sock"
+      ],
+      "enabled": false,
+      "description": "Docker container lifecycle management",
+      "tags": [
+        "docker",
+        "containers",
+        "orchestration"
+      ]
+    },
+    {
+      "name": "github_devops",
+      "type": "http",
+      "url": "https://api.github.com/mcp",
+      "token": "${GITHUB_TOKEN}",
+      "enabled": false,
+      "description": "GitHub API for repository and deployment management",
+      "tags": [
+        "github",
+        "api",
+        "ci_cd",
+        "deployment"
+      ],
+      "config": {
+        "rate_limit": "5000",
+        "timeout": "10s"
+      }
+    },
+    {
+      "name": "k8s_cluster",
+      "type": "stdio",
+      "command": "kubectl-mcp-server",
+      "args": [
+        "--context",
+        "${K8S_CONTEXT:-default}"
+      ],
+      "env": [
+        "KUBECONFIG=${HOME}/.kube/config"
+      ],
+      "enabled": false,
+      "description": "Kubernetes cluster monitoring and management",
+      "tags": [
+        "kubernetes",
+        "k8s",
+        "orchestration",
+        "deployment"
+      ]
+    },
+    {
+      "name": "log_analyzer",
+      "type": "stdio",
+      "command": "log-mcp-server",
+      "args": [
+        "--log-dir",
+        "/var/log",
+        "--pattern",
+        "*.log"
+      ],
+      "enabled": false,
+      "description": "Log file analysis and pattern detection",
+      "tags": [
+        "logs",
+        "analysis",
+        "debugging",
+        "monitoring"
+      ]
+    }
+  ],
+  "global": {
+    "timeout": "30s",
+    "retry_attempts": 3,
+    "health_check": true,
+    "enable_resources": true,
+    "enable_prompts": true,
+    "enable_sampling": true,
+    "enable_schemas": true,
+    "log_level": "info"
+  }
+}
