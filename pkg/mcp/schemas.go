@@ -51,6 +51,10 @@ func (sv *SchemaValidator) validateAgainstSchema(ctx context.Context, data inter
 
 	schemaType, hasType := schemaMap["type"]
 	if !hasType {
+		// Empty schema allows any value according to JSON Schema specification
+		if len(schemaMap) == 0 {
+			return nil
+		}
 		return fmt.Errorf("schema missing 'type' field for tool %s", toolName)
 	}
 

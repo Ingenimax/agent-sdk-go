@@ -124,6 +124,12 @@ func (b *Builder) AddHTTPServerWithAuth(name, baseURL, token string) *Builder {
 		return b
 	}
 
+	// Validate URL has proper scheme for HTTP server
+	if u.Scheme != "http" && u.Scheme != "https" {
+		b.errors = append(b.errors, fmt.Errorf("invalid URL scheme for HTTP server %q: expected http or https, got %q", baseURL, u.Scheme))
+		return b
+	}
+
 	// Add token to query parameters
 	q := u.Query()
 	q.Set("token", token)

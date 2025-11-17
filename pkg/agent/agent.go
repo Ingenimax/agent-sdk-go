@@ -66,6 +66,7 @@ type Agent struct {
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer   // MCP servers for the agent
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
+	cachedMCPTools       []interfaces.Tool        // Cached MCP tools to avoid repeated discovery
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
 
@@ -388,10 +389,19 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Configure sub-agent tools with logger and tracer
 	agent.configureSubAgentTools()
 
+	// Eagerly load MCP tools during initialization to combine with manual tools
+	if err := agent.initializeMCPTools(); err != nil {
+		// Log warning but continue - MCP tools are optional
+		fmt.Printf("Warning: Failed to initialize MCP tools: %v\n", err)
+	}
+
+	// Get all tools (manual + MCP) for execution plan components
+	allTools := agent.getAllToolsSync()
+
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
-	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
-	agent.planExecutor = executionplan.NewExecutor(agent.tools)
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt)
+	agent.planExecutor = executionplan.NewExecutor(allTools)
 
 	return agent, nil
 }
@@ -638,24 +648,8 @@ func (a *Agent) runLocal(ctx context.Context, input string) (string, error) {
 		return response, nil
 	}
 
+	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
 	allTools := a.tools
-
-	// Add MCP tools if available
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log the error but continue with the agent tools
-			fmt.Printf("Failed to collect MCP tools: %v\n", err)
-		} else if len(mcpTools) > 0 {
-			allTools = append(allTools, mcpTools...)
-		}
-	}
-
-	// Add lazy MCP tools if available
-	if len(a.lazyMCPConfigs) > 0 {
-		lazyMCPTools := a.createLazyMCPTools()
-		allTools = append(allTools, lazyMCPTools...)
-	}
 	// If tools are available and plan approval is required, generate an execution plan
 	if (len(allTools) > 0) && a.requirePlanApproval {
 		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
@@ -720,6 +714,18 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 				continue
 			}
 
+			// Log discovered server metadata
+			if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+				fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+				fmt.Printf("  Name: %s\n", serverInfo.Name)
+				if serverInfo.Title != "" {
+					fmt.Printf("  Title: %s\n", serverInfo.Title)
+				}
+				if serverInfo.Version != "" {
+					fmt.Printf("  Version: %s\n", serverInfo.Version)
+				}
+			}
+
 			// Discover available tools from the server
 			discoveredTools, err := server.ListTools(ctx)
 			if err != nil {
@@ -732,6 +738,9 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			// Create lazy tools for each discovered tool
 			for _, discoveredTool := range discoveredTools {
 				fmt.Printf("Creating lazy tool: %s\n", discoveredTool.Name)
+				fmt.Printf("  Description: '%s'\n", discoveredTool.Description)
+				fmt.Printf("  Schema: %+v\n", discoveredTool.Schema)
+
 				lazyTool := mcp.NewLazyMCPTool(
 					discoveredTool.Name,
 					discoveredTool.Description,
@@ -741,6 +750,25 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 				lazyTools = append(lazyTools, lazyTool)
 			}
 		} else {
+			// Create a temporary server instance to discover metadata even for configured tools
+			ctx := context.Background()
+			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
+			if err != nil {
+				fmt.Printf("Warning: Failed to create server for metadata discovery: %v\n", err)
+			} else {
+				// Log discovered server metadata
+				if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+					fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+					fmt.Printf("  Name: %s\n", serverInfo.Name)
+					if serverInfo.Title != "" {
+						fmt.Printf("  Title: %s\n", serverInfo.Title)
+					}
+					if serverInfo.Version != "" {
+						fmt.Printf("  Version: %s\n", serverInfo.Version)
+					}
+				}
+			}
+
 			// Create lazy tools for each configured tool
 			for _, toolConfig := range config.Tools {
 				fmt.Printf("Creating tool: %s\n", toolConfig.Name)
@@ -1258,6 +1286,7 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
+	// Return pre-initialized tools (manual + MCP tools already combined during agent creation)
 	return a.tools
 }
 
@@ -1364,4 +1393,36 @@ func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// initializeMCPTools eagerly initializes MCP tools during agent creation
+func (a *Agent) initializeMCPTools() error {
+	ctx := context.Background()
+
+	// Initialize regular MCP tools if available
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to collect MCP server tools: %w", err)
+		}
+		// Add MCP tools to the main tools slice
+		a.tools = append(a.tools, mcpTools...)
+		fmt.Printf("Initialized %d MCP server tools\n", len(mcpTools))
+	}
+
+	// Initialize lazy MCP tools if available
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		// Add lazy MCP tools to the main tools slice
+		a.tools = append(a.tools, lazyMCPTools...)
+		fmt.Printf("Initialized %d lazy MCP tools\n", len(lazyMCPTools))
+	}
+
+	return nil
+}
+
+// getAllToolsSync returns all tools (manual + MCP) synchronously for use during initialization
+func (a *Agent) getAllToolsSync() []interfaces.Tool {
+	// At this point, a.tools already contains manual tools + initialized MCP tools
+	return a.tools
 }

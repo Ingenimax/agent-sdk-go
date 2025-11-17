@@ -21,15 +21,17 @@ const (
 
 // LazyMCPServerCache manages shared MCP server instances
 type LazyMCPServerCache struct {
-	servers map[string]interfaces.MCPServer
-	mu      sync.RWMutex
-	logger  logging.Logger
+	servers        map[string]interfaces.MCPServer
+	serverMetadata map[string]*interfaces.MCPServerInfo
+	mu             sync.RWMutex
+	logger         logging.Logger
 }
 
 // Global server cache to share instances across tools
 var globalServerCache = &LazyMCPServerCache{
-	servers: make(map[string]interfaces.MCPServer),
-	logger:  logging.New(),
+	servers:        make(map[string]interfaces.MCPServer),
+	serverMetadata: make(map[string]*interfaces.MCPServerInfo),
+	logger:         logging.New(),
 }
 
 // getOrCreateServer gets an existing server or creates a new one
@@ -85,9 +87,21 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 	}
 
 	cache.servers[serverKey] = server
-	cache.logger.Info(ctx, "MCP server initialized successfully", map[string]interface{}{
-		"server_name": config.Name,
-	})
+
+	// Capture server metadata if available
+	if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+		cache.serverMetadata[serverKey] = serverInfo
+		cache.logger.Info(ctx, "MCP server initialized successfully with metadata", map[string]interface{}{
+			"server_name":        config.Name,
+			"discovered_name":    serverInfo.Name,
+			"discovered_title":   serverInfo.Title,
+			"discovered_version": serverInfo.Version,
+		})
+	} else {
+		cache.logger.Info(ctx, "MCP server initialized successfully", map[string]interface{}{
+			"server_name": config.Name,
+		})
+	}
 
 	// Wait for MCP server to be ready with retries
 	cache.logger.Info(ctx, "Waiting for MCP server to be ready", map[string]interface{}{
@@ -143,6 +157,7 @@ type LazyMCPTool struct {
 	schema       interface{} // Will be discovered dynamically
 	schemaLoaded bool        // Track if schema has been loaded
 	serverConfig LazyMCPServerConfig
+	serverInfo   *interfaces.MCPServerInfo // Discovered server metadata
 	logger       logging.Logger
 	mu           sync.RWMutex // Protect schema loading
 }
@@ -171,7 +186,16 @@ func (t *LazyMCPTool) DisplayName() string {
 
 // Description returns a description of what the tool does
 func (t *LazyMCPTool) Description() string {
-	return t.description
+	if t.description != "" {
+		return t.description
+	}
+
+	// Fallback to server context if no tool-specific description
+	if t.serverInfo != nil && t.serverInfo.Title != "" {
+		return fmt.Sprintf("%s (from %s)", t.name, t.serverInfo.Title)
+	}
+
+	return fmt.Sprintf("%s (MCP tool)", t.name)
 }
 
 // Internal implements interfaces.InternalTool.Internal
@@ -181,7 +205,22 @@ func (t *LazyMCPTool) Internal() bool {
 
 // getServer gets the MCP server, initializing it if necessary
 func (t *LazyMCPTool) getServer(ctx context.Context) (interfaces.MCPServer, error) {
-	return globalServerCache.getOrCreateServer(ctx, t.serverConfig)
+	server, err := globalServerCache.getOrCreateServer(ctx, t.serverConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load server metadata if not already loaded
+	if t.serverInfo == nil {
+		serverKey := fmt.Sprintf("%s:%s:%v", t.serverConfig.Type, t.serverConfig.Name, t.serverConfig.Command)
+		globalServerCache.mu.RLock()
+		if metadata, exists := globalServerCache.serverMetadata[serverKey]; exists {
+			t.serverInfo = metadata
+		}
+		globalServerCache.mu.RUnlock()
+	}
+
+	return server, nil
 }
 
 // discoverSchema discovers the tool's schema from the MCP server
@@ -493,4 +532,12 @@ func (t *LazyMCPTool) Execute(ctx context.Context, args string) (string, error) 
 // GetOrCreateServerFromCache provides public access to the global server cache
 func GetOrCreateServerFromCache(ctx context.Context, config LazyMCPServerConfig) (interfaces.MCPServer, error) {
 	return globalServerCache.getOrCreateServer(ctx, config)
+}
+
+// GetServerMetadataFromCache gets server metadata from the global cache
+func GetServerMetadataFromCache(config LazyMCPServerConfig) *interfaces.MCPServerInfo {
+	serverKey := fmt.Sprintf("%s:%s:%v", config.Type, config.Name, config.Command)
+	globalServerCache.mu.RLock()
+	defer globalServerCache.mu.RUnlock()
+	return globalServerCache.serverMetadata[serverKey]
 }

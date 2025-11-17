@@ -24,51 +24,29 @@ devops_expert:
       retry_attempts: 3
       log_level: "info"
 
-    servers:
+    mcpServers:
       # File system access for log analysis and configuration management
-      - name: "filesystem"
-        type: "stdio"
+      filesystem:
         command: "npx"
         args: ["@modelcontextprotocol/server-filesystem", "/var/log", "/etc", "/tmp"]
-        enabled: true
-        description: "System file and log access"
-        tags: ["files", "logs", "config"]
 
-      # System monitoring tools (example - would need actual MCP server)
-      - name: "system_monitor"
-        type: "stdio"
-        command: "python3"
-        args: ["-m", "mcp_system_monitor"]
-        enabled: false  # Disabled - would need actual server
-        description: "System metrics and process monitoring"
-        tags: ["monitoring", "metrics", "processes"]
+      # GitHub API for repository and deployment status (disabled via comment)
+      # github_api:
+      #   url: "https://api.github.com/mcp"
+      #   token: "${GITHUB_TOKEN}"
 
-      # Docker/container management (example - would need actual MCP server)
-      - name: "docker_tools"
-        type: "stdio"
-        command: "docker-mcp-server"
-        args: ["--api-version", "1.41"]
-        enabled: false  # Disabled - would need actual server
-        description: "Docker container management and monitoring"
-        tags: ["docker", "containers", "deployment"]
+      # Example servers (commented out as they would need actual servers)
+      # system_monitor:
+      #   command: "python3"
+      #   args: ["-m", "mcp_system_monitor"]
 
-      # GitHub API for repository and deployment status
-      - name: "github_api"
-        type: "http"
-        url: "https://api.github.com/mcp"
-        token: "${GITHUB_TOKEN}"
-        enabled: false  # Disabled - requires token
-        description: "GitHub repository and deployment management"
-        tags: ["git", "deployment", "ci_cd"]
+      # docker_tools:
+      #   command: "docker-mcp-server"
+      #   args: ["--api-version", "1.41"]
 
-      # Kubernetes cluster management (example)
-      - name: "kubernetes"
-        type: "stdio"
-        command: "kubectl-mcp-server"
-        args: ["--context", "production"]
-        enabled: false  # Disabled - requires cluster access
-        description: "Kubernetes cluster monitoring and management"
-        tags: ["kubernetes", "orchestration", "scaling"]
+      # kubernetes:
+      #   command: "kubectl-mcp-server"
+      #   args: ["--context", "production"]
 
 # Simple agent for comparison (no MCP tools)
 basic_helper:

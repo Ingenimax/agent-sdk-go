@@ -1,6 +1,57 @@
 # MCP Server Configuration Example (YAML)
 # This file demonstrates how to configure MCP servers for an agent
 
+mcpServers:
+  # File system MCP server using stdio
+  filesystem:
+    command: "npx"
+    args: ["@modelcontextprotocol/server-filesystem", "/Users/username/projects"]
+
+  # GitHub MCP server using HTTP with API token
+  github:
+    url: "https://api.github.com/mcp"
+    token: "${GITHUB_TOKEN}"
+
+  # Weather API MCP server
+  weather:
+    url: "https://weather-mcp-server.example.com"
+    token: "${WEATHER_API_KEY}"
+
+  # Local database MCP server via stdio
+  database:
+    command: "./bin/db-mcp-server"
+    args: ["--config", "config.json", "--database", "production"]
+    env:
+      DB_HOST: "localhost"
+      DB_PORT: "5432"
+      DB_NAME: "myapp"
+
+  # Slack MCP server
+  slack:
+    url: "https://slack.com/api/mcp"
+    token: "${SLACK_BOT_TOKEN}"
+
+  # Calculator MCP server (simple example)
+  calculator:
+    command: "python"
+    args: ["-m", "mcp_calculator"]
+
+  # Context7 MCP server
+  context7:
+    command: "npx"
+    args: ["-y", "@upstash/context7-mcp@latest"]
+
+  # ArXiv MCP server
+  arxiv-server:
+    command: "uv"
+    args:
+      - "tool"
+      - "run"
+      - "arxiv-mcp-server"
+      - "--storage-path"
+      - "/tmp/arxiv-papers"
+
+# Global MCP configuration (optional - defaults shown)
 global:
   timeout: "30s"
   retry_attempts: 3
@@ -10,65 +61,3 @@ global:
   enable_sampling: true
   enable_schemas: true
   log_level: "info"
-
-servers:
-  # File system MCP server using stdio
-  - name: "filesystem"
-    type: "stdio"
-    command: "npx"
-    args: ["@modelcontextprotocol/server-filesystem", "/Users/username/projects"]
-    enabled: true
-    description: "Provides access to local filesystem operations"
-    tags: ["filesystem", "local"]
-
-  # GitHub MCP server using HTTP with API token
-  - name: "github"
-    type: "http"
-    url: "https://api.github.com/mcp"
-    token: "${GITHUB_TOKEN}"
-    enabled: true
-    description: "GitHub repository and issue management"
-    tags: ["github", "git", "repository"]
-    config:
-      rate_limit: "5000"
-      timeout: "15s"
-
-  # Weather API MCP server
-  - name: "weather"
-    type: "http"
-    url: "https://weather-mcp-server.example.com"
-    token: "${WEATHER_API_KEY}"
-    enabled: true
-    description: "Weather information and forecasts"
-    tags: ["weather", "api"]
-
-  # Local database MCP server via stdio
-  - name: "database"
-    type: "stdio"
-    command: "./bin/db-mcp-server"
-    args: ["--config", "config.json", "--database", "production"]
-    env:
-      - "DB_HOST=localhost"
-      - "DB_PORT=5432"
-      - "DB_NAME=myapp"
-    enabled: false  # Disabled by default
-    description: "Database query and management operations"
-    tags: ["database", "sql"]
-
-  # Slack MCP server
-  - name: "slack"
-    type: "http"
-    url: "https://slack.com/api/mcp"
-    token: "${SLACK_BOT_TOKEN}"
-    enabled: false
-    description: "Slack workspace integration"
-    tags: ["slack", "communication"]
-
-  # Calculator MCP server (simple example)
-  - name: "calculator"
-    type: "stdio"
-    command: "python"
-    args: ["-m", "mcp_calculator"]
-    enabled: true
-    description: "Mathematical calculations and computations"
-    tags: ["math", "calculator"]

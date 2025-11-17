@@ -36,6 +36,13 @@ type MCPServer interface {
 	// CreateMessage requests the client to generate a completion using its LLM
 	CreateMessage(ctx context.Context, request *MCPSamplingRequest) (*MCPSamplingResponse, error)
 
+	// Metadata discovery methods
+	// GetServerInfo returns the server metadata discovered during initialization
+	GetServerInfo() (*MCPServerInfo, error)
+
+	// GetCapabilities returns the server capabilities discovered during initialization
+	GetCapabilities() (*MCPServerCapabilities, error)
+
 	// Close closes the connection to the MCP server
 	Close() error
 }
@@ -105,11 +112,11 @@ const (
 
 // MCPPrompt represents a prompt template available on an MCP server
 type MCPPrompt struct {
-	Name        string                       `json:"name"`
-	Description string                       `json:"description,omitempty"`
-	Arguments   []MCPPromptArgument          `json:"arguments,omitempty"`
-	Schema      map[string]interface{}       `json:"schema,omitempty"`
-	Metadata    map[string]string            `json:"metadata,omitempty"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Arguments   []MCPPromptArgument    `json:"arguments,omitempty"`
+	Schema      map[string]interface{} `json:"schema,omitempty"`
+	Metadata    map[string]string      `json:"metadata,omitempty"`
 }
 
 // MCPPromptArgument represents an argument for a prompt template
@@ -139,13 +146,13 @@ type MCPPromptMessage struct {
 
 // MCPSamplingRequest represents a request for LLM sampling
 type MCPSamplingRequest struct {
-	Messages         []MCPMessage          `json:"messages"`
-	ModelPreferences *MCPModelPreferences  `json:"modelPreferences,omitempty"`
-	SystemPrompt     string                `json:"systemPrompt,omitempty"`
-	IncludeContext   string                `json:"includeContext,omitempty"`
-	Temperature      *float64              `json:"temperature,omitempty"`
-	MaxTokens        *int                  `json:"maxTokens,omitempty"`
-	StopSequences    []string              `json:"stopSequences,omitempty"`
+	Messages         []MCPMessage           `json:"messages"`
+	ModelPreferences *MCPModelPreferences   `json:"modelPreferences,omitempty"`
+	SystemPrompt     string                 `json:"systemPrompt,omitempty"`
+	IncludeContext   string                 `json:"includeContext,omitempty"`
+	Temperature      *float64               `json:"temperature,omitempty"`
+	MaxTokens        *int                   `json:"maxTokens,omitempty"`
+	StopSequences    []string               `json:"stopSequences,omitempty"`
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -168,9 +175,9 @@ type MCPMessage struct {
 
 // MCPContent represents different types of content
 type MCPContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-	Data string `json:"data,omitempty"` // base64 encoded for images/audio
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"` // base64 encoded for images/audio
 	MimeType string `json:"mimeType,omitempty"`
 }
 
@@ -195,4 +202,34 @@ type MCPTokenUsage struct {
 	PromptTokens     int `json:"promptTokens,omitempty"`
 	CompletionTokens int `json:"completionTokens,omitempty"`
 	TotalTokens      int `json:"totalTokens,omitempty"`
+}
+
+// MCPServerInfo represents server metadata discovered during initialization
+type MCPServerInfo struct {
+	Name    string `json:"name"`              // Required: server identifier
+	Title   string `json:"title,omitempty"`   // Optional: human-readable title
+	Version string `json:"version,omitempty"` // Optional: server version
+}
+
+// MCPServerCapabilities represents server capabilities discovered during initialization
+type MCPServerCapabilities struct {
+	Tools     *MCPToolCapabilities     `json:"tools,omitempty"`
+	Resources *MCPResourceCapabilities `json:"resources,omitempty"`
+	Prompts   *MCPPromptCapabilities   `json:"prompts,omitempty"`
+}
+
+// MCPToolCapabilities represents tool-related capabilities
+type MCPToolCapabilities struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// MCPResourceCapabilities represents resource-related capabilities
+type MCPResourceCapabilities struct {
+	Subscribe   bool `json:"subscribe,omitempty"`
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// MCPPromptCapabilities represents prompt-related capabilities
+type MCPPromptCapabilities struct {
+	ListChanged bool `json:"listChanged,omitempty"`
 }

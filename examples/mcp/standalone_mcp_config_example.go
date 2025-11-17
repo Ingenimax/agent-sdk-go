@@ -31,7 +31,7 @@ func main() {
 		fmt.Printf("Failed to load MCP config: %v\n", err)
 		return
 	}
-	fmt.Printf("✅ Loaded MCP config with %d servers\n", len(mcpConfig.Servers))
+	fmt.Printf("✅ Loaded MCP config with %d servers\n", len(mcpConfig.MCPServers))
 
 	// Validate configuration
 	if err := agent.ValidateMCPConfig(mcpConfig); err != nil {
@@ -57,17 +57,12 @@ func main() {
 
 	// Show configured tools
 	agentConfig := agent.GetMCPConfigFromAgent(devopsAgent)
-	enabledServers := 0
 	fmt.Println("\n3. Available MCP tools:")
-	for _, server := range agentConfig.Servers {
-		if server.Enabled {
-			enabledServers++
-			fmt.Printf("   ✅ %s (%s): %s\n", server.Name, server.Type, server.Description)
-		} else {
-			fmt.Printf("   ⏸️ %s (%s): %s [DISABLED]\n", server.Name, server.Type, server.Description)
-		}
+	for serverName, server := range agentConfig.MCPServers {
+		serverType := server.GetServerType()
+		fmt.Printf("   ✅ %s (%s)\n", serverName, serverType)
 	}
-	fmt.Printf("\n📊 Total: %d servers (%d enabled)\n", len(agentConfig.Servers), enabledServers)
+	fmt.Printf("\n📊 Total: %d servers\n", len(agentConfig.MCPServers))
 
 	// Export configuration to different formats
 	fmt.Println("\n4. Exporting configuration...")

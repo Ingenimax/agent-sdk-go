@@ -21,8 +21,10 @@ import (
 
 // MCPServerImpl is the implementation of interfaces.MCPServer using the official SDK
 type MCPServerImpl struct {
-	session *mcp.ClientSession
-	logger  logging.Logger
+	session      *mcp.ClientSession
+	logger       logging.Logger
+	serverInfo   *interfaces.MCPServerInfo
+	capabilities *interfaces.MCPServerCapabilities
 }
 
 const TraceParentAttribute = "traceparent"
@@ -54,6 +56,36 @@ func tracingMiddleware(h mcp.MethodHandler) mcp.MethodHandler {
 	}
 }
 
+// convertMCPCapabilities converts mcp.ServerCapabilities to interfaces.MCPServerCapabilities
+func convertMCPCapabilities(caps *mcp.ServerCapabilities) *interfaces.MCPServerCapabilities {
+	if caps == nil {
+		return nil
+	}
+
+	result := &interfaces.MCPServerCapabilities{}
+
+	if caps.Tools != nil {
+		result.Tools = &interfaces.MCPToolCapabilities{
+			ListChanged: caps.Tools.ListChanged,
+		}
+	}
+
+	if caps.Resources != nil {
+		result.Resources = &interfaces.MCPResourceCapabilities{
+			Subscribe:   caps.Resources.Subscribe,
+			ListChanged: caps.Resources.ListChanged,
+		}
+	}
+
+	if caps.Prompts != nil {
+		result.Prompts = &interfaces.MCPPromptCapabilities{
+			ListChanged: caps.Prompts.ListChanged,
+		}
+	}
+
+	return result
+}
+
 // NewMCPServer creates a new MCPServer with the given transport using the official SDK
 func NewMCPServer(ctx context.Context, transport mcp.Transport) (interfaces.MCPServer, error) {
 	// Create logger
@@ -76,11 +108,44 @@ func NewMCPServer(ctx context.Context, transport mcp.Transport) (interfaces.MCPS
 		return nil, err
 	}
 
-	logger.Debug(ctx, "MCP server connection established", nil)
+	// Get initialization result immediately after connection
+	initResult := session.InitializeResult()
+
+	var serverInfo *interfaces.MCPServerInfo
+	var capabilities *interfaces.MCPServerCapabilities
+
+	if initResult != nil {
+		// Extract server info (standard MCP fields)
+		if initResult.ServerInfo != nil {
+			serverInfo = &interfaces.MCPServerInfo{
+				Name:    initResult.ServerInfo.Name,    // Always present
+				Title:   initResult.ServerInfo.Title,   // Optional
+				Version: initResult.ServerInfo.Version, // Optional
+			}
+
+			logger.Info(ctx, "Discovered MCP server metadata", map[string]interface{}{
+				"server_name":    serverInfo.Name,
+				"server_title":   serverInfo.Title,
+				"server_version": serverInfo.Version,
+			})
+		}
+
+		// Extract capabilities
+		if initResult.Capabilities != nil {
+			capabilities = convertMCPCapabilities(initResult.Capabilities)
+		}
+	}
+
+	logger.Debug(ctx, "MCP server connection established with metadata", map[string]interface{}{
+		"has_server_info":  serverInfo != nil,
+		"has_capabilities": capabilities != nil,
+	})
 
 	return &MCPServerImpl{
-		session: session,
-		logger:  logger,
+		session:      session,
+		logger:       logger,
+		serverInfo:   serverInfo,
+		capabilities: capabilities,
 	}, nil
 }
 
@@ -566,6 +631,16 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 	return response, nil
 }
 
+// GetServerInfo returns the server metadata discovered during initialization
+func (s *MCPServerImpl) GetServerInfo() (*interfaces.MCPServerInfo, error) {
+	return s.serverInfo, nil
+}
+
+// GetCapabilities returns the server capabilities discovered during initialization
+func (s *MCPServerImpl) GetCapabilities() (*interfaces.MCPServerCapabilities, error) {
+	return s.capabilities, nil
+}
+
 // Close closes the connection to the MCP server
 func (s *MCPServerImpl) Close() error {
 	s.logger.Debug(context.Background(), "Closing MCP server connection", nil)
@@ -655,11 +730,44 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		return nil, mcpErr
 	}
 
-	logger.Debug(ctx, "MCP server connection established", nil)
+	// Get initialization result immediately after connection
+	initResult := session.InitializeResult()
+
+	var serverInfo *interfaces.MCPServerInfo
+	var capabilities *interfaces.MCPServerCapabilities
+
+	if initResult != nil {
+		// Extract server info (standard MCP fields)
+		if initResult.ServerInfo != nil {
+			serverInfo = &interfaces.MCPServerInfo{
+				Name:    initResult.ServerInfo.Name,    // Always present
+				Title:   initResult.ServerInfo.Title,   // Optional
+				Version: initResult.ServerInfo.Version, // Optional
+			}
+
+			logger.Info(ctx, "Discovered MCP server metadata", map[string]interface{}{
+				"server_name":    serverInfo.Name,
+				"server_title":   serverInfo.Title,
+				"server_version": serverInfo.Version,
+			})
+		}
+
+		// Extract capabilities
+		if initResult.Capabilities != nil {
+			capabilities = convertMCPCapabilities(initResult.Capabilities)
+		}
+	}
+
+	logger.Debug(ctx, "MCP server connection established with metadata", map[string]interface{}{
+		"has_server_info":  serverInfo != nil,
+		"has_capabilities": capabilities != nil,
+	})
 
 	server := &MCPServerImpl{
-		session: session,
-		logger:  logger,
+		session:      session,
+		logger:       logger,
+		serverInfo:   serverInfo,
+		capabilities: capabilities,
 	}
 
 	// Wrap with retry logic if configured
@@ -779,13 +887,45 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 		return nil, mcpErr
 	}
 
-	logger.Debug(ctx, "HTTP MCP server connection established", map[string]interface{}{
-		"base_url": config.BaseURL,
+	// Get initialization result immediately after connection
+	initResult := session.InitializeResult()
+
+	var serverInfo *interfaces.MCPServerInfo
+	var capabilities *interfaces.MCPServerCapabilities
+
+	if initResult != nil {
+		// Extract server info (standard MCP fields)
+		if initResult.ServerInfo != nil {
+			serverInfo = &interfaces.MCPServerInfo{
+				Name:    initResult.ServerInfo.Name,    // Always present
+				Title:   initResult.ServerInfo.Title,   // Optional
+				Version: initResult.ServerInfo.Version, // Optional
+			}
+
+			logger.Info(ctx, "Discovered MCP server metadata", map[string]interface{}{
+				"server_name":    serverInfo.Name,
+				"server_title":   serverInfo.Title,
+				"server_version": serverInfo.Version,
+			})
+		}
+
+		// Extract capabilities
+		if initResult.Capabilities != nil {
+			capabilities = convertMCPCapabilities(initResult.Capabilities)
+		}
+	}
+
+	logger.Debug(ctx, "HTTP MCP server connection established with metadata", map[string]interface{}{
+		"base_url":         config.BaseURL,
+		"has_server_info":  serverInfo != nil,
+		"has_capabilities": capabilities != nil,
 	})
 
 	server := &MCPServerImpl{
-		session: session,
-		logger:  logger,
+		session:      session,
+		logger:       logger,
+		serverInfo:   serverInfo,
+		capabilities: capabilities,
 	}
 
 	// Wrap with retry logic if configured

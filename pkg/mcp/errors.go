@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // MCPError represents a structured error from MCP operations
@@ -14,6 +15,7 @@ type MCPError struct {
 	Cause      error             // The underlying error
 	Retryable  bool              // Whether the error might succeed on retry
 	Metadata   map[string]string // Additional context
+	mutex      sync.RWMutex      // Protects metadata access
 }
 
 // MCPErrorType categorizes different types of MCP errors
@@ -86,8 +88,11 @@ func (e *MCPError) IsRetryable() bool {
 	return e.Retryable
 }
 
-// WithMetadata adds metadata to the error
+// WithMetadata adds metadata to the error (thread-safe)
 func (e *MCPError) WithMetadata(key, value string) *MCPError {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
 	if e.Metadata == nil {
 		e.Metadata = make(map[string]string)
 	}
@@ -175,6 +180,7 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 	switch {
 	case strings.Contains(errMsg, "connection refused") ||
 		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "connection timeout") ||
 		strings.Contains(errMsg, "no route to host") ||
 		strings.Contains(errMsg, "network unreachable"):
 		errorType = MCPErrorTypeConnection
@@ -209,19 +215,20 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 		strings.Contains(errMsg, "parse"):
 		errorType = MCPErrorTypeSerialization
 
-	case strings.Contains(errMsg, "protocol") ||
-		strings.Contains(errMsg, "invalid response") ||
-		strings.Contains(errMsg, "unexpected"):
-		errorType = MCPErrorTypeProtocol
-
 	case strings.Contains(errMsg, "config") ||
 		strings.Contains(errMsg, "validation"):
 		errorType = MCPErrorTypeConfiguration
 
+	// Server crash errors - check these before protocol errors to avoid conflicts
 	case strings.Contains(errMsg, "server crashed") ||
 		strings.Contains(errMsg, "process exited") ||
 		strings.Contains(errMsg, "broken pipe"):
 		errorType = MCPErrorTypeServerCrash
+
+	case strings.Contains(errMsg, "protocol") ||
+		strings.Contains(errMsg, "invalid response") ||
+		(strings.Contains(errMsg, "unexpected") && strings.Contains(errMsg, "response")):
+		errorType = MCPErrorTypeProtocol
 
 	default:
 		errorType = MCPErrorTypeUnknown

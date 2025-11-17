@@ -167,6 +167,18 @@ func (r *RetryableServer) CreateMessage(ctx context.Context, request *interfaces
 	return result, err
 }
 
+// GetServerInfo returns server metadata
+func (r *RetryableServer) GetServerInfo() (*interfaces.MCPServerInfo, error) {
+	// Delegate to underlying server - no retry needed for metadata access
+	return r.server.GetServerInfo()
+}
+
+// GetCapabilities returns server capabilities
+func (r *RetryableServer) GetCapabilities() (*interfaces.MCPServerCapabilities, error) {
+	// Delegate to underlying server - no retry needed for metadata access
+	return r.server.GetCapabilities()
+}
+
 // Close closes the connection (no retry needed)
 func (r *RetryableServer) Close() error {
 	return r.server.Close()

@@ -56,13 +56,10 @@ func main() {
 	// Show MCP configuration
 	mcpConfig := agent.GetMCPConfigFromAgent(agentInstance)
 	if mcpConfig != nil {
-		fmt.Printf("🛠️  Agent configured with %d MCP servers:\n", len(mcpConfig.Servers))
-		for _, server := range mcpConfig.Servers {
-			status := "✅"
-			if !server.Enabled {
-				status = "⏸️"
-			}
-			fmt.Printf("   %s %s (%s): %s\n", status, server.Name, server.Type, server.Description)
+		fmt.Printf("🛠️  Agent configured with %d MCP servers:\n", len(mcpConfig.MCPServers))
+		for serverName, server := range mcpConfig.MCPServers {
+			serverType := server.GetServerType()
+			fmt.Printf("   ✅ %s (%s)\n", serverName, serverType)
 		}
 	}
 

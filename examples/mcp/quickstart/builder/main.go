@@ -30,7 +30,7 @@ func main() {
 		// Configure retry behavior - 3 attempts with 2 second initial delay
 		WithRetry(3, 2*time.Second).
 		// Set connection timeout to 30 seconds
-		WithTimeout(30*time.Second).
+		WithTimeout(30 * time.Second).
 		// Enable health checks to verify servers on startup
 		WithHealthCheck(true)
 
@@ -118,7 +118,7 @@ func main() {
 	fmt.Println("\n=== Eager Initialization Example ===")
 
 	eagerBuilder := mcp.NewBuilder().
-		WithHealthCheck(true).  // This will initialize servers immediately
+		WithHealthCheck(true). // This will initialize servers immediately
 		AddPreset("time")
 
 	servers, _, err := eagerBuilder.Build(context.Background())

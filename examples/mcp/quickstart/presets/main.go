@@ -48,7 +48,7 @@ func main() {
 
 		// Add common MCP servers using presets
 		agent.WithMCPPresets(
-			"filesystem",  // File system operations
+			"filesystem", // File system operations
 			"time",       // Date/time operations
 			"fetch",      // HTTP requests
 			// "github",     // Uncomment if GITHUB_TOKEN is set
