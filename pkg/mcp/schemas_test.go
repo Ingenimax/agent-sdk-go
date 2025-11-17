@@ -310,7 +310,10 @@ func BenchmarkSchemaValidator_ValidateToolResponse(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		validator.ValidateToolResponse(ctx, tool, response)
+		err := validator.ValidateToolResponse(ctx, tool, response)
+		if err != nil {
+			assert.Fail(b, "ValidateToolResponse failed", err)
+		}
 	}
 }
 
@@ -362,6 +365,9 @@ func BenchmarkSchemaValidator_ComplexSchema(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		validator.validateAgainstSchema(ctx, data, schema, "benchmark-tool")
+		err := validator.validateAgainstSchema(ctx, data, schema, "benchmark-tool")
+		if err != nil {
+			assert.Fail(b, "validateAgainstSchema failed", err)
+		}
 	}
 }

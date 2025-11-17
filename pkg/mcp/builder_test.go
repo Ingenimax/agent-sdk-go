@@ -539,6 +539,9 @@ func BenchmarkBuilder_parseServerURL(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		builder.parseServerURL(urls[i%len(urls)])
+		_, _, err := builder.parseServerURL(urls[i%len(urls)])
+		if err != nil {
+			assert.Fail(b, "parseServerURL failed", err)
+		}
 	}
 }

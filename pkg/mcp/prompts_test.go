@@ -816,7 +816,10 @@ func BenchmarkPromptManager_FindPrompts(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		manager.FindPrompts(ctx, "prompt")
+		_, err := manager.FindPrompts(ctx, "prompt")
+		if err != nil {
+			assert.Fail(b, "FindPrompts failed", err)
+		}
 	}
 }
 

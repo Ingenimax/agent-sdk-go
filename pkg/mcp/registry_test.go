@@ -70,9 +70,13 @@ func TestRegistryClient_Integration(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"servers": mockServers,
 			})
+			if err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
 
 		case "/servers/github-mcp-server":
 			// Mock response for getting specific server
@@ -91,7 +95,11 @@ func TestRegistryClient_Integration(t *testing.T) {
 				// License:     "MIT",
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(mockServer)
+			err := json.NewEncoder(w).Encode(mockServer)
+			if err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
 
 		case "/search":
 			// Mock response for search
@@ -110,10 +118,14 @@ func TestRegistryClient_Integration(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"results": mockResults,
 				"total":   len(mockResults),
 			})
+			if err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -235,13 +247,21 @@ func TestRegistryClient_ErrorHandling(t *testing.T) {
 		switch r.URL.Path {
 		case "/error":
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Internal Server Error"))
+			_, err := w.Write([]byte("Internal Server Error"))
+			if err != nil {
+				// Log error but don't fail the test server
+				fmt.Printf("Failed to write error response: %v\n", err)
+			}
 		case "/timeout":
 			// Simulate timeout by sleeping longer than client timeout
 			time.Sleep(35 * time.Second)
 		case "/invalid-json":
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("invalid json"))
+			_, err := w.Write([]byte("invalid json"))
+			if err != nil {
+				// Log error but don't fail the test server
+				fmt.Printf("Failed to write invalid json response: %v\n", err)
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

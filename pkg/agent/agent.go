@@ -67,7 +67,6 @@ type Agent struct {
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer   // MCP servers for the agent
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
-	cachedMCPTools       []interfaces.Tool        // Cached MCP tools to avoid repeated discovery
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
 

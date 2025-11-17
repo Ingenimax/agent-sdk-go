@@ -666,7 +666,7 @@ func TestClassifyError_Complexity(t *testing.T) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ClassifyError(errors[i%len(errors)], "Op", "server", "type")
+		_ = ClassifyError(errors[i%len(errors)], "Op", "server", "type")
 	}
 }
 
@@ -682,7 +682,7 @@ func TestMCPError_WithMetadata_Concurrent(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		go func(idx int) {
-			err.WithMetadata(fmt.Sprintf("key%d", idx), fmt.Sprintf("value%d", idx))
+			_ = err.WithMetadata(fmt.Sprintf("key%d", idx), fmt.Sprintf("value%d", idx))
 			done <- true
 		}(i)
 	}
@@ -702,7 +702,7 @@ func BenchmarkNewMCPError(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewMCPError("CallTool", "server", "http", MCPErrorTypeConnection, cause)
+		_ = NewMCPError("CallTool", "server", "http", MCPErrorTypeConnection, cause)
 	}
 }
 
@@ -716,7 +716,7 @@ func BenchmarkClassifyError(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ClassifyError(errors[i%len(errors)], "Op", "server", "type")
+		_ = ClassifyError(errors[i%len(errors)], "Op", "server", "type")
 	}
 }
 

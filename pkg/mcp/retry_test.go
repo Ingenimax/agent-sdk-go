@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -479,13 +478,6 @@ func TestRandomFloat_RaceCondition(t *testing.T) {
 	t.Log("Warning: randomFloat() implementation has potential race conditions - should use math/rand with proper seeding")
 }
 
-// Improved randomFloat implementation for comparison
-func improvedRandomFloat() float64 {
-	// This is what should be used instead
-	source := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(source)
-	return r.Float64()
-}
 
 func TestRetryWithExponentialBackoff(t *testing.T) {
 	ctx := context.Background()
@@ -643,7 +635,10 @@ func BenchmarkRetryableServer_NoRetry(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.Initialize(ctx)
+		err := server.Initialize(ctx)
+		if err != nil {
+			assert.Fail(b, "Initialize failed", err)
+		}
 	}
 }
 
@@ -664,7 +659,10 @@ func BenchmarkRetryableServer_WithRetry(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.Initialize(ctx)
+		err := server.Initialize(ctx)
+		if err != nil {
+			assert.Fail(b, "Initialize failed", err)
+		}
 	}
 }
 

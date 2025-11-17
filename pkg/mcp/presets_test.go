@@ -467,7 +467,10 @@ func BenchmarkGetPreset(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GetPreset(presetNames[i%len(presetNames)])
+		_, err := GetPreset(presetNames[i%len(presetNames)])
+		if err != nil {
+			assert.Fail(b, "GetPreset failed", err)
+		}
 	}
 }
 
@@ -483,7 +486,10 @@ func BenchmarkGetPresetInfo(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GetPresetInfo(presetNames[i%len(presetNames)])
+		_, err := GetPresetInfo(presetNames[i%len(presetNames)])
+		if err != nil {
+			assert.Fail(b, "GetPresetInfo failed", err)
+		}
 	}
 }
 

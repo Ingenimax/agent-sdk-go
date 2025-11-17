@@ -612,7 +612,10 @@ func BenchmarkResourceManager_FindResources(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		manager.FindResources(ctx, "test")
+		_, err := manager.FindResources(ctx, "test")
+		if err != nil {
+			assert.Fail(b, "FindResources failed", err)
+		}
 	}
 }
 

@@ -124,6 +124,9 @@ func BenchmarkSamplingManager_CreateTextMessage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		manager.CreateTextMessage(ctx, "Benchmark prompt")
+		_, err := manager.CreateTextMessage(ctx, "Benchmark prompt")
+		if err != nil {
+			assert.Fail(b, "CreateTextMessage failed", err)
+		}
 	}
 }
