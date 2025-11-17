@@ -472,3 +472,44 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 func (c *VLLMClient) buildPromptWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) string {
 	return memory.BuildInlineHistoryPrompt(ctx, prompt, params.Memory, c.logger)
 }
+
+// GenerateDetailed generates text and returns detailed response information including token usage
+func (c *VLLMClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// Call the existing method and construct a detailed response
+	content, err := c.Generate(ctx, prompt, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a detailed response without usage information (vLLM doesn't provide token usage)
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // vLLM doesn't provide token usage information
+		Metadata: map[string]interface{}{
+			"provider": "vllm",
+		},
+	}, nil
+}
+
+// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+func (c *VLLMClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// Call the existing method and construct a detailed response
+	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a detailed response without usage information
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // vLLM doesn't provide token usage information
+		Metadata: map[string]interface{}{
+			"provider":   "vllm",
+			"tools_used": true,
+		},
+	}, nil
+}

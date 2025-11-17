@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -511,29 +512,219 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 
 // Run runs the agent with the given input
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
-	// If custom run function is set, use it instead
-	if a.customRunFunc != nil {
-		return a.customRunFunc(ctx, input, a)
+	response, err := a.runInternal(ctx, input, false)
+	if err != nil {
+		return "", err
 	}
-
-	// If this is a remote agent, delegate to remote execution
-	if a.isRemote {
-		return a.runRemote(ctx, input)
-	}
-
-	// Local agent execution
-	return a.runLocal(ctx, input)
+	return response.Content, nil
 }
 
-// RunWithAuth executes the agent with an explicit auth token
-func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
-	// If this is a remote agent, delegate to remote execution with auth token
-	if a.isRemote {
-		return a.runRemoteWithAuth(ctx, input, authToken)
+func (a *Agent) RunDetailed(ctx context.Context, input string) (*interfaces.AgentResponse, error) {
+	return a.runInternal(ctx, input, true)
+}
+
+func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*interfaces.AgentResponse, error) {
+	startTime := time.Now()
+
+	tracker := newUsageTracker(detailed)
+	ctx = withUsageTracker(ctx, tracker)
+
+	var response string
+	var err error
+
+	if a.customRunFunc != nil {
+		response, err = a.customRunFunc(ctx, input, a)
+		if err != nil {
+			return nil, err
+		}
+	} else if a.isRemote {
+		response, err = a.runRemoteWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		response, err = a.runLocalWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// For local agents, the auth token isn't used but we maintain compatibility
-	return a.runLocal(ctx, input)
+	tracker.setExecutionTime(time.Since(startTime).Milliseconds())
+	usage, execSummary, primaryModel := tracker.getResults()
+
+	var execSum interfaces.ExecutionSummary
+	if execSummary != nil {
+		execSum = *execSummary
+	}
+
+	// Log detailed execution information for all agent calls
+	if detailed {
+		executionDetails := map[string]interface{}{
+			"agent_name":        a.name,
+			"input_length":      len(input),
+			"response_length":   len(response),
+			"model_used":        primaryModel,
+			"execution_time_ms": time.Since(startTime).Milliseconds(),
+		}
+		if execSummary != nil {
+			executionDetails["llm_calls"] = execSummary.LLMCalls
+			executionDetails["tool_calls"] = execSummary.ToolCalls
+			executionDetails["sub_agent_calls"] = execSummary.SubAgentCalls
+			executionDetails["used_tools"] = execSummary.UsedTools
+			executionDetails["used_sub_agents"] = execSummary.UsedSubAgents
+		}
+		if usage != nil {
+			executionDetails["input_tokens"] = usage.InputTokens
+			executionDetails["output_tokens"] = usage.OutputTokens
+			executionDetails["total_tokens"] = usage.TotalTokens
+			executionDetails["reasoning_tokens"] = usage.ReasoningTokens
+		}
+		log.Printf("[Agent SDK] Agent execution completed: %+v", executionDetails)
+	}
+
+	return &interfaces.AgentResponse{
+		Content:          response,
+		Usage:            usage,
+		AgentName:        a.name,
+		Model:            primaryModel,
+		ExecutionSummary: execSum,
+		Metadata: map[string]interface{}{
+			"agent_name":           a.name,
+			"execution_timestamp":  startTime.Unix(),
+			"execution_duration_ms": time.Since(startTime).Milliseconds(),
+		},
+	}, nil
+}
+
+func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string, error) {
+	ctx = tracing.WithAgentName(ctx, a.name)
+
+	if a.orgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	var span interfaces.Span
+	if a.tracer != nil {
+		ctx, span = a.tracer.StartSpan(ctx, "agent.Run")
+		defer span.End()
+	}
+
+	if a.memory != nil {
+		if err := a.memory.AddMessage(ctx, interfaces.Message{
+			Role:    interfaces.MessageRoleUser,
+			Content: input,
+		}); err != nil {
+			return "", fmt.Errorf("failed to add user message to memory: %w", err)
+		}
+	}
+
+	if a.guardrails != nil {
+		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
+		if err != nil {
+			return "", fmt.Errorf("guardrails error: %w", err)
+		}
+		input = guardedInput
+	}
+
+	taskID, action, planInput := a.extractPlanAction(input)
+	if taskID != "" {
+		return a.handlePlanAction(ctx, taskID, action, planInput)
+	}
+
+	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
+		response := a.generateRoleResponse()
+
+		if a.memory != nil {
+			if err := a.memory.AddMessage(ctx, interfaces.Message{
+				Role:    interfaces.MessageRoleAssistant,
+				Content: response,
+			}); err != nil {
+				return "", fmt.Errorf("failed to add role response to memory: %w", err)
+			}
+		}
+
+		return response, nil
+	}
+
+	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
+	allTools := a.tools
+
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			fmt.Printf("Failed to collect MCP tools: %v\n", err)
+		} else if len(mcpTools) > 0 {
+			allTools = append(allTools, mcpTools...)
+		}
+	}
+
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		allTools = append(allTools, lazyMCPTools...)
+	}
+
+	if (len(allTools) > 0) && a.requirePlanApproval {
+		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
+		return a.runWithExecutionPlan(ctx, input)
+	}
+
+	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, allTools)
+}
+
+func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+	response, err := a.runWithAuthInternal(ctx, input, authToken, false)
+	if err != nil {
+		return "", err
+	}
+	return response.Content, nil
+}
+
+func (a *Agent) RunWithAuthDetailed(ctx context.Context, input string, authToken string) (*interfaces.AgentResponse, error) {
+	return a.runWithAuthInternal(ctx, input, authToken, true)
+}
+
+func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken string, detailed bool) (*interfaces.AgentResponse, error) {
+	startTime := time.Now()
+
+	tracker := newUsageTracker(detailed)
+	ctx = withUsageTracker(ctx, tracker)
+
+	var response string
+	var err error
+
+	if a.isRemote {
+		response, err = a.runRemoteWithAuthTracking(ctx, input, authToken)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		response, err = a.runLocalWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tracker.setExecutionTime(time.Since(startTime).Milliseconds())
+	usage, execSummary, primaryModel := tracker.getResults()
+
+	var execSum interfaces.ExecutionSummary
+	if execSummary != nil {
+		execSum = *execSummary
+	}
+
+	return &interfaces.AgentResponse{
+		Content:          response,
+		Usage:            usage,
+		AgentName:        a.name,
+		Model:            primaryModel,
+		ExecutionSummary: execSum,
+		Metadata: map[string]interface{}{
+			"agent_name":           a.name,
+			"execution_timestamp":  startTime.Unix(),
+			"execution_duration_ms": time.Since(startTime).Milliseconds(),
+			"auth_enabled":         true,
+		},
+	}, nil
 }
 
 // RunStreamWithAuth executes the agent with streaming response and explicit auth token
@@ -547,29 +738,65 @@ func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken s
 	return a.RunStream(ctx, input)
 }
 
-// runRemote executes a remote agent via gRPC
-func (a *Agent) runRemote(ctx context.Context, input string) (string, error) {
+
+func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
 		return "", fmt.Errorf("remote client not initialized")
 	}
 
-	// If orgID is set on the agent, add it to the context
 	if a.orgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	tracker := getUsageTracker(ctx)
+
+	if tracker != nil && tracker.detailed {
+		tracker.execSummary.SubAgentCalls++
+
+		if a.name != "" {
+			found := false
+			for _, used := range tracker.execSummary.UsedSubAgents {
+				if used == a.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tracker.execSummary.UsedSubAgents = append(tracker.execSummary.UsedSubAgents, a.name)
+			}
+		}
 	}
 
 	return a.remoteClient.Run(ctx, input)
 }
 
-// runRemoteWithAuth executes a remote agent via gRPC with explicit auth token
-func (a *Agent) runRemoteWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+
+func (a *Agent) runRemoteWithAuthTracking(ctx context.Context, input string, authToken string) (string, error) {
 	if a.remoteClient == nil {
 		return "", fmt.Errorf("remote client not initialized")
 	}
 
-	// If orgID is set on the agent, add it to the context
 	if a.orgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	tracker := getUsageTracker(ctx)
+
+	if tracker != nil && tracker.detailed {
+		tracker.execSummary.SubAgentCalls++
+
+		if a.name != "" {
+			found := false
+			for _, used := range tracker.execSummary.UsedSubAgents {
+				if used == a.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tracker.execSummary.UsedSubAgents = append(tracker.execSummary.UsedSubAgents, a.name)
+			}
+		}
 	}
 
 	return a.remoteClient.RunWithAuth(ctx, input, authToken)
@@ -587,77 +814,6 @@ func (a *Agent) runRemoteStreamWithAuth(ctx context.Context, input string, authT
 	}
 
 	return a.remoteClient.RunStreamWithAuth(ctx, input, authToken)
-}
-
-// runLocal executes a local agent
-func (a *Agent) runLocal(ctx context.Context, input string) (string, error) {
-	// Inject agent name into context for tracing span naming
-	ctx = tracing.WithAgentName(ctx, a.name)
-
-	// If orgID is set on the agent, add it to the context
-	if a.orgID != "" {
-		ctx = multitenancy.WithOrgID(ctx, a.orgID)
-	}
-
-	// Start tracing if available
-	var span interfaces.Span
-	if a.tracer != nil {
-		ctx, span = a.tracer.StartSpan(ctx, "agent.Run")
-		defer span.End()
-	}
-
-	// Add user message to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add user message to memory: %w", err)
-		}
-	}
-
-	// Apply guardrails to input if available
-	if a.guardrails != nil {
-		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		input = guardedInput
-	}
-
-	// Check if the input is related to an existing plan
-	taskID, action, planInput := a.extractPlanAction(input)
-	if taskID != "" {
-		return a.handlePlanAction(ctx, taskID, action, planInput)
-	}
-
-	// Check if the user is asking about the agent's role or identity
-	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
-		response := a.generateRoleResponse()
-
-		// Add the role response to memory if available
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    interfaces.MessageRoleAssistant,
-				Content: response,
-			}); err != nil {
-				return "", fmt.Errorf("failed to add role response to memory: %w", err)
-			}
-		}
-
-		return response, nil
-	}
-
-	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
-	allTools := a.tools
-	// If tools are available and plan approval is required, generate an execution plan
-	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
-		return a.runWithExecutionPlan(ctx, input)
-	}
-
-	// Otherwise, run without an execution plan
-	return a.runWithoutExecutionPlanWithTools(ctx, input, allTools)
 }
 
 // collectMCPTools collects tools from all MCP servers
@@ -787,22 +943,18 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	return lazyTools
 }
 
-// runWithoutExecutionPlanWithTools runs the agent without an execution plan but with the specified tools
-func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
-	// Use input directly as prompt - let LLM providers handle message history via Memory
+
+func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
 	prompt := input
 
-	// Generate response with tools if available
 	var response string
 	var err error
 
-	// Add system prompt as a generate option
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
 	}
 
-	// Add response format as a generate option if available
 	if a.responseFormat != nil {
 		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
 	}
@@ -813,22 +965,48 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 		})
 	}
 
-	// Add max iterations option
 	generateOptions = append(generateOptions, interfaces.WithMaxIterations(a.maxIterations))
 
-	// Always pass memory to LLM - let providers handle message history conversion natively
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
 	}
 
-	if len(tools) > 0 {
-		response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
-	} else {
-		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
-	}
+	tracker := getUsageTracker(ctx)
 
-	if err != nil {
-		return "", fmt.Errorf("failed to generate response: %w", err)
+	if len(tools) > 0 {
+		if tracker != nil {
+			for _, tool := range tools {
+				tracker.addToolCall(tool.Name())
+			}
+		}
+
+		if tracker != nil && tracker.detailed {
+			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, tools, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+			response = llmResp.Content
+			tracker.addLLMUsage(llmResp.Usage, llmResp.Model)
+		} else {
+			response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+		}
+	} else {
+		if tracker != nil && tracker.detailed {
+			llmResp, err := a.llm.GenerateDetailed(ctx, prompt, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+			response = llmResp.Content
+			tracker.addLLMUsage(llmResp.Usage, llmResp.Model)
+		} else {
+			response, err = a.llm.Generate(ctx, prompt, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+		}
 	}
 
 	// Apply guardrails to output if available

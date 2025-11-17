@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -13,6 +14,19 @@ import (
 var (
 	zeroLogJsonEnable bool = false
 )
+
+func init() {
+	// Check environment variable for JSON logging
+	// Supported values: LOG_FORMAT=json or LOG_JSON=true/1/yes
+	if logFormat := os.Getenv("LOG_FORMAT"); strings.ToLower(logFormat) == "json" {
+		zeroLogJsonEnable = true
+	} else if logJSON := os.Getenv("LOG_JSON"); logJSON != "" {
+		switch strings.ToLower(logJSON) {
+		case "true", "1", "yes":
+			zeroLogJsonEnable = true
+		}
+	}
+}
 
 func SetZeroLogJsonEnabled() {
 	zeroLogJsonEnable = true
