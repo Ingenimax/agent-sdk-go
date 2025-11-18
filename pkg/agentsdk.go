@@ -1,9 +1,11 @@
 package agentsdk
 
 import (
+	"context"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/agentconfig"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/task"
@@ -79,4 +81,17 @@ func NewAgentTaskService(logger logging.Logger) (*task.AgentTaskService, error) 
 // Creates a new agent task service with a custom adapter
 func NewAgentTaskServiceWithAdapter(logger logging.Logger, service task.AgentAdapterService) *task.AgentTaskService {
 	return task.NewAgentTaskServiceWithAdapter(logger, service)
+}
+
+// Configuration Management
+
+// NewConfigClient creates a new configuration client for fetching deployment configurations
+func NewConfigClient() (*agentconfig.ConfigurationClient, error) {
+	return agentconfig.NewClient()
+}
+
+// LoadDeploymentConfig loads configuration from environment variables
+// Reads AGENT_DEPLOYMENT_ID and ENVIRONMENT and fetches config from StarOps config service
+func LoadDeploymentConfig(ctx context.Context) (map[string]string, error) {
+	return agentconfig.LoadFromEnvironment(ctx)
 }
