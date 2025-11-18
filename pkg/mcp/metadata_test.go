@@ -11,10 +11,10 @@ import (
 // Test server metadata discovery functionality
 func TestMCPServerMetadataDiscovery(t *testing.T) {
 	tests := []struct {
-		name           string
-		serverInfo     *interfaces.MCPServerInfo
-		capabilities   *interfaces.MCPServerCapabilities
-		expectError    bool
+		name         string
+		serverInfo   *interfaces.MCPServerInfo
+		capabilities *interfaces.MCPServerCapabilities
+		expectError  bool
 	}{
 		{
 			name: "full_metadata_discovery",

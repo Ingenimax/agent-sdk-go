@@ -478,7 +478,6 @@ func TestRandomFloat_RaceCondition(t *testing.T) {
 	t.Log("Warning: randomFloat() implementation has potential race conditions - should use math/rand with proper seeding")
 }
 
-
 func TestRetryWithExponentialBackoff(t *testing.T) {
 	ctx := context.Background()
 

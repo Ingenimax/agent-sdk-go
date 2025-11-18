@@ -262,8 +262,8 @@ func TestResourceManager_WatchResources(t *testing.T) {
 		assert.NotNil(t, combinedUpdates)
 
 		// Send test updates
-		testUpdate1 := interfaces.MCPResourceUpdate{URI: uris[0], Type: "modified"}
-		testUpdate2 := interfaces.MCPResourceUpdate{URI: uris[1], Type: "deleted"}
+		testUpdate1 := interfaces.MCPResourceUpdate{URI: uris[0], Type: interfaces.MCPResourceUpdateType("modified")}
+		testUpdate2 := interfaces.MCPResourceUpdate{URI: uris[1], Type: interfaces.MCPResourceUpdateType("deleted")}
 
 		updates1 <- testUpdate1
 		updates2 <- testUpdate2
