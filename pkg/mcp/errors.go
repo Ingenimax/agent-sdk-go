@@ -294,7 +294,7 @@ func FormatUserFriendlyError(err error) string {
 		return fmt.Sprintf("Validation error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
 
 	case MCPErrorTypeUnknown:
-		return fmt.Sprintf("Unknown error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
+		return fmt.Sprintf("MCP server '%s' error: %v", mcpErr.ServerName, mcpErr.Cause)
 
 	default:
 		return fmt.Sprintf("MCP server '%s' error: %v", mcpErr.ServerName, mcpErr.Cause)
