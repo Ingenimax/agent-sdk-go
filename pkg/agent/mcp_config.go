@@ -68,6 +68,7 @@ type MCPGlobalConfig struct {
 
 // LoadMCPConfigFromJSON loads MCP configuration from a JSON file
 func LoadMCPConfigFromJSON(filePath string) (*MCPConfiguration, error) {
+	// #nosec G304 - filePath is provided by the developer/user and expected to be a configuration file path
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read JSON file: %w", err)
@@ -83,6 +84,7 @@ func LoadMCPConfigFromJSON(filePath string) (*MCPConfiguration, error) {
 
 // LoadMCPConfigFromYAML loads MCP configuration from a YAML file
 func LoadMCPConfigFromYAML(filePath string) (*MCPConfiguration, error) {
+	// #nosec G304 - filePath is provided by the developer/user and expected to be a configuration file path
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read YAML file: %w", err)
@@ -305,6 +307,7 @@ func SaveMCPConfigToJSON(config *MCPConfiguration, filePath string) error {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
+	// #nosec G306 - 0644 permissions are appropriate for config files that may need to be read by other processes
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write JSON file: %w", err)
 	}
@@ -319,6 +322,7 @@ func SaveMCPConfigToYAML(config *MCPConfiguration, filePath string) error {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
+	// #nosec G306 - 0644 permissions are appropriate for config files that may need to be read by other processes
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write YAML file: %w", err)
 	}
