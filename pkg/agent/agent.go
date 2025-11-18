@@ -588,8 +588,8 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":           a.name,
-			"execution_timestamp":  startTime.Unix(),
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
 		},
 	}, nil
@@ -718,10 +718,10 @@ func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":           a.name,
-			"execution_timestamp":  startTime.Unix(),
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
-			"auth_enabled":         true,
+			"auth_enabled":          true,
 		},
 	}, nil
 }
@@ -736,7 +736,6 @@ func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken s
 	// For local agents, the auth token isn't used but we maintain compatibility
 	return a.RunStream(ctx, input)
 }
-
 
 func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
@@ -768,7 +767,6 @@ func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string
 
 	return a.remoteClient.Run(ctx, input)
 }
-
 
 func (a *Agent) runRemoteWithAuthTracking(ctx context.Context, input string, authToken string) (string, error) {
 	if a.remoteClient == nil {
@@ -941,7 +939,6 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	fmt.Printf("Created %d lazy MCP tools\n", len(lazyTools))
 	return lazyTools
 }
-
 
 func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
 	prompt := input

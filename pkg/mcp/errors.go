@@ -155,7 +155,9 @@ func isRetryableErrorType(errorType MCPErrorType) bool {
 		MCPErrorTypeProtocol,
 		MCPErrorTypeSerialization,
 		MCPErrorTypeConfiguration,
-		MCPErrorTypeValidation:
+		MCPErrorTypeValidation,
+		MCPErrorTypeToolExecution,
+		MCPErrorTypeUnknown:
 		return false
 	default:
 		return false
@@ -272,6 +274,27 @@ func FormatUserFriendlyError(err error) string {
 
 	case MCPErrorTypeConfiguration:
 		return fmt.Sprintf("MCP configuration error: %v", mcpErr.Cause)
+
+	case MCPErrorTypeServerStartup:
+		return fmt.Sprintf("MCP server '%s' failed to start. Please check the server configuration.", mcpErr.ServerName)
+
+	case MCPErrorTypeServerCrash:
+		return fmt.Sprintf("MCP server '%s' crashed unexpectedly. Please try restarting the server.", mcpErr.ServerName)
+
+	case MCPErrorTypeToolExecution:
+		return fmt.Sprintf("Tool execution failed on MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
+
+	case MCPErrorTypeProtocol:
+		return fmt.Sprintf("Protocol error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
+
+	case MCPErrorTypeSerialization:
+		return fmt.Sprintf("Serialization error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
+
+	case MCPErrorTypeValidation:
+		return fmt.Sprintf("Validation error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
+
+	case MCPErrorTypeUnknown:
+		return fmt.Sprintf("Unknown error with MCP server '%s': %v", mcpErr.ServerName, mcpErr.Cause)
 
 	default:
 		return fmt.Sprintf("MCP server '%s' error: %v", mcpErr.ServerName, mcpErr.Cause)
