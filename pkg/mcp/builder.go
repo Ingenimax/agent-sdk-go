@@ -153,9 +153,10 @@ func (b *Builder) AddPreset(presetName string) *Builder {
 	}
 
 	// Apply preset configuration
-	if preset.Type == "stdio" {
+	switch preset.Type {
+	case "stdio":
 		b.AddStdioServer(preset.Name, preset.Command, preset.Args...)
-	} else if preset.Type == "http" {
+	case "http":
 		b.AddHTTPServer(preset.Name, preset.URL)
 	}
 

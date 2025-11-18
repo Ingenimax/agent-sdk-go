@@ -220,12 +220,13 @@ func GetPresetInfo(name string) (string, error) {
 	info := fmt.Sprintf("Name: %s\nDescription: %s\nType: %s\n",
 		preset.Name, preset.Description, preset.Type)
 
-	if preset.Type == "stdio" {
+	switch preset.Type {
+	case "stdio":
 		info += fmt.Sprintf("Command: %s\n", preset.Command)
 		if len(preset.Args) > 0 {
 			info += fmt.Sprintf("Args: %v\n", preset.Args)
 		}
-	} else if preset.Type == "http" {
+	case "http":
 		info += fmt.Sprintf("URL: %s\n", preset.URL)
 	}
 

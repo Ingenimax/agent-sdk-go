@@ -27,12 +27,12 @@ func TestGetPreset(t *testing.T) {
 		originalToken := os.Getenv("GITHUB_TOKEN")
 		defer func() {
 			if originalToken == "" {
-				os.Unsetenv("GITHUB_TOKEN")
+				_ = os.Unsetenv("GITHUB_TOKEN")
 			} else {
-				os.Setenv("GITHUB_TOKEN", originalToken)
+				_ = os.Setenv("GITHUB_TOKEN", originalToken)
 			}
 		}()
-		os.Setenv("GITHUB_TOKEN", "test-token")
+		_ = os.Setenv("GITHUB_TOKEN", "test-token")
 
 		config, err := GetPreset("github")
 
@@ -49,12 +49,12 @@ func TestGetPreset(t *testing.T) {
 		originalToken := os.Getenv("GITHUB_TOKEN")
 		defer func() {
 			if originalToken == "" {
-				os.Unsetenv("GITHUB_TOKEN")
+				_ = os.Unsetenv("GITHUB_TOKEN")
 			} else {
-				os.Setenv("GITHUB_TOKEN", originalToken)
+				_ = os.Setenv("GITHUB_TOKEN", originalToken)
 			}
 		}()
-		os.Unsetenv("GITHUB_TOKEN")
+		_ = os.Unsetenv("GITHUB_TOKEN")
 
 		config, err := GetPreset("github")
 
@@ -69,18 +69,18 @@ func TestGetPreset(t *testing.T) {
 		originalTeamID := os.Getenv("SLACK_TEAM_ID")
 		defer func() {
 			if originalBotToken == "" {
-				os.Unsetenv("SLACK_BOT_TOKEN")
+				_ = os.Unsetenv("SLACK_BOT_TOKEN")
 			} else {
-				os.Setenv("SLACK_BOT_TOKEN", originalBotToken)
+				_ = os.Setenv("SLACK_BOT_TOKEN", originalBotToken)
 			}
 			if originalTeamID == "" {
-				os.Unsetenv("SLACK_TEAM_ID")
+				_ = os.Unsetenv("SLACK_TEAM_ID")
 			} else {
-				os.Setenv("SLACK_TEAM_ID", originalTeamID)
+				_ = os.Setenv("SLACK_TEAM_ID", originalTeamID)
 			}
 		}()
-		os.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
-		os.Setenv("SLACK_TEAM_ID", "T123456")
+		_ = os.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
+		_ = os.Setenv("SLACK_TEAM_ID", "T123456")
 
 		config, err := GetPreset("slack")
 
@@ -96,18 +96,18 @@ func TestGetPreset(t *testing.T) {
 		originalTeamID := os.Getenv("SLACK_TEAM_ID")
 		defer func() {
 			if originalBotToken == "" {
-				os.Unsetenv("SLACK_BOT_TOKEN")
+				_ = os.Unsetenv("SLACK_BOT_TOKEN")
 			} else {
-				os.Setenv("SLACK_BOT_TOKEN", originalBotToken)
+				_ = os.Setenv("SLACK_BOT_TOKEN", originalBotToken)
 			}
 			if originalTeamID == "" {
-				os.Unsetenv("SLACK_TEAM_ID")
+				_ = os.Unsetenv("SLACK_TEAM_ID")
 			} else {
-				os.Setenv("SLACK_TEAM_ID", originalTeamID)
+				_ = os.Setenv("SLACK_TEAM_ID", originalTeamID)
 			}
 		}()
-		os.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
-		os.Unsetenv("SLACK_TEAM_ID")
+		_ = os.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
+		_ = os.Unsetenv("SLACK_TEAM_ID")
 
 		config, err := GetPreset("slack")
 
@@ -246,10 +246,11 @@ func TestPresetStructure(t *testing.T) {
 			assert.Contains(t, []string{"stdio", "http"}, preset.Type,
 				"Preset %s should have valid type", name)
 
-			if preset.Type == "stdio" {
+			switch preset.Type {
+			case "stdio":
 				assert.NotEmpty(t, preset.Command,
 					"Stdio preset %s should have a command", name)
-			} else if preset.Type == "http" {
+			case "http":
 				assert.NotEmpty(t, preset.URL,
 					"HTTP preset %s should have a URL", name)
 			}
@@ -334,12 +335,12 @@ func TestGetPreset_EnvironmentVariables(t *testing.T) {
 		originalVar := os.Getenv("REQUIRED_VAR")
 		defer func() {
 			if originalVar == "" {
-				os.Unsetenv("REQUIRED_VAR")
+				_ = os.Unsetenv("REQUIRED_VAR")
 			} else {
-				os.Setenv("REQUIRED_VAR", originalVar)
+				_ = os.Setenv("REQUIRED_VAR", originalVar)
 			}
 		}()
-		os.Setenv("REQUIRED_VAR", "required_value")
+		_ = os.Setenv("REQUIRED_VAR", "required_value")
 
 		config, err := GetPreset("test-env")
 
@@ -353,12 +354,12 @@ func TestGetPreset_EnvironmentVariables(t *testing.T) {
 		originalToken := os.Getenv("GITHUB_TOKEN")
 		defer func() {
 			if originalToken == "" {
-				os.Unsetenv("GITHUB_TOKEN")
+				_ = os.Unsetenv("GITHUB_TOKEN")
 			} else {
-				os.Setenv("GITHUB_TOKEN", originalToken)
+				_ = os.Setenv("GITHUB_TOKEN", originalToken)
 			}
 		}()
-		os.Setenv("GITHUB_TOKEN", "")
+		_ = os.Setenv("GITHUB_TOKEN", "")
 
 		config, err := GetPreset("github")
 
