@@ -10,19 +10,22 @@ import (
 
 // Generator handles generation of execution plans
 type Generator struct {
-	llm          interfaces.LLM
-	tools        []interfaces.Tool
-	systemPrompt string
+	llm                 interfaces.LLM
+	tools               []interfaces.Tool
+	systemPrompt        string
+	requireApproval     bool
 }
 
 // NewGenerator creates a new execution plan generator
-func NewGenerator(llm interfaces.LLM, tools []interfaces.Tool, systemPrompt string) *Generator {
+func NewGenerator(llm interfaces.LLM, tools []interfaces.Tool, systemPrompt string, requireApproval bool) *Generator {
 	return &Generator{
-		llm:          llm,
-		tools:        tools,
-		systemPrompt: systemPrompt,
+		llm:             llm,
+		tools:           tools,
+		systemPrompt:    systemPrompt,
+		requireApproval: requireApproval,
 	}
 }
+
 
 // GenerateExecutionPlan generates an execution plan based on the user input
 func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*ExecutionPlan, error) {
@@ -52,8 +55,12 @@ func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*E
 		return nil, fmt.Errorf("failed to parse execution plan: %w", err)
 	}
 
-	// Update the status to pending approval
-	plan.Status = StatusPendingApproval
+	// Set status based on approval requirement
+	if g.requireApproval {
+		plan.Status = StatusPendingApproval
+	} else {
+		plan.Status = StatusApproved
+	}
 
 	return plan, nil
 }
