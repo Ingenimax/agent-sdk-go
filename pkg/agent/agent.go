@@ -222,21 +222,6 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			}
 		}
 
-		// Store memory config for runtime instantiation
-		// Note: Actual memory instances are still provided at runtime via WithMemory()
-		// This just stores the config data for potential future use
-		if expandedConfig.Memory != nil {
-			// Could store memory config in agent metadata if needed
-			// For now, this is handled at the application level
-			// The memory configuration is processed at runtime when creating the actual memory instance
-		}
-
-		// Apply runtime settings (logging, tracing, etc.)
-		if expandedConfig.Runtime != nil {
-			// Runtime settings would be applied at the application level
-			// since they affect the entire runtime environment, not just this agent
-			// These settings are processed during agent initialization phase
-		}
 
 		// Process sub-agents recursively
 		if expandedConfig.SubAgents != nil {
