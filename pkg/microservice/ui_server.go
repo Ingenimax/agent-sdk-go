@@ -717,8 +717,6 @@ func (h *HTTPServerWithUI) getToolDescriptionFromSystemPrompt(toolName, systemPr
 	return "Sub-agent tool"
 }
 
-
-
 // getConversationHistory returns conversation history with pagination
 func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEntry {
 	// First, try to get from agent's memory system if available
@@ -1154,18 +1152,18 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Log detailed execution information for UI chat
 	{
 		executionDetails := map[string]interface{}{
-			"endpoint":               "ui_chat",
-			"conversation_id":        req.ConversationID,
-			"org_id":                 req.OrgID,
-			"agent_name":             response.AgentName,
-			"model_used":             response.Model,
-			"response_length":        len(response.Content),
-			"llm_calls":              response.ExecutionSummary.LLMCalls,
-			"tool_calls":             response.ExecutionSummary.ToolCalls,
-			"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
-			"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
-			"used_tools":             response.ExecutionSummary.UsedTools,
-			"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+			"endpoint":          "ui_chat",
+			"conversation_id":   req.ConversationID,
+			"org_id":            req.OrgID,
+			"agent_name":        response.AgentName,
+			"model_used":        response.Model,
+			"response_length":   len(response.Content),
+			"llm_calls":         response.ExecutionSummary.LLMCalls,
+			"tool_calls":        response.ExecutionSummary.ToolCalls,
+			"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+			"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+			"used_tools":        response.ExecutionSummary.UsedTools,
+			"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 		}
 		if response.Usage != nil {
 			executionDetails["input_tokens"] = response.Usage.InputTokens
@@ -1183,8 +1181,8 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	responseData := map[string]interface{}{
-		"output": response.Content,
-		"error":  "",
+		"output":            response.Content,
+		"error":             "",
 		"execution_summary": response.ExecutionSummary,
 	}
 	if response.Usage != nil {
@@ -1258,18 +1256,18 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 		// Log detailed execution information for UI streaming fallback
 		{
 			executionDetails := map[string]interface{}{
-				"endpoint":               "ui_stream_fallback",
-				"conversation_id":        req.ConversationID,
-				"org_id":                 req.OrgID,
-				"agent_name":             response.AgentName,
-				"model_used":             response.Model,
-				"response_length":        len(response.Content),
-				"llm_calls":              response.ExecutionSummary.LLMCalls,
-				"tool_calls":             response.ExecutionSummary.ToolCalls,
-				"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
-				"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
-				"used_tools":             response.ExecutionSummary.UsedTools,
-				"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+				"endpoint":          "ui_stream_fallback",
+				"conversation_id":   req.ConversationID,
+				"org_id":            req.OrgID,
+				"agent_name":        response.AgentName,
+				"model_used":        response.Model,
+				"response_length":   len(response.Content),
+				"llm_calls":         response.ExecutionSummary.LLMCalls,
+				"tool_calls":        response.ExecutionSummary.ToolCalls,
+				"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+				"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+				"used_tools":        response.ExecutionSummary.UsedTools,
+				"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 			}
 			if response.Usage != nil {
 				executionDetails["input_tokens"] = response.Usage.InputTokens

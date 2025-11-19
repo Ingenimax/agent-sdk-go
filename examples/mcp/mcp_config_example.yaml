@@ -1,0 +1,63 @@
+# MCP Server Configuration Example (YAML)
+# This file demonstrates how to configure MCP servers for an agent
+
+mcpServers:
+  # File system MCP server using stdio
+  filesystem:
+    command: "npx"
+    args: ["@modelcontextprotocol/server-filesystem", "/Users/username/projects"]
+
+  # GitHub MCP server using HTTP with API token
+  github:
+    url: "https://api.github.com/mcp"
+    token: "${GITHUB_TOKEN}"
+
+  # Weather API MCP server
+  weather:
+    url: "https://weather-mcp-server.example.com"
+    token: "${WEATHER_API_KEY}"
+
+  # Local database MCP server via stdio
+  database:
+    command: "./bin/db-mcp-server"
+    args: ["--config", "config.json", "--database", "production"]
+    env:
+      DB_HOST: "localhost"
+      DB_PORT: "5432"
+      DB_NAME: "myapp"
+
+  # Slack MCP server
+  slack:
+    url: "https://slack.com/api/mcp"
+    token: "${SLACK_BOT_TOKEN}"
+
+  # Calculator MCP server (simple example)
+  calculator:
+    command: "python"
+    args: ["-m", "mcp_calculator"]
+
+  # Context7 MCP server
+  context7:
+    command: "npx"
+    args: ["-y", "@upstash/context7-mcp@latest"]
+
+  # ArXiv MCP server
+  arxiv-server:
+    command: "uv"
+    args:
+      - "tool"
+      - "run"
+      - "arxiv-mcp-server"
+      - "--storage-path"
+      - "/tmp/arxiv-papers"
+
+# Global MCP configuration (optional - defaults shown)
+global:
+  timeout: "30s"
+  retry_attempts: 3
+  health_check: true
+  enable_resources: true
+  enable_prompts: true
+  enable_sampling: true
+  enable_schemas: true
+  log_level: "info"

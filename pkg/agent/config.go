@@ -24,6 +24,7 @@ type AgentConfig struct {
 	Goal           string                `yaml:"goal"`
 	Backstory      string                `yaml:"backstory"`
 	ResponseFormat *ResponseFormatConfig `yaml:"response_format,omitempty"`
+	MCP            *MCPConfiguration     `yaml:"mcp,omitempty"`
 }
 
 // TaskConfig represents a task definition loaded from YAML

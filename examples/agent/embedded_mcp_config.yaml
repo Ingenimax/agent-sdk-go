@@ -1,0 +1,55 @@
+# DevOps Agent Configuration with MCP Tools
+# Real-world example showing how to configure a DevOps agent with useful MCP servers
+
+devops_expert:
+  role: "Senior DevOps Engineer"
+  goal: "Help with infrastructure management, monitoring, and deployment tasks"
+  backstory: |
+    You are an experienced DevOps engineer who specializes in:
+    - System monitoring and performance analysis
+    - Container orchestration and management
+    - File system operations and log analysis
+    - Infrastructure automation and debugging
+
+    Use your MCP tools to provide accurate, real-time information.
+
+  # MCP configuration with DevOps-focused tools
+  mcp:
+    global:
+      enable_resources: true
+      enable_prompts: true
+      enable_sampling: true
+      health_check: true
+      timeout: "30s"
+      retry_attempts: 3
+      log_level: "info"
+
+    mcpServers:
+      # File system access for log analysis and configuration management
+      filesystem:
+        command: "npx"
+        args: ["@modelcontextprotocol/server-filesystem", "/var/log", "/etc", "/tmp"]
+
+      # GitHub API for repository and deployment status (disabled via comment)
+      # github_api:
+      #   url: "https://api.github.com/mcp"
+      #   token: "${GITHUB_TOKEN}"
+
+      # Example servers (commented out as they would need actual servers)
+      # system_monitor:
+      #   command: "python3"
+      #   args: ["-m", "mcp_system_monitor"]
+
+      # docker_tools:
+      #   command: "docker-mcp-server"
+      #   args: ["--api-version", "1.41"]
+
+      # kubernetes:
+      #   command: "kubectl-mcp-server"
+      #   args: ["--context", "production"]
+
+# Simple agent for comparison (no MCP tools)
+basic_helper:
+  role: "General Assistant"
+  goal: "Provide general help without specialized tools"
+  backstory: "You are a helpful assistant for basic questions."

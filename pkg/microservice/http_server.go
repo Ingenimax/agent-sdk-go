@@ -188,16 +188,16 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Log detailed execution information
 	{
 		executionDetails := map[string]interface{}{
-			"endpoint":               "agent_run",
-			"agent_name":             response.AgentName,
-			"model_used":             response.Model,
-			"response_length":        len(response.Content),
-			"llm_calls":              response.ExecutionSummary.LLMCalls,
-			"tool_calls":             response.ExecutionSummary.ToolCalls,
-			"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
-			"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
-			"used_tools":             response.ExecutionSummary.UsedTools,
-			"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+			"endpoint":          "agent_run",
+			"agent_name":        response.AgentName,
+			"model_used":        response.Model,
+			"response_length":   len(response.Content),
+			"llm_calls":         response.ExecutionSummary.LLMCalls,
+			"tool_calls":        response.ExecutionSummary.ToolCalls,
+			"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+			"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+			"used_tools":        response.ExecutionSummary.UsedTools,
+			"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 		}
 		if response.Usage != nil {
 			executionDetails["input_tokens"] = response.Usage.InputTokens
@@ -211,8 +211,8 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Return result with execution details
 	w.Header().Set("Content-Type", "application/json")
 	responseData := map[string]interface{}{
-		"output": response.Content,
-		"agent":  response.AgentName,
+		"output":            response.Content,
+		"agent":             response.AgentName,
 		"execution_summary": response.ExecutionSummary,
 	}
 	if response.Usage != nil {
@@ -281,16 +281,16 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		// Log detailed execution information for streaming fallback
 		{
 			executionDetails := map[string]interface{}{
-				"endpoint":               "agent_stream_fallback",
-				"agent_name":             response.AgentName,
-				"model_used":             response.Model,
-				"response_length":        len(response.Content),
-				"llm_calls":              response.ExecutionSummary.LLMCalls,
-				"tool_calls":             response.ExecutionSummary.ToolCalls,
-				"sub_agent_calls":        response.ExecutionSummary.SubAgentCalls,
-				"execution_time_ms":      response.ExecutionSummary.ExecutionTimeMs,
-				"used_tools":             response.ExecutionSummary.UsedTools,
-				"used_sub_agents":        response.ExecutionSummary.UsedSubAgents,
+				"endpoint":          "agent_stream_fallback",
+				"agent_name":        response.AgentName,
+				"model_used":        response.Model,
+				"response_length":   len(response.Content),
+				"llm_calls":         response.ExecutionSummary.LLMCalls,
+				"tool_calls":        response.ExecutionSummary.ToolCalls,
+				"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+				"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+				"used_tools":        response.ExecutionSummary.UsedTools,
+				"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 			}
 			if response.Usage != nil {
 				executionDetails["input_tokens"] = response.Usage.InputTokens

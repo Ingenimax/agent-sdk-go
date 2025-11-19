@@ -194,20 +194,20 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 
 	// Log comprehensive execution details
 	executionDetails := map[string]interface{}{
-		"sub_agent":               agentName,
-		"tool_name":               at.name,
-		"input_prompt":            input,
-		"response_content":        response.Content,
-		"response_length":         len(response.Content),
-		"duration":                duration.String(),
-		"agent_name":              response.AgentName,
-		"model_used":              response.Model,
-		"llm_calls":               response.ExecutionSummary.LLMCalls,
-		"tool_calls":              response.ExecutionSummary.ToolCalls,
-		"sub_agent_calls":         response.ExecutionSummary.SubAgentCalls,
-		"execution_time_ms":       response.ExecutionSummary.ExecutionTimeMs,
-		"used_tools":              response.ExecutionSummary.UsedTools,
-		"used_sub_agents":         response.ExecutionSummary.UsedSubAgents,
+		"sub_agent":         agentName,
+		"tool_name":         at.name,
+		"input_prompt":      input,
+		"response_content":  response.Content,
+		"response_length":   len(response.Content),
+		"duration":          duration.String(),
+		"agent_name":        response.AgentName,
+		"model_used":        response.Model,
+		"llm_calls":         response.ExecutionSummary.LLMCalls,
+		"tool_calls":        response.ExecutionSummary.ToolCalls,
+		"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+		"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+		"used_tools":        response.ExecutionSummary.UsedTools,
+		"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 	}
 
 	// Add token usage details if available

@@ -194,9 +194,9 @@ func TestUsageTrackerAggregation(t *testing.T) {
 	totalUsage, execSummary, primaryModel := tracker.getResults()
 
 	// Verify aggregated usage
-	assert.Equal(t, 300, totalUsage.InputTokens)   // 100 + 200
-	assert.Equal(t, 125, totalUsage.OutputTokens)  // 50 + 75
-	assert.Equal(t, 425, totalUsage.TotalTokens)   // 150 + 275
+	assert.Equal(t, 300, totalUsage.InputTokens)  // 100 + 200
+	assert.Equal(t, 125, totalUsage.OutputTokens) // 50 + 75
+	assert.Equal(t, 425, totalUsage.TotalTokens)  // 150 + 275
 
 	// Verify execution summary
 	assert.Equal(t, 2, execSummary.LLMCalls)

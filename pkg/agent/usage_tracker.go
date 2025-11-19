@@ -12,11 +12,11 @@ type contextKey string
 const usageTrackerKey contextKey = "usageTracker"
 
 type usageTracker struct {
-	totalUsage  *interfaces.TokenUsage
-	execSummary *interfaces.ExecutionSummary
-	detailed    bool
+	totalUsage   *interfaces.TokenUsage
+	execSummary  *interfaces.ExecutionSummary
+	detailed     bool
 	primaryModel string
-	mu          sync.Mutex
+	mu           sync.Mutex
 }
 
 func newUsageTracker(detailed bool) *usageTracker {

@@ -173,6 +173,10 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 				a.responseFormat = responseFormat
 			}
 		}
+		// Add MCP configuration if provided
+		if config.MCP != nil {
+			applyMCPConfig(a, config.MCP)
+		}
 	}
 }
 
@@ -200,6 +204,81 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 	return func(a *Agent) {
 		a.lazyMCPConfigs = configs
+	}
+}
+
+// WithMCPURLs adds MCP servers from URL strings
+// Supports formats:
+// - stdio://command/path/to/executable
+// - http://localhost:8080/mcp
+// - https://api.example.com/mcp?token=xxx
+// - mcp://preset-name (for presets)
+func WithMCPURLs(urls ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, url := range urls {
+			builder.AddServer(url)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to parse some MCP URLs", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
+	}
+}
+
+// WithMCPPresets adds predefined MCP server configurations
+func WithMCPPresets(presetNames ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, preset := range presetNames {
+			builder.AddPreset(preset)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to load some MCP presets", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
 	}
 }
 
@@ -310,10 +389,19 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Configure sub-agent tools with logger and tracer
 	agent.configureSubAgentTools()
 
+	// Eagerly load MCP tools during initialization to combine with manual tools
+	if err := agent.initializeMCPTools(); err != nil {
+		// Log warning but continue - MCP tools are optional
+		fmt.Printf("Warning: Failed to initialize MCP tools: %v\n", err)
+	}
+
+	// Get all tools (manual + MCP) for execution plan components
+	allTools := agent.getAllToolsSync()
+
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
-	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
-	agent.planExecutor = executionplan.NewExecutor(agent.tools)
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt)
+	agent.planExecutor = executionplan.NewExecutor(allTools)
 
 	return agent, nil
 }
@@ -500,8 +588,8 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":           a.name,
-			"execution_timestamp":  startTime.Unix(),
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
 		},
 	}, nil
@@ -557,6 +645,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		return response, nil
 	}
 
+	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
 	allTools := a.tools
 
 	if len(a.mcpServers) > 0 {
@@ -629,10 +718,10 @@ func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":           a.name,
-			"execution_timestamp":  startTime.Unix(),
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
-			"auth_enabled":         true,
+			"auth_enabled":          true,
 		},
 	}, nil
 }
@@ -647,7 +736,6 @@ func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken s
 	// For local agents, the auth token isn't used but we maintain compatibility
 	return a.RunStream(ctx, input)
 }
-
 
 func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
@@ -679,7 +767,6 @@ func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string
 
 	return a.remoteClient.Run(ctx, input)
 }
-
 
 func (a *Agent) runRemoteWithAuthTracking(ctx context.Context, input string, authToken string) (string, error) {
 	if a.remoteClient == nil {
@@ -753,7 +840,11 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	var lazyTools []interfaces.Tool
 
+	fmt.Printf("Creating lazy MCP tools from %d configs...\n", len(a.lazyMCPConfigs))
+
 	for _, config := range a.lazyMCPConfigs {
+		fmt.Printf("Processing MCP config: %s (type: %s)\n", config.Name, config.Type)
+
 		// Create lazy server config
 		lazyServerConfig := mcp.LazyMCPServerConfig{
 			Name:    config.Name,
@@ -764,21 +855,90 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			URL:     config.URL,
 		}
 
-		// Create lazy tools for each configured tool
-		for _, toolConfig := range config.Tools {
-			lazyTool := mcp.NewLazyMCPTool(
-				toolConfig.Name,
-				toolConfig.Description,
-				toolConfig.Schema,
-				lazyServerConfig,
-			)
-			lazyTools = append(lazyTools, lazyTool)
+		// If no specific tools are defined, discover all tools from the server
+		if len(config.Tools) == 0 {
+			fmt.Printf("No tools specified for %s, discovering tools from server\n", config.Name)
+
+			// Create a temporary server instance to discover tools
+			ctx := context.Background()
+			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
+			if err != nil {
+				fmt.Printf("Failed to create server for tool discovery: %v\n", err)
+				continue
+			}
+
+			// Log discovered server metadata
+			if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+				fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+				fmt.Printf("  Name: %s\n", serverInfo.Name)
+				if serverInfo.Title != "" {
+					fmt.Printf("  Title: %s\n", serverInfo.Title)
+				}
+				if serverInfo.Version != "" {
+					fmt.Printf("  Version: %s\n", serverInfo.Version)
+				}
+			}
+
+			// Discover available tools from the server
+			discoveredTools, err := server.ListTools(ctx)
+			if err != nil {
+				fmt.Printf("Failed to discover tools from %s: %v\n", config.Name, err)
+				continue
+			}
+
+			fmt.Printf("Discovered %d tools from %s server\n", len(discoveredTools), config.Name)
+
+			// Create lazy tools for each discovered tool
+			for _, discoveredTool := range discoveredTools {
+				fmt.Printf("Creating lazy tool: %s\n", discoveredTool.Name)
+				fmt.Printf("  Description: '%s'\n", discoveredTool.Description)
+				fmt.Printf("  Schema: %+v\n", discoveredTool.Schema)
+
+				lazyTool := mcp.NewLazyMCPTool(
+					discoveredTool.Name,
+					discoveredTool.Description,
+					discoveredTool.Schema,
+					lazyServerConfig,
+				)
+				lazyTools = append(lazyTools, lazyTool)
+			}
+		} else {
+			// Create a temporary server instance to discover metadata even for configured tools
+			ctx := context.Background()
+			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
+			if err != nil {
+				fmt.Printf("Warning: Failed to create server for metadata discovery: %v\n", err)
+			} else {
+				// Log discovered server metadata
+				if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+					fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+					fmt.Printf("  Name: %s\n", serverInfo.Name)
+					if serverInfo.Title != "" {
+						fmt.Printf("  Title: %s\n", serverInfo.Title)
+					}
+					if serverInfo.Version != "" {
+						fmt.Printf("  Version: %s\n", serverInfo.Version)
+					}
+				}
+			}
+
+			// Create lazy tools for each configured tool
+			for _, toolConfig := range config.Tools {
+				fmt.Printf("Creating tool: %s\n", toolConfig.Name)
+				lazyTool := mcp.NewLazyMCPTool(
+					toolConfig.Name,
+					toolConfig.Description,
+					toolConfig.Schema,
+					lazyServerConfig,
+				)
+				lazyTools = append(lazyTools, lazyTool)
+			}
 		}
 	}
 
+	fmt.Printf("Created %d lazy MCP tools\n", len(lazyTools))
 	return lazyTools
 }
-
 
 func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
 	prompt := input
@@ -1300,6 +1460,7 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
+	// Return pre-initialized tools (manual + MCP tools already combined during agent creation)
 	return a.tools
 }
 
@@ -1406,4 +1567,36 @@ func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// initializeMCPTools eagerly initializes MCP tools during agent creation
+func (a *Agent) initializeMCPTools() error {
+	ctx := context.Background()
+
+	// Initialize regular MCP tools if available
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to collect MCP server tools: %w", err)
+		}
+		// Add MCP tools to the main tools slice
+		a.tools = append(a.tools, mcpTools...)
+		fmt.Printf("Initialized %d MCP server tools\n", len(mcpTools))
+	}
+
+	// Initialize lazy MCP tools if available
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		// Add lazy MCP tools to the main tools slice
+		a.tools = append(a.tools, lazyMCPTools...)
+		fmt.Printf("Initialized %d lazy MCP tools\n", len(lazyMCPTools))
+	}
+
+	return nil
+}
+
+// getAllToolsSync returns all tools (manual + MCP) synchronously for use during initialization
+func (a *Agent) getAllToolsSync() []interfaces.Tool {
+	// At this point, a.tools already contains manual tools + initialized MCP tools
+	return a.tools
 }
