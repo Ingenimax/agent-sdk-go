@@ -117,6 +117,11 @@ type Config struct {
 		Enabled    bool
 		ConfigPath string
 	}
+
+	// ConfigService configuration
+	ConfigService struct {
+		Host string
+	}
 }
 
 // OpenAIConfig contains OpenAI-specific configuration
@@ -197,6 +202,9 @@ func LoadFromEnv() *Config {
 	// Guardrails configuration
 	config.Guardrails.Enabled = getEnvBool("GUARDRAILS_ENABLED", false)
 	config.Guardrails.ConfigPath = getEnv("GUARDRAILS_CONFIG_PATH", "")
+
+	// ConfigService configuration
+	config.ConfigService.Host = getEnv("STAROPS_CONFIG_SERVICE_HOST", "http://starops-config-service.starops-config-service.svc.cluster.local:8091")
 
 	return config
 }
