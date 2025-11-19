@@ -24,9 +24,9 @@ type SecretRef struct {
 // ResolvedConfigurationValue represents a configuration value with the actual resolved content
 type ResolvedConfigurationValue struct {
 	Type         ConfigurationValueType `json:"type"`
-	Value        string                  `json:"value"`
-	SecretRef    *SecretRef              `json:"secret_ref,omitempty"`
-	StoreInVault bool                    `json:"store_in_vault,omitempty"`
+	Value        string                 `json:"value"`
+	SecretRef    *SecretRef             `json:"secret_ref,omitempty"`
+	StoreInVault bool                   `json:"store_in_vault,omitempty"`
 }
 
 // ConfigurationResponse represents the response when returning a configuration with resolved secrets
@@ -37,11 +37,10 @@ type ConfigurationResponse struct {
 	InstanceID  string                     `json:"instance_id"`
 	Environment string                     `json:"environment"`
 	Key         string                     `json:"key"`
-	Value       ResolvedConfigurationValue  `json:"value"`
+	Value       ResolvedConfigurationValue `json:"value"`
 	Description *string                    `json:"description,omitempty"`
 	CreatedBy   *string                    `json:"created_by,omitempty"`
 	UpdatedBy   *string                    `json:"updated_by,omitempty"`
 	CreatedAt   time.Time                  `json:"created_at"`
 	UpdatedAt   time.Time                  `json:"updated_at"`
 }
-

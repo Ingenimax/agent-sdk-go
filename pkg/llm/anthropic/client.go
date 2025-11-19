@@ -355,7 +355,6 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 	return response.Content, nil
 }
 
-
 // generateInternal performs the actual generation and returns the full response
 func (c *AnthropicClient) generateInternal(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	// Check if model is specified

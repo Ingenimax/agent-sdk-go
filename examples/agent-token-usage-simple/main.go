@@ -131,7 +131,7 @@ func main() {
 
 			// Calculate cost
 			queryCost := (float64(response.Usage.InputTokens)*0.000150 +
-						 float64(response.Usage.OutputTokens)*0.000600) / 1000
+				float64(response.Usage.OutputTokens)*0.000600) / 1000
 			fmt.Printf("  Query Cost: $%.6f\n", queryCost)
 
 			// Add to totals

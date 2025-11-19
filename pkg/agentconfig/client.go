@@ -69,7 +69,12 @@ func (c *ConfigurationClient) FetchDeploymentConfig(ctx context.Context, deploym
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log or handle close error if needed
+			_ = closeErr
+		}
+	}()
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
@@ -98,4 +103,3 @@ func (c *ConfigurationClient) FetchDeploymentConfig(ctx context.Context, deploym
 
 	return result, nil
 }
-

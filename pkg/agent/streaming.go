@@ -79,10 +79,10 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 					// Add comprehensive span attributes
 					spanData := map[string]interface{}{
-						"agent_name":      a.name,
+						"agent_name":        a.name,
 						"execution_time_ms": executionTimeMs,
-						"input_length":    len(input),
-						"response_length": responseLength,
+						"input_length":      len(input),
+						"response_length":   responseLength,
 					}
 
 					// Add organization and conversation context if available
