@@ -12,7 +12,7 @@ var envVarCache = make(map[string]string)
 
 // loadEnvFile loads environment variables from a .env file
 func loadEnvFile(path string) error {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 - Path is controlled internally and limited to .env files
 	if err != nil {
 		// If file doesn't exist, it's not an error - just skip
 		if os.IsNotExist(err) {
@@ -20,7 +20,9 @@ func loadEnvFile(path string) error {
 		}
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close() // Ignore close error as file is read-only
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
