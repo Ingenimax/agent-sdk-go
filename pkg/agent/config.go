@@ -443,7 +443,7 @@ func ConvertYAMLSchemaToResponseFormat(config *ResponseFormatConfig) (*interface
 func expandEnvironmentVariables(value interface{}) interface{} {
 	switch v := value.(type) {
 	case string:
-		return os.ExpandEnv(v)
+		return ExpandEnv(v)
 	case map[string]interface{}:
 		return expandConfigMap(v)
 	case []interface{}:
@@ -469,9 +469,9 @@ func expandConfigMap(config map[string]interface{}) map[string]interface{} {
 // expandAgentConfig expands environment variables in agent configuration
 func expandAgentConfig(config AgentConfig) AgentConfig {
 	expanded := config
-	expanded.Role = os.ExpandEnv(config.Role)
-	expanded.Goal = os.ExpandEnv(config.Goal)
-	expanded.Backstory = os.ExpandEnv(config.Backstory)
+	expanded.Role = ExpandEnv(config.Role)
+	expanded.Goal = ExpandEnv(config.Goal)
+	expanded.Backstory = ExpandEnv(config.Backstory)
 
 	// Expand memory configuration
 	if config.Memory != nil && config.Memory.Config != nil {
@@ -488,11 +488,11 @@ func expandAgentConfig(config AgentConfig) AgentConfig {
 			expandedTools[i] = ToolConfigYAML{
 				Type:        tool.Type,
 				Name:        tool.Name,
-				Description: os.ExpandEnv(tool.Description),
+				Description: ExpandEnv(tool.Description),
 				Config:      expandConfigMap(tool.Config),
 				Enabled:     tool.Enabled,
-				URL:         os.ExpandEnv(tool.URL),
-				Timeout:     os.ExpandEnv(tool.Timeout),
+				URL:         ExpandEnv(tool.URL),
+				Timeout:     ExpandEnv(tool.Timeout),
 			}
 		}
 		expanded.Tools = expandedTools
@@ -501,10 +501,10 @@ func expandAgentConfig(config AgentConfig) AgentConfig {
 	// Expand runtime configuration
 	if config.Runtime != nil {
 		expanded.Runtime = &RuntimeConfigYAML{
-			LogLevel:        os.ExpandEnv(config.Runtime.LogLevel),
+			LogLevel:        ExpandEnv(config.Runtime.LogLevel),
 			EnableTracing:   config.Runtime.EnableTracing,
 			EnableMetrics:   config.Runtime.EnableMetrics,
-			TimeoutDuration: os.ExpandEnv(config.Runtime.TimeoutDuration),
+			TimeoutDuration: ExpandEnv(config.Runtime.TimeoutDuration),
 		}
 	}
 

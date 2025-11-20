@@ -15,6 +15,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
@@ -69,6 +70,12 @@ type Agent struct {
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
+
+	// Runtime configuration fields
+	memoryConfig    map[string]interface{} // Memory configuration from YAML
+	timeout         time.Duration          // Agent timeout from runtime config
+	tracingEnabled  bool                   // Whether tracing is enabled
+	metricsEnabled  bool                   // Whether metrics are enabled
 
 	// Remote agent fields
 	isRemote      bool                      // Whether this is a remote agent
@@ -222,6 +229,33 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			}
 		}
 
+		// Store memory config for runtime instantiation
+		if expandedConfig.Memory != nil {
+			a.memoryConfig = convertMemoryConfigYAMLToInterface(expandedConfig.Memory)
+		}
+
+		// Apply runtime settings
+		if expandedConfig.Runtime != nil {
+			if expandedConfig.Runtime.LogLevel != "" {
+				// Set log level if logger supports it
+				if a.logger != nil {
+					// Logger level setting would go here if supported by the logger interface
+				}
+			}
+			if expandedConfig.Runtime.TimeoutDuration != "" {
+				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
+					a.timeout = timeout
+				}
+			}
+			if expandedConfig.Runtime.EnableTracing != nil && *expandedConfig.Runtime.EnableTracing {
+				// Tracing enablement flag stored for later use
+				a.tracingEnabled = true
+			}
+			if expandedConfig.Runtime.EnableMetrics != nil && *expandedConfig.Runtime.EnableMetrics {
+				// Metrics enablement flag stored for later use
+				a.metricsEnabled = true
+			}
+		}
 
 		// Process sub-agents recursively
 		if expandedConfig.SubAgents != nil {
@@ -1740,4 +1774,22 @@ func createSubAgentsFromConfig(subAgentConfigs map[string]AgentConfig, variables
 	}
 
 	return subAgents, nil
+}
+
+// CreateMemoryFromConfig creates a memory instance from YAML configuration
+// This function is intended to be used by agent-blueprint applications that need
+// to instantiate memory from YAML config stored in the agent
+func CreateMemoryFromConfig(memoryConfig map[string]interface{}, llmClient interfaces.LLM) (interfaces.Memory, error) {
+	if memoryConfig == nil {
+		return nil, fmt.Errorf("memory config is nil")
+	}
+
+	factory := memory.NewMemoryFactory()
+	return factory.CreateMemory(memoryConfig, llmClient)
+}
+
+// GetMemoryConfig returns the stored memory configuration from YAML
+// This allows agent-blueprint to access the memory config for instantiation
+func (a *Agent) GetMemoryConfig() map[string]interface{} {
+	return a.memoryConfig
 }
