@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -172,6 +173,10 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 				a.responseFormat = responseFormat
 			}
 		}
+		// Add MCP configuration if provided
+		if config.MCP != nil {
+			applyMCPConfig(a, config.MCP)
+		}
 	}
 }
 
@@ -199,6 +204,81 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 	return func(a *Agent) {
 		a.lazyMCPConfigs = configs
+	}
+}
+
+// WithMCPURLs adds MCP servers from URL strings
+// Supports formats:
+// - stdio://command/path/to/executable
+// - http://localhost:8080/mcp
+// - https://api.example.com/mcp?token=xxx
+// - mcp://preset-name (for presets)
+func WithMCPURLs(urls ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, url := range urls {
+			builder.AddServer(url)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to parse some MCP URLs", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
+	}
+}
+
+// WithMCPPresets adds predefined MCP server configurations
+func WithMCPPresets(presetNames ...string) Option {
+	return func(a *Agent) {
+		builder := mcp.NewBuilder()
+		for _, preset := range presetNames {
+			builder.AddPreset(preset)
+		}
+
+		// Build lazy configurations
+		lazyConfigs, err := builder.BuildLazy()
+		if err != nil {
+			// Log error but don't fail agent creation
+			if a.logger != nil {
+				a.logger.Warn(context.Background(), "Failed to load some MCP presets", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			return
+		}
+
+		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
+		for _, config := range lazyConfigs {
+			agentConfig := LazyMCPConfig{
+				Name:    config.Name,
+				Type:    config.Type,
+				Command: config.Command,
+				Args:    config.Args,
+				Env:     config.Env,
+				URL:     config.URL,
+			}
+			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
+		}
 	}
 }
 
@@ -309,10 +389,19 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Configure sub-agent tools with logger and tracer
 	agent.configureSubAgentTools()
 
+	// Eagerly load MCP tools during initialization to combine with manual tools
+	if err := agent.initializeMCPTools(); err != nil {
+		// Log warning but continue - MCP tools are optional
+		fmt.Printf("Warning: Failed to initialize MCP tools: %v\n", err)
+	}
+
+	// Get all tools (manual + MCP) for execution plan components
+	allTools := agent.getAllToolsSync()
+
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
-	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
-	agent.planExecutor = executionplan.NewExecutor(agent.tools)
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt)
+	agent.planExecutor = executionplan.NewExecutor(allTools)
 
 	return agent, nil
 }
@@ -422,29 +511,219 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 
 // Run runs the agent with the given input
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
-	// If custom run function is set, use it instead
-	if a.customRunFunc != nil {
-		return a.customRunFunc(ctx, input, a)
+	response, err := a.runInternal(ctx, input, false)
+	if err != nil {
+		return "", err
 	}
-
-	// If this is a remote agent, delegate to remote execution
-	if a.isRemote {
-		return a.runRemote(ctx, input)
-	}
-
-	// Local agent execution
-	return a.runLocal(ctx, input)
+	return response.Content, nil
 }
 
-// RunWithAuth executes the agent with an explicit auth token
-func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
-	// If this is a remote agent, delegate to remote execution with auth token
-	if a.isRemote {
-		return a.runRemoteWithAuth(ctx, input, authToken)
+func (a *Agent) RunDetailed(ctx context.Context, input string) (*interfaces.AgentResponse, error) {
+	return a.runInternal(ctx, input, true)
+}
+
+func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*interfaces.AgentResponse, error) {
+	startTime := time.Now()
+
+	tracker := newUsageTracker(detailed)
+	ctx = withUsageTracker(ctx, tracker)
+
+	var response string
+	var err error
+
+	if a.customRunFunc != nil {
+		response, err = a.customRunFunc(ctx, input, a)
+		if err != nil {
+			return nil, err
+		}
+	} else if a.isRemote {
+		response, err = a.runRemoteWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		response, err = a.runLocalWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// For local agents, the auth token isn't used but we maintain compatibility
-	return a.runLocal(ctx, input)
+	tracker.setExecutionTime(time.Since(startTime).Milliseconds())
+	usage, execSummary, primaryModel := tracker.getResults()
+
+	var execSum interfaces.ExecutionSummary
+	if execSummary != nil {
+		execSum = *execSummary
+	}
+
+	// Log detailed execution information for all agent calls
+	if detailed {
+		executionDetails := map[string]interface{}{
+			"agent_name":        a.name,
+			"input_length":      len(input),
+			"response_length":   len(response),
+			"model_used":        primaryModel,
+			"execution_time_ms": time.Since(startTime).Milliseconds(),
+		}
+		if execSummary != nil {
+			executionDetails["llm_calls"] = execSummary.LLMCalls
+			executionDetails["tool_calls"] = execSummary.ToolCalls
+			executionDetails["sub_agent_calls"] = execSummary.SubAgentCalls
+			executionDetails["used_tools"] = execSummary.UsedTools
+			executionDetails["used_sub_agents"] = execSummary.UsedSubAgents
+		}
+		if usage != nil {
+			executionDetails["input_tokens"] = usage.InputTokens
+			executionDetails["output_tokens"] = usage.OutputTokens
+			executionDetails["total_tokens"] = usage.TotalTokens
+			executionDetails["reasoning_tokens"] = usage.ReasoningTokens
+		}
+		log.Printf("[Agent SDK] Agent execution completed: %+v", executionDetails)
+	}
+
+	return &interfaces.AgentResponse{
+		Content:          response,
+		Usage:            usage,
+		AgentName:        a.name,
+		Model:            primaryModel,
+		ExecutionSummary: execSum,
+		Metadata: map[string]interface{}{
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
+			"execution_duration_ms": time.Since(startTime).Milliseconds(),
+		},
+	}, nil
+}
+
+func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string, error) {
+	ctx = tracing.WithAgentName(ctx, a.name)
+
+	if a.orgID != "" {
+		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	var span interfaces.Span
+	if a.tracer != nil {
+		ctx, span = a.tracer.StartSpan(ctx, "agent.Run")
+		defer span.End()
+	}
+
+	if a.memory != nil {
+		if err := a.memory.AddMessage(ctx, interfaces.Message{
+			Role:    interfaces.MessageRoleUser,
+			Content: input,
+		}); err != nil {
+			return "", fmt.Errorf("failed to add user message to memory: %w", err)
+		}
+	}
+
+	if a.guardrails != nil {
+		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
+		if err != nil {
+			return "", fmt.Errorf("guardrails error: %w", err)
+		}
+		input = guardedInput
+	}
+
+	taskID, action, planInput := a.extractPlanAction(input)
+	if taskID != "" {
+		return a.handlePlanAction(ctx, taskID, action, planInput)
+	}
+
+	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
+		response := a.generateRoleResponse()
+
+		if a.memory != nil {
+			if err := a.memory.AddMessage(ctx, interfaces.Message{
+				Role:    interfaces.MessageRoleAssistant,
+				Content: response,
+			}); err != nil {
+				return "", fmt.Errorf("failed to add role response to memory: %w", err)
+			}
+		}
+
+		return response, nil
+	}
+
+	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
+	allTools := a.tools
+
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			fmt.Printf("Failed to collect MCP tools: %v\n", err)
+		} else if len(mcpTools) > 0 {
+			allTools = append(allTools, mcpTools...)
+		}
+	}
+
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		allTools = append(allTools, lazyMCPTools...)
+	}
+
+	if (len(allTools) > 0) && a.requirePlanApproval {
+		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
+		return a.runWithExecutionPlan(ctx, input)
+	}
+
+	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, allTools)
+}
+
+func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+	response, err := a.runWithAuthInternal(ctx, input, authToken, false)
+	if err != nil {
+		return "", err
+	}
+	return response.Content, nil
+}
+
+func (a *Agent) RunWithAuthDetailed(ctx context.Context, input string, authToken string) (*interfaces.AgentResponse, error) {
+	return a.runWithAuthInternal(ctx, input, authToken, true)
+}
+
+func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken string, detailed bool) (*interfaces.AgentResponse, error) {
+	startTime := time.Now()
+
+	tracker := newUsageTracker(detailed)
+	ctx = withUsageTracker(ctx, tracker)
+
+	var response string
+	var err error
+
+	if a.isRemote {
+		response, err = a.runRemoteWithAuthTracking(ctx, input, authToken)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		response, err = a.runLocalWithTracking(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tracker.setExecutionTime(time.Since(startTime).Milliseconds())
+	usage, execSummary, primaryModel := tracker.getResults()
+
+	var execSum interfaces.ExecutionSummary
+	if execSummary != nil {
+		execSum = *execSummary
+	}
+
+	return &interfaces.AgentResponse{
+		Content:          response,
+		Usage:            usage,
+		AgentName:        a.name,
+		Model:            primaryModel,
+		ExecutionSummary: execSum,
+		Metadata: map[string]interface{}{
+			"agent_name":            a.name,
+			"execution_timestamp":   startTime.Unix(),
+			"execution_duration_ms": time.Since(startTime).Milliseconds(),
+			"auth_enabled":          true,
+		},
+	}, nil
 }
 
 // RunStreamWithAuth executes the agent with streaming response and explicit auth token
@@ -458,29 +737,63 @@ func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken s
 	return a.RunStream(ctx, input)
 }
 
-// runRemote executes a remote agent via gRPC
-func (a *Agent) runRemote(ctx context.Context, input string) (string, error) {
+func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
 		return "", fmt.Errorf("remote client not initialized")
 	}
 
-	// If orgID is set on the agent, add it to the context
 	if a.orgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	tracker := getUsageTracker(ctx)
+
+	if tracker != nil && tracker.detailed {
+		tracker.execSummary.SubAgentCalls++
+
+		if a.name != "" {
+			found := false
+			for _, used := range tracker.execSummary.UsedSubAgents {
+				if used == a.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tracker.execSummary.UsedSubAgents = append(tracker.execSummary.UsedSubAgents, a.name)
+			}
+		}
 	}
 
 	return a.remoteClient.Run(ctx, input)
 }
 
-// runRemoteWithAuth executes a remote agent via gRPC with explicit auth token
-func (a *Agent) runRemoteWithAuth(ctx context.Context, input string, authToken string) (string, error) {
+func (a *Agent) runRemoteWithAuthTracking(ctx context.Context, input string, authToken string) (string, error) {
 	if a.remoteClient == nil {
 		return "", fmt.Errorf("remote client not initialized")
 	}
 
-	// If orgID is set on the agent, add it to the context
 	if a.orgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, a.orgID)
+	}
+
+	tracker := getUsageTracker(ctx)
+
+	if tracker != nil && tracker.detailed {
+		tracker.execSummary.SubAgentCalls++
+
+		if a.name != "" {
+			found := false
+			for _, used := range tracker.execSummary.UsedSubAgents {
+				if used == a.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				tracker.execSummary.UsedSubAgents = append(tracker.execSummary.UsedSubAgents, a.name)
+			}
+		}
 	}
 
 	return a.remoteClient.RunWithAuth(ctx, input, authToken)
@@ -498,93 +811,6 @@ func (a *Agent) runRemoteStreamWithAuth(ctx context.Context, input string, authT
 	}
 
 	return a.remoteClient.RunStreamWithAuth(ctx, input, authToken)
-}
-
-// runLocal executes a local agent
-func (a *Agent) runLocal(ctx context.Context, input string) (string, error) {
-	// Inject agent name into context for tracing span naming
-	ctx = tracing.WithAgentName(ctx, a.name)
-
-	// If orgID is set on the agent, add it to the context
-	if a.orgID != "" {
-		ctx = multitenancy.WithOrgID(ctx, a.orgID)
-	}
-
-	// Start tracing if available
-	var span interfaces.Span
-	if a.tracer != nil {
-		ctx, span = a.tracer.StartSpan(ctx, "agent.Run")
-		defer span.End()
-	}
-
-	// Add user message to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add user message to memory: %w", err)
-		}
-	}
-
-	// Apply guardrails to input if available
-	if a.guardrails != nil {
-		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		input = guardedInput
-	}
-
-	// Check if the input is related to an existing plan
-	taskID, action, planInput := a.extractPlanAction(input)
-	if taskID != "" {
-		return a.handlePlanAction(ctx, taskID, action, planInput)
-	}
-
-	// Check if the user is asking about the agent's role or identity
-	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
-		response := a.generateRoleResponse()
-
-		// Add the role response to memory if available
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    interfaces.MessageRoleAssistant,
-				Content: response,
-			}); err != nil {
-				return "", fmt.Errorf("failed to add role response to memory: %w", err)
-			}
-		}
-
-		return response, nil
-	}
-
-	allTools := a.tools
-
-	// Add MCP tools if available
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log the error but continue with the agent tools
-			fmt.Printf("Failed to collect MCP tools: %v\n", err)
-		} else if len(mcpTools) > 0 {
-			allTools = append(allTools, mcpTools...)
-		}
-	}
-
-	// Add lazy MCP tools if available
-	if len(a.lazyMCPConfigs) > 0 {
-		lazyMCPTools := a.createLazyMCPTools()
-		allTools = append(allTools, lazyMCPTools...)
-	}
-	// If tools are available and plan approval is required, generate an execution plan
-	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
-		return a.runWithExecutionPlan(ctx, input)
-	}
-
-	// Otherwise, run without an execution plan
-	return a.runWithoutExecutionPlanWithTools(ctx, input, allTools)
 }
 
 // collectMCPTools collects tools from all MCP servers
@@ -614,7 +840,11 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	var lazyTools []interfaces.Tool
 
+	fmt.Printf("Creating lazy MCP tools from %d configs...\n", len(a.lazyMCPConfigs))
+
 	for _, config := range a.lazyMCPConfigs {
+		fmt.Printf("Processing MCP config: %s (type: %s)\n", config.Name, config.Type)
+
 		// Create lazy server config
 		lazyServerConfig := mcp.LazyMCPServerConfig{
 			Name:    config.Name,
@@ -625,37 +855,102 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			URL:     config.URL,
 		}
 
-		// Create lazy tools for each configured tool
-		for _, toolConfig := range config.Tools {
-			lazyTool := mcp.NewLazyMCPTool(
-				toolConfig.Name,
-				toolConfig.Description,
-				toolConfig.Schema,
-				lazyServerConfig,
-			)
-			lazyTools = append(lazyTools, lazyTool)
+		// If no specific tools are defined, discover all tools from the server
+		if len(config.Tools) == 0 {
+			fmt.Printf("No tools specified for %s, discovering tools from server\n", config.Name)
+
+			// Create a temporary server instance to discover tools
+			ctx := context.Background()
+			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
+			if err != nil {
+				fmt.Printf("Failed to create server for tool discovery: %v\n", err)
+				continue
+			}
+
+			// Log discovered server metadata
+			if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+				fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+				fmt.Printf("  Name: %s\n", serverInfo.Name)
+				if serverInfo.Title != "" {
+					fmt.Printf("  Title: %s\n", serverInfo.Title)
+				}
+				if serverInfo.Version != "" {
+					fmt.Printf("  Version: %s\n", serverInfo.Version)
+				}
+			}
+
+			// Discover available tools from the server
+			discoveredTools, err := server.ListTools(ctx)
+			if err != nil {
+				fmt.Printf("Failed to discover tools from %s: %v\n", config.Name, err)
+				continue
+			}
+
+			fmt.Printf("Discovered %d tools from %s server\n", len(discoveredTools), config.Name)
+
+			// Create lazy tools for each discovered tool
+			for _, discoveredTool := range discoveredTools {
+				fmt.Printf("Creating lazy tool: %s\n", discoveredTool.Name)
+				fmt.Printf("  Description: '%s'\n", discoveredTool.Description)
+				fmt.Printf("  Schema: %+v\n", discoveredTool.Schema)
+
+				lazyTool := mcp.NewLazyMCPTool(
+					discoveredTool.Name,
+					discoveredTool.Description,
+					discoveredTool.Schema,
+					lazyServerConfig,
+				)
+				lazyTools = append(lazyTools, lazyTool)
+			}
+		} else {
+			// Create a temporary server instance to discover metadata even for configured tools
+			ctx := context.Background()
+			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
+			if err != nil {
+				fmt.Printf("Warning: Failed to create server for metadata discovery: %v\n", err)
+			} else {
+				// Log discovered server metadata
+				if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
+					fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
+					fmt.Printf("  Name: %s\n", serverInfo.Name)
+					if serverInfo.Title != "" {
+						fmt.Printf("  Title: %s\n", serverInfo.Title)
+					}
+					if serverInfo.Version != "" {
+						fmt.Printf("  Version: %s\n", serverInfo.Version)
+					}
+				}
+			}
+
+			// Create lazy tools for each configured tool
+			for _, toolConfig := range config.Tools {
+				fmt.Printf("Creating tool: %s\n", toolConfig.Name)
+				lazyTool := mcp.NewLazyMCPTool(
+					toolConfig.Name,
+					toolConfig.Description,
+					toolConfig.Schema,
+					lazyServerConfig,
+				)
+				lazyTools = append(lazyTools, lazyTool)
+			}
 		}
 	}
 
+	fmt.Printf("Created %d lazy MCP tools\n", len(lazyTools))
 	return lazyTools
 }
 
-// runWithoutExecutionPlanWithTools runs the agent without an execution plan but with the specified tools
-func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
-	// Use input directly as prompt - let LLM providers handle message history via Memory
+func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
 	prompt := input
 
-	// Generate response with tools if available
 	var response string
 	var err error
 
-	// Add system prompt as a generate option
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
 	}
 
-	// Add response format as a generate option if available
 	if a.responseFormat != nil {
 		generateOptions = append(generateOptions, openai.WithResponseFormat(*a.responseFormat))
 	}
@@ -666,22 +961,48 @@ func (a *Agent) runWithoutExecutionPlanWithTools(ctx context.Context, input stri
 		})
 	}
 
-	// Add max iterations option
 	generateOptions = append(generateOptions, interfaces.WithMaxIterations(a.maxIterations))
 
-	// Always pass memory to LLM - let providers handle message history conversion natively
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
 	}
 
-	if len(tools) > 0 {
-		response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
-	} else {
-		response, err = a.llm.Generate(ctx, prompt, generateOptions...)
-	}
+	tracker := getUsageTracker(ctx)
 
-	if err != nil {
-		return "", fmt.Errorf("failed to generate response: %w", err)
+	if len(tools) > 0 {
+		if tracker != nil {
+			for _, tool := range tools {
+				tracker.addToolCall(tool.Name())
+			}
+		}
+
+		if tracker != nil && tracker.detailed {
+			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, tools, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+			response = llmResp.Content
+			tracker.addLLMUsage(llmResp.Usage, llmResp.Model)
+		} else {
+			response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+		}
+	} else {
+		if tracker != nil && tracker.detailed {
+			llmResp, err := a.llm.GenerateDetailed(ctx, prompt, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+			response = llmResp.Content
+			tracker.addLLMUsage(llmResp.Usage, llmResp.Model)
+		} else {
+			response, err = a.llm.Generate(ctx, prompt, generateOptions...)
+			if err != nil {
+				return "", fmt.Errorf("failed to generate response: %w", err)
+			}
+		}
 	}
 
 	// Apply guardrails to output if available
@@ -1139,6 +1460,7 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
+	// Return pre-initialized tools (manual + MCP tools already combined during agent creation)
 	return a.tools
 }
 
@@ -1245,4 +1567,36 @@ func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// initializeMCPTools eagerly initializes MCP tools during agent creation
+func (a *Agent) initializeMCPTools() error {
+	ctx := context.Background()
+
+	// Initialize regular MCP tools if available
+	if len(a.mcpServers) > 0 {
+		mcpTools, err := a.collectMCPTools(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to collect MCP server tools: %w", err)
+		}
+		// Add MCP tools to the main tools slice
+		a.tools = append(a.tools, mcpTools...)
+		fmt.Printf("Initialized %d MCP server tools\n", len(mcpTools))
+	}
+
+	// Initialize lazy MCP tools if available
+	if len(a.lazyMCPConfigs) > 0 {
+		lazyMCPTools := a.createLazyMCPTools()
+		// Add lazy MCP tools to the main tools slice
+		a.tools = append(a.tools, lazyMCPTools...)
+		fmt.Printf("Initialized %d lazy MCP tools\n", len(lazyMCPTools))
+	}
+
+	return nil
+}
+
+// getAllToolsSync returns all tools (manual + MCP) synchronously for use during initialization
+func (a *Agent) getAllToolsSync() []interfaces.Tool {
+	// At this point, a.tools already contains manual tools + initialized MCP tools
+	return a.tools
 }

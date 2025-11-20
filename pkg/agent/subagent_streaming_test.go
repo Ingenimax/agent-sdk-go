@@ -25,6 +25,22 @@ func (m *StreamingMockLLM) GenerateWithTools(ctx context.Context, prompt string,
 	return m.responseContent, nil
 }
 
+func (m *StreamingMockLLM) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	return &interfaces.LLMResponse{
+		Content: m.responseContent,
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		Model: m.llmName,
+	}, nil
+}
+
+func (m *StreamingMockLLM) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	return m.GenerateDetailed(ctx, prompt, options...)
+}
+
 func (m *StreamingMockLLM) Name() string {
 	return m.llmName
 }

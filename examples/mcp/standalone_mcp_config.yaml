@@ -1,0 +1,52 @@
+# Standalone DevOps MCP Configuration
+# This file demonstrates how to configure MCP servers for DevOps workflows
+
+global:
+  timeout: "30s"
+  retry_attempts: 3
+  health_check: true
+  enable_resources: true
+  enable_prompts: true
+  enable_sampling: true
+  enable_schemas: true
+  log_level: "info"
+
+mcpServers:
+  # Essential filesystem access for DevOps tasks
+  filesystem:
+    command: "npx"
+    args: ["@modelcontextprotocol/server-filesystem", "."]
+
+  # System monitoring (example server)
+  system_metrics:
+    command: "python3"
+    args: ["-m", "mcp_system_monitor", "--interval", "5"]
+    env:
+      MONITOR_CPU: "true"
+      MONITOR_MEMORY: "true"
+      MONITOR_DISK: "true"
+
+  # Git operations for deployment tracking
+  git_tools:
+    command: "git-mcp-server"
+    args: ["--repo-path", "."]
+
+  # HTTP example: GitHub API integration (disabled via comment)
+  # github_devops:
+  #   url: "https://api.github.com/mcp"
+  #   token: "${GITHUB_TOKEN}"
+
+  # Example servers (commented out as they may not be available)
+  # docker_manager:
+  #   command: "docker-mcp-server"
+  #   args: ["--socket", "/var/run/docker.sock"]
+
+  # k8s_cluster:
+  #   command: "kubectl-mcp-server"
+  #   args: ["--context", "${K8S_CONTEXT:-default}"]
+  #   env:
+  #     KUBECONFIG: "${HOME}/.kube/config"
+
+  # log_analyzer:
+  #   command: "log-mcp-server"
+  #   args: ["--log-dir", "/var/log", "--pattern", "*.log"]

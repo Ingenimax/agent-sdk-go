@@ -38,6 +38,47 @@ func (m *MockLLM) SupportsStreaming() bool {
 	return false
 }
 
+func (m *MockLLM) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	content, err := m.Generate(ctx, prompt, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      "mock-llm",
+		StopReason: "complete",
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		Metadata: map[string]interface{}{
+			"provider": "mock",
+		},
+	}, nil
+}
+
+func (m *MockLLM) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	content, err := m.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      "mock-llm",
+		StopReason: "complete",
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+		Metadata: map[string]interface{}{
+			"provider":   "mock",
+			"tools_used": true,
+		},
+	}, nil
+}
+
 func setupTestRedisClient(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 	// Create a miniredis server
 	mr, err := miniredis.Run()

@@ -39,6 +39,7 @@ type AgentTool struct {
 type SubAgent interface {
 	Run(ctx context.Context, input string) (string, error)
 	RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error)
+	RunDetailed(ctx context.Context, input string) (*interfaces.AgentResponse, error)
 	GetName() string
 	GetDescription() string
 }
@@ -168,15 +169,25 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	})
 
 	// Check if we have a stream forwarder in the context
-	var result string
+	var response *interfaces.AgentResponse
 	var err error
 
 	if forwarder, ok := ctx.Value(interfaces.StreamForwarderKey).(interfaces.StreamForwarder); ok && forwarder != nil {
 		// Use streaming to forward events to parent
-		result, err = at.runWithStreaming(ctx, input, forwarder, span, agentName)
+		result, streamErr := at.runWithStreaming(ctx, input, forwarder, span, agentName)
+		if streamErr != nil {
+			err = streamErr
+		} else {
+			// After streaming completes, get detailed response for tracking
+			response, err = at.agent.RunDetailed(ctx, input)
+			if err == nil && response.Content == "" {
+				// If detailed response is empty, use streamed result
+				response.Content = result
+			}
+		}
 	} else {
-		// Fall back to blocking execution
-		result, err = at.agent.Run(ctx, input)
+		// Fall back to detailed execution for full tracking
+		response, err = at.agent.RunDetailed(ctx, input)
 	}
 
 	duration := time.Since(startTime)
@@ -203,25 +214,62 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 		return "", fmt.Errorf("sub-agent %s failed: %w", agentName, err)
 	}
 
-	// Log successful execution with response details
-	at.logger.Debug(ctx, "Sub-agent execution completed", map[string]interface{}{
-		"sub_agent":    agentName,
-		"tool_name":    at.name,
-		"input_prompt": input,
-		"response":     result,
-		"duration":     duration.String(),
-		"response_len": len(result),
-	})
-
-	// Record success in span
-	if span != nil {
-		span.SetAttribute("sub_agent.response", result)
-		span.SetAttribute("sub_agent.duration_ms", duration.Milliseconds())
-		span.SetAttribute("sub_agent.response_length", len(result))
-		span.SetAttribute("sub_agent.success", true)
+	// Log comprehensive execution details
+	executionDetails := map[string]interface{}{
+		"sub_agent":         agentName,
+		"tool_name":         at.name,
+		"input_prompt":      input,
+		"response_content":  response.Content,
+		"response_length":   len(response.Content),
+		"duration":          duration.String(),
+		"agent_name":        response.AgentName,
+		"model_used":        response.Model,
+		"llm_calls":         response.ExecutionSummary.LLMCalls,
+		"tool_calls":        response.ExecutionSummary.ToolCalls,
+		"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+		"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+		"used_tools":        response.ExecutionSummary.UsedTools,
+		"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
 	}
 
-	return result, nil
+	// Add token usage details if available
+	if response.Usage != nil {
+		executionDetails["input_tokens"] = response.Usage.InputTokens
+		executionDetails["output_tokens"] = response.Usage.OutputTokens
+		executionDetails["total_tokens"] = response.Usage.TotalTokens
+		executionDetails["reasoning_tokens"] = response.Usage.ReasoningTokens
+	}
+
+	// Add metadata if available
+	if response.Metadata != nil {
+		executionDetails["metadata"] = response.Metadata
+	}
+
+	at.logger.Info(ctx, "Sub-agent execution completed with detailed tracking", executionDetails)
+
+	// Record detailed success information in span
+	if span != nil {
+		span.SetAttribute("sub_agent.response", response.Content)
+		span.SetAttribute("sub_agent.duration_ms", duration.Milliseconds())
+		span.SetAttribute("sub_agent.response_length", len(response.Content))
+		span.SetAttribute("sub_agent.success", true)
+		span.SetAttribute("sub_agent.agent_name", response.AgentName)
+		span.SetAttribute("sub_agent.model_used", response.Model)
+		span.SetAttribute("sub_agent.llm_calls", response.ExecutionSummary.LLMCalls)
+		span.SetAttribute("sub_agent.tool_calls", response.ExecutionSummary.ToolCalls)
+		span.SetAttribute("sub_agent.sub_agent_calls", response.ExecutionSummary.SubAgentCalls)
+		span.SetAttribute("sub_agent.execution_time_ms", response.ExecutionSummary.ExecutionTimeMs)
+
+		// Add token usage to span if available
+		if response.Usage != nil {
+			span.SetAttribute("sub_agent.input_tokens", response.Usage.InputTokens)
+			span.SetAttribute("sub_agent.output_tokens", response.Usage.OutputTokens)
+			span.SetAttribute("sub_agent.total_tokens", response.Usage.TotalTokens)
+			span.SetAttribute("sub_agent.reasoning_tokens", response.Usage.ReasoningTokens)
+		}
+	}
+
+	return response.Content, nil
 }
 
 // Execute implements interfaces.Tool.Execute

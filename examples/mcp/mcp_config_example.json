@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "/Users/username/projects"]
+    },
+    "github": {
+      "url": "https://api.github.com/mcp",
+      "token": "${GITHUB_TOKEN}"
+    },
+    "weather": {
+      "url": "https://weather-mcp-server.example.com",
+      "token": "${WEATHER_API_KEY}"
+    },
+    "database": {
+      "command": "./bin/db-mcp-server",
+      "args": ["--config", "config.json", "--database", "production"],
+      "env": {
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",
+        "DB_NAME": "myapp"
+      }
+    },
+    "calculator": {
+      "command": "python",
+      "args": ["-m", "mcp_calculator"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"]
+    },
+    "arxiv-server": {
+      "command": "uv",
+      "args": [
+        "tool",
+        "run",
+        "arxiv-mcp-server",
+        "--storage-path", "/tmp/arxiv-papers"
+      ]
+    }
+  },
+  "global": {
+    "timeout": "30s",
+    "retry_attempts": 3,
+    "health_check": true,
+    "enable_resources": true,
+    "enable_prompts": true,
+    "enable_sampling": true,
+    "enable_schemas": true,
+    "log_level": "info"
+  }
+}

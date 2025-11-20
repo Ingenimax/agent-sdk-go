@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
@@ -45,6 +47,9 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 	go func() {
 		defer close(eventChan)
 
+		// Track execution start time
+		startTime := time.Now()
+
 		// Inject agent name into context for tracing span naming
 		ctx = tracing.WithAgentName(ctx, a.name)
 
@@ -53,11 +58,70 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			ctx = multitenancy.WithOrgID(ctx, a.orgID)
 		}
 
+		// Create usage tracker for detailed metrics collection
+		tracker := newUsageTracker(true)
+		ctx = withUsageTracker(ctx, tracker)
+
+		// Track response length for span logging
+		var responseLength int64
+
 		// Start tracing if available
 		var span interfaces.Span
 		if a.tracer != nil {
 			ctx, span = a.tracer.StartSpan(ctx, "agent.RunStream")
-			defer span.End()
+			defer func() {
+				// Add detailed execution information to span before ending
+				if span != nil {
+					executionTimeMs := time.Since(startTime).Milliseconds()
+					tracker.setExecutionTime(executionTimeMs)
+
+					usage, execSummary, model := tracker.getResults()
+
+					// Add comprehensive span attributes
+					spanData := map[string]interface{}{
+						"agent_name":        a.name,
+						"execution_time_ms": executionTimeMs,
+						"input_length":      len(input),
+						"response_length":   responseLength,
+					}
+
+					// Add organization and conversation context if available
+					if orgID, err := multitenancy.GetOrgID(ctx); err == nil && orgID != "" {
+						spanData["org_id"] = orgID
+					}
+					if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+						spanData["conversation_id"] = conversationID
+					}
+
+					// Add token usage if available
+					if usage != nil {
+						spanData["input_tokens"] = usage.InputTokens
+						spanData["output_tokens"] = usage.OutputTokens
+						spanData["total_tokens"] = usage.TotalTokens
+						spanData["reasoning_tokens"] = usage.ReasoningTokens
+					}
+
+					// Add execution summary if available
+					if execSummary != nil {
+						spanData["llm_calls"] = execSummary.LLMCalls
+						spanData["tool_calls"] = execSummary.ToolCalls
+						spanData["sub_agent_calls"] = execSummary.SubAgentCalls
+						spanData["used_tools"] = execSummary.UsedTools
+						spanData["used_sub_agents"] = execSummary.UsedSubAgents
+					}
+
+					// Add model information
+					if model != "" {
+						spanData["model_used"] = model
+					} else if a.llm != nil {
+						spanData["model_used"] = a.llm.Name()
+					}
+
+					// Log detailed execution information
+					log.Printf("[Agent] RunStream execution completed: %+v", spanData)
+				}
+				span.End()
+			}()
 		}
 
 		// Add user message to memory
@@ -182,7 +246,9 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		}
 
 		// Run with streaming
-		if err := a.runStreamingGeneration(ctx, processedInput, allTools, streamingLLM, eventChan); err != nil {
+		length, err := a.runStreamingGeneration(ctx, processedInput, allTools, streamingLLM, eventChan)
+		responseLength = length
+		if err != nil {
 			eventChan <- interfaces.AgentStreamEvent{
 				Type:      interfaces.AgentEventError,
 				Error:     err,
@@ -201,7 +267,7 @@ func (a *Agent) runStreamingGeneration(
 	allTools []interfaces.Tool,
 	streamingLLM interfaces.StreamingLLM,
 	eventChan chan<- interfaces.AgentStreamEvent,
-) error {
+) (int64, error) {
 	// Prepare generation options
 	options := []interfaces.GenerateOption{}
 
@@ -267,7 +333,7 @@ func (a *Agent) runStreamingGeneration(
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to start LLM streaming: %w", err)
+		return 0, fmt.Errorf("failed to start LLM streaming: %w", err)
 	}
 
 	// Track accumulated content and tool calls for memory
@@ -358,7 +424,7 @@ func (a *Agent) runStreamingGeneration(
 		},
 	}
 
-	return finalError
+	return int64(accumulatedContent.Len()), finalError
 }
 
 // getToolMetadata retrieves display name and internal flag for a tool

@@ -348,9 +348,18 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 
 // Generate generates text from a prompt
 func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
+	response, err := c.generateInternal(ctx, prompt, options...)
+	if err != nil {
+		return "", err
+	}
+	return response.Content, nil
+}
+
+// generateInternal performs the actual generation and returns the full response
+func (c *AnthropicClient) generateInternal(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	// Check if model is specified
 	if c.Model == "" {
-		return "", fmt.Errorf("model not specified: use WithModel option when creating the client")
+		return nil, fmt.Errorf("model not specified: use WithModel option when creating the client")
 	}
 
 	// Apply options
@@ -383,7 +392,7 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 		// Convert the schema to a string representation for the prompt
 		schemaJSON, err := json.MarshalIndent(params.ResponseFormat.Schema, "", "  ")
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal response format schema: %w", err)
+			return nil, fmt.Errorf("failed to marshal response format schema: %w", err)
 		}
 
 		// Create an example JSON structure based on the schema
@@ -397,28 +406,10 @@ func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options .
 You must respond with a valid JSON object that exactly follows this schema:
 %s
 
-Here is an example of the expected JSON structure:
+Example output:
 %s
 
-CRITICAL INSTRUCTIONS:
-- Output ONLY valid JSON, no additional text before or after
-- Follow the EXACT structure shown in the schema and example
-- Use the field names exactly as specified
-- Ensure all required fields are present
-- Pay special attention to array fields - they must be arrays of objects, not simple objects
-- If a field is defined as an array in the schema, it MUST be an array in your response
-- The JSON must be directly parsable and match the schema precisely`, prompt, string(schemaJSON), string(exampleStr))
-
-		// Add assistant message prefill to enforce JSON output
-		// This helps Claude start the response correctly as JSON
-		messages = append(messages, Message{
-			Role:    "assistant",
-			Content: "{",
-		})
-
-		c.logger.Debug(ctx, "Using structured output format with prefill", map[string]interface{}{
-			"schema_name": params.ResponseFormat.Name,
-		})
+Return only the JSON object, with no additional text or markdown formatting.`, prompt, string(schemaJSON), string(exampleStr))
 	}
 
 	// Create request
@@ -430,30 +421,37 @@ CRITICAL INSTRUCTIONS:
 		TopP:        params.LLMConfig.TopP,
 	}
 
-	// Add system message if available
+	// Handle stop sequences
+	if len(params.LLMConfig.StopSequences) > 0 {
+		req.StopSequences = params.LLMConfig.StopSequences
+	}
+
+	// Handle reasoning/thinking if supported
+	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && SupportsThinking(c.Model) {
+		req.Thinking = &ReasoningSpec{
+			Type: "enabled",
+		}
+		if params.LLMConfig.ReasoningBudget > 0 {
+			req.Thinking.BudgetTokens = params.LLMConfig.ReasoningBudget
+		}
+		// Anthropic requires temperature = 1.0 when thinking is enabled
+		req.Temperature = 1.0
+		c.logger.Debug(ctx, "Enabled reasoning (thinking) tokens", map[string]interface{}{
+			"model":         c.Model,
+			"budget_tokens": params.LLMConfig.ReasoningBudget,
+			"max_tokens":    req.MaxTokens,
+			"temperature":   req.Temperature, // Show override
+		})
+	} else if params.LLMConfig != nil && params.LLMConfig.EnableReasoning {
+		c.logger.Warn(ctx, "Thinking tokens not supported by this model", map[string]interface{}{
+			"model":            c.Model,
+			"supported_models": []string{"claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-1-20250805"},
+		})
+	}
+
+	// Add system message if provided
 	if params.SystemMessage != "" {
-		// If structured output is requested, enhance the system message
-		if params.ResponseFormat != nil {
-			req.System = params.SystemMessage + "\n\nYou must respond with valid JSON that matches the specified schema."
-		} else {
-			req.System = params.SystemMessage
-		}
-		c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": req.System})
-	} else if params.ResponseFormat != nil {
-		// If no system message but structured output is requested, add a system message for JSON
-		req.System = "You must respond with valid JSON that matches the specified schema."
-		c.logger.Debug(ctx, "Added system message for structured output", nil)
-	}
-
-	// Add reasoning parameter if available
-	if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
-		c.logger.Debug(ctx, "Reasoning mode not supported in current API version", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
-	}
-
-	if params.LLMConfig != nil {
-		if len(params.LLMConfig.StopSequences) > 0 {
-			req.StopSequences = params.LLMConfig.StopSequences
-		}
+		req.System = params.SystemMessage
 	}
 
 	var resp CompletionResponse
@@ -462,45 +460,26 @@ CRITICAL INSTRUCTIONS:
 	operation := func() error {
 		var apiType string
 		if c.VertexConfig != nil && c.VertexConfig.Enabled {
-			apiType = "Vertex AI"
+			apiType = "vertex"
 		} else {
-			apiType = "Anthropic API"
+			apiType = "anthropic"
 		}
 
-		c.logger.Debug(ctx, "Executing "+apiType+" request", map[string]interface{}{
-			"model":          c.Model,
-			"temperature":    req.Temperature,
-			"top_p":          req.TopP,
-			"stop_sequences": req.StopSequences,
-			"system":         req.System != "",
-		})
-
 		var httpReq *http.Request
-
 		if c.VertexConfig != nil && c.VertexConfig.Enabled {
 			// Vertex AI mode
-			c.logger.Debug(ctx, "Using Vertex AI endpoint", map[string]interface{}{
-				"region":    c.VertexConfig.Region,
-				"projectID": c.VertexConfig.ProjectID,
-			})
-
 			httpReq, err = c.VertexConfig.CreateVertexHTTPRequest(ctx, &req, "POST", "/v1/messages")
 			if err != nil {
 				return fmt.Errorf("failed to create Vertex AI request: %w", err)
 			}
 		} else {
 			// Standard Anthropic API mode
-			c.logger.Debug(ctx, "Using standard Anthropic API", map[string]interface{}{
-				"baseURL": c.BaseURL,
-			})
-
 			// Convert request to JSON
 			reqBody, err := json.Marshal(req)
 			if err != nil {
 				return fmt.Errorf("failed to marshal request: %w", err)
 			}
 
-			// Create HTTP request
 			httpReq, err = http.NewRequestWithContext(
 				ctx,
 				"POST",
@@ -514,72 +493,51 @@ CRITICAL INSTRUCTIONS:
 			// Set headers for standard API
 			httpReq.Header.Set("Content-Type", "application/json")
 			httpReq.Header.Set("X-API-Key", c.APIKey)
-			httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+			httpReq.Header.Set("anthropic-version", "2023-06-01")
 		}
 
-		// Send request
+		// Perform the request
 		httpResp, err := c.HTTPClient.Do(httpReq)
 		if err != nil {
-			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-				"error": err.Error(),
-				"model": c.Model,
-			})
-			return fmt.Errorf("failed to send request: %w", err)
+			return fmt.Errorf("failed to send request to %s: %w", apiType, err)
 		}
 		defer func() {
-			if closeErr := httpResp.Body.Close(); closeErr != nil {
-				c.logger.Warn(ctx, "Failed to close response body", map[string]interface{}{
-					"error": closeErr.Error(),
-				})
+			if err := httpResp.Body.Close(); err != nil {
+				// Log error but don't fail the request
+				fmt.Printf("Warning: failed to close response body: %v\n", err)
 			}
 		}()
 
 		// Read response body
-		respBody, err := io.ReadAll(httpResp.Body)
+		body, err := io.ReadAll(httpResp.Body)
 		if err != nil {
-			return fmt.Errorf("failed to read response body: %w", err)
+			return fmt.Errorf("failed to read %s response: %w", apiType, err)
 		}
 
-		// Check for error response
+		// Check for HTTP errors
 		if httpResp.StatusCode != http.StatusOK {
-			c.logger.Error(ctx, "Error from Anthropic API", map[string]interface{}{
-				"status_code": httpResp.StatusCode,
-				"response":    string(respBody),
-				"model":       c.Model,
-			})
-			return fmt.Errorf("error from Anthropic API: %s", string(respBody))
+			return fmt.Errorf("%s API error (status %d): %s", apiType, httpResp.StatusCode, string(body))
 		}
 
-		// Unmarshal response
-		err = json.Unmarshal(respBody, &resp)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal response: %w", err)
+		// Parse response
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return fmt.Errorf("failed to parse %s response: %w", apiType, err)
 		}
 
 		return nil
 	}
 
-	if c.vertexRetryExecutor != nil {
-		c.logger.Info(ctx, "Using Vertex retry mechanism with region rotation", map[string]interface{}{
-			"model":          c.Model,
-			"current_region": c.VertexConfig.GetCurrentRegion(),
-		})
+	// Execute with retry if configured
+	if c.VertexConfig != nil && c.VertexConfig.Enabled && c.vertexRetryExecutor != nil {
 		err = c.vertexRetryExecutor.Execute(ctx, operation)
 	} else if c.retryExecutor != nil {
-		c.logger.Info(ctx, "Using standard retry mechanism for Anthropic request", map[string]interface{}{
-			"model":                   c.Model,
-			"vertex_config_available": c.VertexConfig != nil,
-		})
 		err = c.retryExecutor.Execute(ctx, operation)
 	} else {
-		c.logger.Debug(ctx, "No retry mechanism configured", map[string]interface{}{
-			"model": c.Model,
-		})
 		err = operation()
 	}
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Extract text from content blocks
@@ -591,27 +549,35 @@ CRITICAL INSTRUCTIONS:
 	}
 
 	if len(contentText) == 0 {
-		return "", fmt.Errorf("no text content in response")
+		return nil, fmt.Errorf("no text content in response")
 	}
 
-	response := strings.Join(contentText, "\n")
+	content := strings.Join(contentText, "\n")
 
 	// For structured output, prepend the opening brace that was used as prefill
-	if params.ResponseFormat != nil && !strings.HasPrefix(strings.TrimSpace(response), "{") {
-		response = "{" + response
+	if params.ResponseFormat != nil && !strings.HasPrefix(strings.TrimSpace(content), "{") {
+		content = "{" + content
 	}
 
-	c.logger.Debug(ctx, "Successfully received response from Anthropic", map[string]interface{}{
-		"model":             c.Model,
-		"structured_output": params.ResponseFormat != nil,
-		"response_length":   len(response),
-		"response_preview": func() string {
+	// Create detailed response
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      resp.Model,
+		StopReason: resp.StopReason,
+		Usage: &interfaces.TokenUsage{
+			InputTokens:  resp.Usage.InputTokens,
+			OutputTokens: resp.Usage.OutputTokens,
+			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+		},
+		Metadata: map[string]interface{}{
+			"provider": "anthropic",
+		},
+	}, nil
+}
 
-			return response
-		}(),
-	})
-
-	return response, nil
+// GenerateDetailed generates text and returns detailed response information including token usage
+func (c *AnthropicClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	return c.generateInternal(ctx, prompt, options...)
 }
 
 // Chat uses the messages API to have a conversation with a model
@@ -1595,6 +1561,29 @@ CRITICAL INSTRUCTIONS:
 	})
 
 	return response, nil
+}
+
+// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+func (c *AnthropicClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// For now, call the existing method and construct a detailed response
+	// TODO: Implement full detailed version that tracks token usage across all tool iterations
+	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a basic detailed response without usage information for now
+	// This will be enhanced to track usage across all tool iterations
+	return &interfaces.LLMResponse{
+		Content:    content,
+		Model:      c.Model,
+		StopReason: "",
+		Usage:      nil, // TODO: Implement token usage tracking for tool iterations
+		Metadata: map[string]interface{}{
+			"provider":   "anthropic",
+			"tools_used": true,
+		},
+	}, nil
 }
 
 // createHTTPRequest creates an HTTP request for either Vertex AI or standard Anthropic API

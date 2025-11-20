@@ -20,6 +20,7 @@ Join our Discord server to collaborate, share what you're building, and get comm
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
 - 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
 - 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
+- 📊 **Token Usage Tracking**: Built-in token counting for cost monitoring, usage analytics, and optimization
 
 ### Enterprise-Ready
 - 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
@@ -182,6 +183,74 @@ func createTools(logger logging.Logger) *tools.Registry {
 	return toolRegistry
 }
 ```
+
+### Token Usage Tracking
+
+The SDK provides built-in token usage tracking for cost monitoring and usage analytics. You can access token information using the detailed generation methods:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
+)
+
+func main() {
+	// Create LLM client
+	client := anthropic.NewClient("your-api-key",
+		anthropic.WithModel("claude-3-haiku-20240307"),
+	)
+
+	ctx := context.Background()
+	prompt := "Explain quantum computing in one paragraph."
+
+	// Traditional method (backward compatible)
+	content, err := client.Generate(ctx, prompt)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Response: %s\n", content)
+
+	// New detailed method with token usage
+	response, err := client.GenerateDetailed(ctx, prompt)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Response: %s\n", response.Content)
+	fmt.Printf("Model: %s\n", response.Model)
+
+	if response.Usage != nil {
+		fmt.Printf("Token Usage:\n")
+		fmt.Printf("  Input Tokens: %d\n", response.Usage.InputTokens)
+		fmt.Printf("  Output Tokens: %d\n", response.Usage.OutputTokens)
+		fmt.Printf("  Total Tokens: %d\n", response.Usage.TotalTokens)
+
+		// Calculate estimated cost (adjust based on actual pricing)
+		inputCost := float64(response.Usage.InputTokens) * 0.25 / 1000000
+		outputCost := float64(response.Usage.OutputTokens) * 1.25 / 1000000
+		fmt.Printf("  Estimated Cost: $%.6f\n", inputCost + outputCost)
+	}
+}
+```
+
+**Available Methods:**
+- `Generate()` - Traditional method returning string (unchanged)
+- `GenerateDetailed()` - New method returning `*LLMResponse` with usage info
+- `GenerateWithTools()` - Traditional method with tools (unchanged)
+- `GenerateWithToolsDetailed()` - New method with tools and usage info
+
+**Provider Support:**
+- ✅ **Anthropic**: Full token usage support
+- ✅ **OpenAI**: Full support including reasoning tokens
+- ✅ **Azure OpenAI**: Full support (similar to OpenAI)
+- ❌ **Ollama/vLLM**: Local models don't provide usage data (Usage=nil)
+
+See the [token usage example](examples/token-usage/) for a complete demonstration.
 
 ### Creating an Agent with YAML Configuration
 
@@ -787,6 +856,7 @@ For more detailed information, refer to the following documents:
 - [Memory](docs/memory.md)
 - [Tracing](docs/tracing.md)
 - [Vector Store](docs/vectorstore.md)
+- [DataStore](docs/datastore.md) - PostgreSQL and Supabase integration for structured data
 - [LLM](docs/llm.md)
 - [Multitenancy](docs/multitenancy.md)
 - [Task](docs/task.md)

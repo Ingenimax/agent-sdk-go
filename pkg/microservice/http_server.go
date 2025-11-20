@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -173,8 +174,8 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
 	}
 
-	// Execute agent
-	result, err := h.agent.Run(ctx, req.Input)
+	// Execute agent with detailed tracking
+	response, err := h.agent.RunDetailed(ctx, req.Input)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -184,12 +185,40 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return result
+	// Log detailed execution information
+	{
+		executionDetails := map[string]interface{}{
+			"endpoint":          "agent_run",
+			"agent_name":        response.AgentName,
+			"model_used":        response.Model,
+			"response_length":   len(response.Content),
+			"llm_calls":         response.ExecutionSummary.LLMCalls,
+			"tool_calls":        response.ExecutionSummary.ToolCalls,
+			"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+			"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+			"used_tools":        response.ExecutionSummary.UsedTools,
+			"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
+		}
+		if response.Usage != nil {
+			executionDetails["input_tokens"] = response.Usage.InputTokens
+			executionDetails["output_tokens"] = response.Usage.OutputTokens
+			executionDetails["total_tokens"] = response.Usage.TotalTokens
+			executionDetails["reasoning_tokens"] = response.Usage.ReasoningTokens
+		}
+		log.Printf("[HTTP Server] Agent execution completed via HTTP API: %+v", executionDetails)
+	}
+
+	// Return result with execution details
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"output": result,
-		"agent":  h.agent.GetName(),
-	}); err != nil {
+	responseData := map[string]interface{}{
+		"output":            response.Content,
+		"agent":             response.AgentName,
+		"execution_summary": response.ExecutionSummary,
+	}
+	if response.Usage != nil {
+		responseData["usage"] = response.Usage
+	}
+	if err := json.NewEncoder(w).Encode(responseData); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -239,7 +268,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
 	if !ok {
 		// Fall back to non-streaming execution
-		result, err := h.agent.Run(ctx, req.Input)
+		response, err := h.agent.RunDetailed(ctx, req.Input)
 		if err != nil {
 			h.sendSSEEvent(w, flusher, "error", StreamEventData{
 				Type:    "error",
@@ -249,9 +278,32 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Log detailed execution information for streaming fallback
+		{
+			executionDetails := map[string]interface{}{
+				"endpoint":          "agent_stream_fallback",
+				"agent_name":        response.AgentName,
+				"model_used":        response.Model,
+				"response_length":   len(response.Content),
+				"llm_calls":         response.ExecutionSummary.LLMCalls,
+				"tool_calls":        response.ExecutionSummary.ToolCalls,
+				"sub_agent_calls":   response.ExecutionSummary.SubAgentCalls,
+				"execution_time_ms": response.ExecutionSummary.ExecutionTimeMs,
+				"used_tools":        response.ExecutionSummary.UsedTools,
+				"used_sub_agents":   response.ExecutionSummary.UsedSubAgents,
+			}
+			if response.Usage != nil {
+				executionDetails["input_tokens"] = response.Usage.InputTokens
+				executionDetails["output_tokens"] = response.Usage.OutputTokens
+				executionDetails["total_tokens"] = response.Usage.TotalTokens
+				executionDetails["reasoning_tokens"] = response.Usage.ReasoningTokens
+			}
+			log.Printf("[HTTP Server] Agent execution completed via streaming fallback: %+v", executionDetails)
+		}
+
 		h.sendSSEEvent(w, flusher, "content", StreamEventData{
 			Type:    "content",
-			Content: result,
+			Content: response.Content,
 			IsFinal: true,
 		})
 		return

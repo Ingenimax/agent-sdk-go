@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v0.2.2). Leave empty for auto-increment.'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -26,29 +31,47 @@ jobs:
       - name: Calculate next version
         id: calculate_version
         run: |
-          # Get the latest tag
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Latest tag: $LATEST_TAG"
+          # Check if manual version was provided
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            NEW_TAG="${{ github.event.inputs.version }}"
+            echo "Using manual version: $NEW_TAG"
+          else
+            # Get the highest semantic version tag (not just the most recent by commit date)
+            LATEST_TAG=$(git tag -l "v*" | sort -V | tail -n1)
+            if [ -z "$LATEST_TAG" ]; then
+              LATEST_TAG="v0.0.0"
+            fi
+            echo "Highest version tag: $LATEST_TAG"
 
-          # Extract version numbers
-          VERSION=${LATEST_TAG#v}
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          MINOR=$(echo $VERSION | cut -d. -f2)
-          PATCH=$(echo $VERSION | cut -d. -f3)
+            # Extract version numbers
+            VERSION=${LATEST_TAG#v}
+            MAJOR=$(echo $VERSION | cut -d. -f1)
+            MINOR=$(echo $VERSION | cut -d. -f2)
+            PATCH=$(echo $VERSION | cut -d. -f3)
 
-          # Increment patch version
-          NEW_PATCH=$((PATCH + 1))
-          NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+            # Increment patch version
+            NEW_PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
 
-          echo "New tag: $NEW_TAG"
+            echo "Auto-calculated version: $NEW_TAG"
+          fi
+
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
 
       - name: Create and push tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.calculate_version.outputs.new_tag }}
-          git push origin ${{ steps.calculate_version.outputs.new_tag }}
+
+          # Check if tag already exists
+          if git rev-parse "${{ steps.calculate_version.outputs.new_tag }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.calculate_version.outputs.new_tag }} already exists locally"
+          else
+            git tag ${{ steps.calculate_version.outputs.new_tag }}
+          fi
+
+          # Push the tag (will fail gracefully if it exists remotely)
+          git push origin ${{ steps.calculate_version.outputs.new_tag }} || echo "Tag already exists remotely"
 
       - name: Checkout with new tag
         uses: actions/checkout@v5
