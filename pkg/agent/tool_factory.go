@@ -83,11 +83,6 @@ func (tf *ToolFactory) createCustomTool(config ToolConfigYAML) (interfaces.Tool,
 	return factory(config.Config)
 }
 
-// createAgentTool creates a tool that wraps a remote agent (backward compatibility)
-func (tf *ToolFactory) createAgentTool(config ToolConfigYAML) (interfaces.Tool, error) {
-	return tf.createAgentToolWithParentConfig(config, nil)
-}
-
 // createAgentToolWithParentConfig creates a tool that wraps a remote agent with parent config inheritance
 func (tf *ToolFactory) createAgentToolWithParentConfig(config ToolConfigYAML, parentConfig *AgentConfig) (interfaces.Tool, error) {
 	if config.URL == "" {

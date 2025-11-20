@@ -229,19 +229,15 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			}
 		}
 
-		// Store memory config for runtime instantiation
+		// Store memory config for later instantiation (after LLM is set)
 		if expandedConfig.Memory != nil {
 			a.memoryConfig = convertMemoryConfigYAMLToInterface(expandedConfig.Memory)
 		}
 
 		// Apply runtime settings
 		if expandedConfig.Runtime != nil {
-			if expandedConfig.Runtime.LogLevel != "" {
-				// Set log level if logger supports it
-				if a.logger != nil {
-					// Logger level setting would go here if supported by the logger interface
-				}
-			}
+			// TODO: Set log level if logger supports it when LogLevel is specified
+			// Currently the logger interface doesn't support dynamic level setting
 			if expandedConfig.Runtime.TimeoutDuration != "" {
 				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
 					a.timeout = timeout
@@ -463,6 +459,23 @@ func NewAgent(options ...Option) (*Agent, error) {
 	// Initialize default logger if none provided
 	if agent.logger == nil {
 		agent.logger = logging.New()
+	}
+
+	// Create memory from config if specified and LLM is available
+	if agent.memoryConfig != nil && agent.llm != nil && agent.memory == nil {
+		memoryInstance, err := CreateMemoryFromConfig(agent.memoryConfig, agent.llm)
+		if err != nil {
+			// Log warning but don't fail agent creation
+			if agent.logger != nil {
+				agent.logger.Warn(context.Background(), "Failed to create memory from config, using default", map[string]interface{}{
+					"error": err.Error(),
+					"type":  agent.memoryConfig["type"],
+				})
+			}
+		} else {
+			// Apply the memory instance
+			agent.memory = memoryInstance
+		}
 	}
 
 	// Different validation for local vs remote agents
