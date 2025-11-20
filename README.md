@@ -252,7 +252,138 @@ func main() {
 
 See the [token usage example](examples/token-usage/) for a complete demonstration.
 
-### Creating an Agent with YAML Configuration
+### Advanced YAML Configuration
+
+The SDK now supports comprehensive YAML-based agent configuration with advanced features including behavioral settings, tool configuration, MCP integration, sub-agents, and environment variable expansion.
+
+**Example: Complete Agent with YAML Configuration**
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
+)
+
+func main() {
+	// Create LLM client
+	llm := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+
+	// Load agent configurations from YAML
+	configs, err := agent.LoadAgentConfigsFromFile("agents.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create agent directly from configuration
+	agentInstance, err := agent.NewAgentFromConfig("research_assistant", configs, nil, agent.WithLLM(llm))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Run the agent
+	result, err := agentInstance.Run(context.Background(), "What are the latest developments in renewable energy?")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	println(result)
+}
+```
+
+**agents.yaml** (Advanced Configuration):
+```yaml
+research_assistant:
+  role: "Advanced Research Assistant"
+  goal: "Provide comprehensive research and analysis"
+  backstory: "Expert researcher with access to multiple data sources and specialized sub-agents"
+
+  # Behavioral settings
+  max_iterations: 15
+  require_plan_approval: false
+
+  # LLM configuration
+  llm_config:
+    temperature: 0.7
+    enable_reasoning: true
+    reasoning_budget: 20000
+
+  # Built-in and custom tools
+  tools:
+    - type: "builtin"
+      name: "websearch"
+      enabled: true
+      config:
+        api_key: "${SEARCH_API_KEY}"
+        engine: "brave"
+
+    - type: "builtin"
+      name: "calculator"
+      enabled: true
+
+  # MCP server integration
+  mcp:
+    mcpServers:
+      filesystem:
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+      database:
+        command: "python"
+        args: ["-m", "mcp_server_database"]
+        env:
+          DATABASE_URL: "${DATABASE_URL}"
+
+  # Memory configuration
+  memory:
+    type: "redis"
+    config:
+      address: "${REDIS_ADDRESS}"
+      db: 0
+
+  # Sub-agents for specialized tasks
+  sub_agents:
+    data_analyzer:
+      role: "Data Analysis Specialist"
+      goal: "Analyze complex datasets and provide insights"
+      backstory: "Expert in statistical analysis and data visualization"
+      max_iterations: 8
+      llm_config:
+        temperature: 0.3
+
+    report_writer:
+      role: "Technical Writer"
+      goal: "Create comprehensive reports and documentation"
+      backstory: "Skilled at converting complex data into clear reports"
+      tools:
+        - type: "builtin"
+          name: "text_processor"
+          enabled: true
+
+  # Runtime settings
+  runtime:
+    log_level: "info"
+    enable_tracing: true
+    timeout: "300s"
+```
+
+**Key Features of Advanced YAML Configuration:**
+
+- **Environment Variable Expansion**: Use `${VAR}` syntax for sensitive data
+- **Behavioral Settings**: Configure iterations, plan approval, and runtime behavior
+- **LLM Configuration**: Fine-tune temperature, reasoning, and model-specific settings
+- **Tool Integration**: Configure built-in, custom, MCP, and agent tools declaratively
+- **Sub-Agents**: Create hierarchical agent structures with specialized capabilities
+- **Memory Backends**: Configure buffer, Redis, or vector memory systems
+- **MCP Integration**: Seamless Model Context Protocol server configuration
+- **Structured Responses**: Define JSON schema for consistent output formats
+
+### Creating an Agent with YAML Configuration (Basic)
 
 ```go
 package main
