@@ -307,14 +307,29 @@ func (a *Agent) runStreamingGeneration(
 		options = append(options, interfaces.WithStreamConfig(*a.streamConfig))
 	}
 
+	// Inject stream forwarder into context so sub-agents can forward their events
+	// This allows nested sub-agent streaming to work properly
+	streamForwarder := func(event interfaces.AgentStreamEvent) {
+		// Forward sub-agent events to the parent agent's event channel
+		select {
+		case eventChan <- event:
+		case <-ctx.Done():
+			// Context cancelled, stop forwarding
+		}
+	}
+
+	// Add the stream forwarder to context
+	// This is used by the tools package's AgentTool to forward sub-agent events
+	ctxWithForwarder := context.WithValue(ctx, interfaces.StreamForwarderKey, interfaces.StreamForwarder(streamForwarder))
+
 	// Start LLM streaming
 	var llmEventChan <-chan interfaces.StreamEvent
 	var err error
 
 	if len(allTools) > 0 {
-		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctx, input, allTools, options...)
+		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctxWithForwarder, input, allTools, options...)
 	} else {
-		llmEventChan, err = streamingLLM.GenerateStream(ctx, input, options...)
+		llmEventChan, err = streamingLLM.GenerateStream(ctxWithForwarder, input, options...)
 	}
 
 	if err != nil {

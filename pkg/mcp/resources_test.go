@@ -268,15 +268,30 @@ func TestResourceManager_WatchResources(t *testing.T) {
 		updates1 <- testUpdate1
 		updates2 <- testUpdate2
 
-		// Read from combined channel
+		// Read from combined channel (order is non-deterministic)
 		update1 := <-combinedUpdates
 		update2 := <-combinedUpdates
 
-		assert.Equal(t, "server-0", update1.Server)
-		assert.Equal(t, testUpdate1, update1.Update)
+		// Collect both updates
+		receivedUpdates := []ResourceUpdate{update1, update2}
 
+		// Verify both servers are "server-0"
+		assert.Equal(t, "server-0", update1.Server)
 		assert.Equal(t, "server-0", update2.Server)
-		assert.Equal(t, testUpdate2, update2.Update)
+
+		// Verify we received both expected updates (order doesn't matter)
+		foundUpdate1 := false
+		foundUpdate2 := false
+		for _, u := range receivedUpdates {
+			if u.Update.URI == testUpdate1.URI && u.Update.Type == testUpdate1.Type {
+				foundUpdate1 = true
+			}
+			if u.Update.URI == testUpdate2.URI && u.Update.Type == testUpdate2.Type {
+				foundUpdate2 = true
+			}
+		}
+		assert.True(t, foundUpdate1, "Expected to find testUpdate1")
+		assert.True(t, foundUpdate2, "Expected to find testUpdate2")
 
 		server.AssertExpectations(t)
 	})
