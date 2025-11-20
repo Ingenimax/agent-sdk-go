@@ -66,3 +66,8 @@ dist/
 
 # Python virtualenv
 venv/
+
+# MCP server configurations (user-specific)
+*_mcp_server.json
+aws_api_server.json
+k8s_kubectl.json
