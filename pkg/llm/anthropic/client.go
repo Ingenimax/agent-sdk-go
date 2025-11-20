@@ -177,6 +177,29 @@ func WithVertexAICredentials(region, projectID, credentialsPath string) Option {
 	}
 }
 
+// WithGoogleApplicationCredentials configures Vertex AI with explicit credentials content
+func WithGoogleApplicationCredentials(region, projectID, credentialsContent string) Option {
+	return func(c *AnthropicClient) {
+		ctx := context.Background()
+		vertexConfig, err := NewVertexConfigWithCredentialsContent(ctx, region, projectID, credentialsContent)
+		if err != nil {
+			c.logger.Error(ctx, "Failed to configure Vertex AI with credentials content", map[string]interface{}{
+				"error":     err.Error(),
+				"region":    region,
+				"projectID": projectID,
+			})
+			return
+		}
+		c.VertexConfig = vertexConfig
+		c.BaseURL = vertexConfig.GetBaseURL()
+		c.logger.Info(ctx, "Configured client for Vertex AI with credentials content", map[string]interface{}{
+			"region":    region,
+			"projectID": projectID,
+			"baseURL":   c.BaseURL,
+		})
+	}
+}
+
 // NewClient creates a new Anthropic client
 func NewClient(apiKey string, options ...Option) *AnthropicClient {
 	// Create client with default options

@@ -7,6 +7,13 @@ researcher:
     You're a seasoned researcher with a knack for uncovering the latest
     developments in {topic}. Known for your ability to find the most relevant
     information and present it in a clear and concise manner.
+
+  # LLM Provider Configuration
+  llm_provider:
+    provider: "${LLM_PROVIDER:-anthropic}"
+    model: "${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}"
+    config:
+      api_key: "${ANTHROPIC_API_KEY}"
   response_format:
     type: "json_object"
     schema_name: "ResearchResult"
@@ -47,3 +54,10 @@ reporting_analyst:
     You're a meticulous analyst with a keen eye for detail. You're known for
     your ability to turn complex data into clear and concise reports, making
     it easy for others to understand and act on the information you provide.
+
+  # LLM Provider Configuration - using OpenAI for this agent
+  llm_provider:
+    provider: "${LLM_PROVIDER:-openai}"
+    model: "${OPENAI_MODEL:-gpt-4o}"
+    config:
+      api_key: "${OPENAI_API_KEY}"

@@ -72,10 +72,10 @@ type Agent struct {
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
 
 	// Runtime configuration fields
-	memoryConfig    map[string]interface{} // Memory configuration from YAML
-	timeout         time.Duration          // Agent timeout from runtime config
-	tracingEnabled  bool                   // Whether tracing is enabled
-	metricsEnabled  bool                   // Whether metrics are enabled
+	memoryConfig   map[string]interface{} // Memory configuration from YAML
+	timeout        time.Duration          // Agent timeout from runtime config
+	tracingEnabled bool                   // Whether tracing is enabled
+	metricsEnabled bool                   // Whether metrics are enabled
 
 	// Remote agent fields
 	isRemote      bool                      // Whether this is a remote agent
@@ -204,6 +204,50 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		}
 		if expandedConfig.LLMConfig != nil {
 			a.llmConfig = convertLLMConfigYAMLToInterface(expandedConfig.LLMConfig)
+		}
+
+		// Process LLM provider configuration
+		if expandedConfig.LLMProvider != nil {
+			if a.logger != nil {
+				a.logger.Info(context.Background(), "Found LLM provider configuration in YAML", map[string]interface{}{
+					"provider": expandedConfig.LLMProvider.Provider,
+					"model":    expandedConfig.LLMProvider.Model,
+					"has_llm":  a.llm != nil,
+				})
+			}
+			if a.llm == nil {
+				// Only create LLM from YAML if no LLM was provided programmatically
+				llmClient, err := createLLMFromConfig(expandedConfig.LLMProvider)
+				if err != nil {
+					// Log warning but continue - don't fail agent creation for LLM issues
+					if a.logger != nil {
+						a.logger.Warn(context.Background(), "Failed to create LLM from YAML config", map[string]interface{}{
+							"provider": expandedConfig.LLMProvider.Provider,
+							"error":    err.Error(),
+						})
+					}
+				} else {
+					if a.logger != nil {
+						a.logger.Info(context.Background(), "Successfully created LLM from YAML config", map[string]interface{}{
+							"provider": expandedConfig.LLMProvider.Provider,
+							"model":    expandedConfig.LLMProvider.Model,
+						})
+					}
+					a.llm = llmClient
+				}
+			} else {
+				if a.logger != nil {
+					a.logger.Info(context.Background(), "LLM already provided programmatically, skipping YAML config", map[string]interface{}{
+						"yaml_provider": expandedConfig.LLMProvider.Provider,
+					})
+				}
+			}
+		} else {
+			if a.logger != nil {
+				a.logger.Info(context.Background(), "No LLM provider configuration found in YAML", map[string]interface{}{
+					"has_llm": a.llm != nil,
+				})
+			}
 		}
 
 		// Process tools

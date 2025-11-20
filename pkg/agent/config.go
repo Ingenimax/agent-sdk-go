@@ -34,6 +34,9 @@ type AgentConfig struct {
 	StreamConfig *StreamConfigYAML `yaml:"stream_config,omitempty"`
 	LLMConfig    *LLMConfigYAML    `yaml:"llm_config,omitempty"`
 
+	// NEW: LLM Provider configuration
+	LLMProvider *LLMProviderYAML `yaml:"llm_provider,omitempty"`
+
 	// NEW: Tool configurations
 	Tools []ToolConfigYAML `yaml:"tools,omitempty"`
 
@@ -73,6 +76,13 @@ type LLMConfigYAML struct {
 	EnableReasoning  *bool     `yaml:"enable_reasoning,omitempty"`
 	ReasoningBudget  *int      `yaml:"reasoning_budget,omitempty"`
 	Reasoning        *string   `yaml:"reasoning,omitempty"`
+}
+
+// LLMProviderYAML represents LLM provider configuration in YAML
+type LLMProviderYAML struct {
+	Provider string                 `yaml:"provider"`
+	Model    string                 `yaml:"model,omitempty"`
+	Config   map[string]interface{} `yaml:"config,omitempty"`
 }
 
 // ToolConfigYAML represents tool configuration in YAML
@@ -515,6 +525,15 @@ func expandAgentConfig(config AgentConfig) AgentConfig {
 			expandedSubAgents[name] = expandAgentConfig(subAgentConfig) // Recursive expansion
 		}
 		expanded.SubAgents = expandedSubAgents
+	}
+
+	// Expand LLM provider configuration
+	if config.LLMProvider != nil {
+		expanded.LLMProvider = &LLMProviderYAML{
+			Provider: ExpandEnv(config.LLMProvider.Provider),
+			Model:    ExpandEnv(config.LLMProvider.Model),
+			Config:   expandConfigMap(config.LLMProvider.Config),
+		}
 	}
 
 	return expanded
