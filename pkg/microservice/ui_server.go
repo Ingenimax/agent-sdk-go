@@ -265,7 +265,7 @@ func (h *HTTPServerWithUI) Start() error {
 		Addr:         fmt.Sprintf(":%d", h.port),
 		Handler:      corsHandler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 300 * time.Second, // Longer timeout for streaming
+		WriteTimeout: 40 * time.Minute, // Longer timeout for streaming
 		IdleTimeout:  60 * time.Second,
 	}
 
