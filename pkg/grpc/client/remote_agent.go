@@ -61,7 +61,7 @@ func NewRemoteAgentClient(config RemoteAgentConfig) *RemoteAgentClient {
 	// If timeout is explicitly set to 0, keep it as 0 for infinite timeout
 	timeout := config.Timeout
 	if timeout == 0 && !isTimeoutExplicitlySet(config) {
-		timeout = 5 * time.Minute
+		timeout = 30 * time.Minute // 30 minutes for long-running agents
 	}
 
 	if config.RetryCount == 0 {

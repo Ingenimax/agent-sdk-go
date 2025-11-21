@@ -89,8 +89,8 @@ func (h *HTTPServer) Start() error {
 		Addr:         fmt.Sprintf(":%d", h.port),
 		Handler:      corsHandler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 300 * time.Second, // Longer timeout for streaming
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 40 * time.Minute, // Longer timeout for streaming
+		IdleTimeout:  300 * time.Second,
 	}
 
 	fmt.Printf("HTTP server starting on port %d\n", h.port)
