@@ -50,7 +50,7 @@ func NewAgentTool(agent SubAgent) *AgentTool {
 		agent:       agent,
 		name:        fmt.Sprintf("%s_agent", agent.GetName()),
 		description: agent.GetDescription(),
-		timeout:     12 * time.Minute, // 12 minutes - shorter than HTTP client timeout
+		timeout:     30 * time.Minute, // 30 minutes - increased timeout for long-running sub-agents
 		logger:      logging.New(),    // Default logger
 	}
 }
@@ -155,8 +155,28 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	ctx = context.WithValue(ctx, parentAgentKey, "main")
 	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
 
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(ctx, at.timeout)
+	// Check if parent context has a deadline that would expire before our timeout
+	var cancel context.CancelFunc
+	parentDeadline, hasDeadline := ctx.Deadline()
+	desiredDeadline := time.Now().Add(at.timeout)
+
+	if hasDeadline && parentDeadline.Before(desiredDeadline) {
+		// Parent context has a shorter deadline - we need to extend it
+		// Create a new context that preserves values but has our longer timeout
+		at.logger.Warn(ctx, "Parent context has shorter deadline, extending timeout for sub-agent", map[string]interface{}{
+			"parent_deadline": parentDeadline.Format(time.RFC3339),
+			"desired_timeout": at.timeout.String(),
+			"sub_agent":       agentName,
+		})
+
+		// Use context.WithoutCancel to remove parent's deadline while preserving values
+		// This is available in Go 1.21+, otherwise we need to manually copy values
+		newCtx := context.WithoutCancel(ctx)
+		ctx, cancel = context.WithTimeout(newCtx, at.timeout)
+	} else {
+		// Parent context doesn't have a shorter deadline, use normal timeout
+		ctx, cancel = context.WithTimeout(ctx, at.timeout)
+	}
 	defer cancel()
 
 	// Log sub-agent invocation with debug details
