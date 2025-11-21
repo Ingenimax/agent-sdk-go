@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
-	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 )
 
 // ResearchResult matches the schema defined in the YAML response_format
@@ -37,26 +36,15 @@ func main() {
 	taskConfigPath := flag.String("task-config", "", "Path to task configuration YAML file")
 	taskName := flag.String("task", "", "Name of the task to execute")
 	topic := flag.String("topic", "Artificial Intelligence", "Topic for the agents to work on")
-	openaiApiKey := flag.String("openai-key", "", "OpenAI API key (or set OPENAI_API_KEY env var)")
 	flag.Parse()
 
 	// Validate required flags
 	if *agentConfigPath == "" || *taskConfigPath == "" || *taskName == "" {
-		fmt.Println("Usage: yaml_config --agent-config=<path> --task-config=<path> --task=<name> [--topic=<topic>] [--openai-key=<key>]")
+		fmt.Println("Usage: yaml_config --agent-config=<path> --task-config=<path> --task=<name> [--topic=<topic>]")
+		fmt.Println("Note: LLM configuration is now handled via YAML configuration files.")
+		fmt.Println("Set ANTHROPIC_API_KEY and/or OPENAI_API_KEY environment variables.")
 		os.Exit(1)
 	}
-
-	// Get OpenAI API key from flag or environment variable
-	apiKey := *openaiApiKey
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			log.Fatal("OpenAI API key not provided. Use --openai-key flag or set OPENAI_API_KEY environment variable.")
-		}
-	}
-
-	// Create the LLM client
-	llm := openai.NewClient(apiKey)
 
 	// Load agent configurations
 	agentConfigs, err := agent.LoadAgentConfigsFromFile(*agentConfigPath)
@@ -76,7 +64,8 @@ func main() {
 	}
 
 	// Create the agent for the specified task
-	agent, err := agent.CreateAgentForTask(*taskName, agentConfigs, taskConfigs, variables, agent.WithLLM(llm))
+	// LLM is now automatically created from YAML configuration
+	agent, err := agent.CreateAgentForTask(*taskName, agentConfigs, taskConfigs, variables)
 	if err != nil {
 		log.Fatalf("Failed to create agent for task: %v", err)
 	}

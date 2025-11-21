@@ -15,6 +15,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
@@ -69,6 +70,12 @@ type Agent struct {
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
+
+	// Runtime configuration fields
+	memoryConfig   map[string]interface{} // Memory configuration from YAML
+	timeout        time.Duration          // Agent timeout from runtime config
+	tracingEnabled bool                   // Whether tracing is enabled
+	metricsEnabled bool                   // Whether metrics are enabled
 
 	// Remote agent fields
 	isRemote      bool                      // Whether this is a remote agent
@@ -164,18 +171,158 @@ func WithDescription(description string) Option {
 // WithAgentConfig sets the agent configuration from a YAML config
 func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 	return func(a *Agent) {
-		systemPrompt := FormatSystemPromptFromConfig(config, variables)
+		// Expand environment variables in all config sections
+		expandedConfig := expandAgentConfig(config)
+
+		// Existing system prompt processing
+		systemPrompt := FormatSystemPromptFromConfig(expandedConfig, variables)
 		a.systemPrompt = systemPrompt
-		// Add structured output if configured
-		if config.ResponseFormat != nil {
-			responseFormat, err := ConvertYAMLSchemaToResponseFormat(config.ResponseFormat)
+
+		// Existing response format and MCP config
+		if expandedConfig.ResponseFormat != nil {
+			responseFormat, err := ConvertYAMLSchemaToResponseFormat(expandedConfig.ResponseFormat)
 			if err == nil && responseFormat != nil {
 				a.responseFormat = responseFormat
 			}
 		}
-		// Add MCP configuration if provided
-		if config.MCP != nil {
-			applyMCPConfig(a, config.MCP)
+
+		if expandedConfig.MCP != nil {
+			applyMCPConfig(a, expandedConfig.MCP)
+		}
+
+		// Apply behavioral settings
+		if expandedConfig.MaxIterations != nil {
+			a.maxIterations = *expandedConfig.MaxIterations
+		}
+		if expandedConfig.RequirePlanApproval != nil {
+			a.requirePlanApproval = *expandedConfig.RequirePlanApproval
+		}
+
+		// Apply complex configuration objects
+		if expandedConfig.StreamConfig != nil {
+			a.streamConfig = convertStreamConfigYAMLToInterface(expandedConfig.StreamConfig)
+		}
+		if expandedConfig.LLMConfig != nil {
+			a.llmConfig = convertLLMConfigYAMLToInterface(expandedConfig.LLMConfig)
+		}
+
+		// Process LLM provider configuration
+		if expandedConfig.LLMProvider != nil {
+			if a.logger != nil {
+				a.logger.Info(context.Background(), "Found LLM provider configuration in YAML", map[string]interface{}{
+					"provider": expandedConfig.LLMProvider.Provider,
+					"model":    expandedConfig.LLMProvider.Model,
+					"has_llm":  a.llm != nil,
+				})
+			}
+			if a.llm == nil {
+				// Only create LLM from YAML if no LLM was provided programmatically
+				llmClient, err := createLLMFromConfig(expandedConfig.LLMProvider)
+				if err != nil {
+					// Log warning but continue - don't fail agent creation for LLM issues
+					if a.logger != nil {
+						a.logger.Warn(context.Background(), "Failed to create LLM from YAML config", map[string]interface{}{
+							"provider": expandedConfig.LLMProvider.Provider,
+							"error":    err.Error(),
+						})
+					}
+				} else {
+					if a.logger != nil {
+						a.logger.Info(context.Background(), "Successfully created LLM from YAML config", map[string]interface{}{
+							"provider": expandedConfig.LLMProvider.Provider,
+							"model":    expandedConfig.LLMProvider.Model,
+						})
+					}
+					a.llm = llmClient
+				}
+			} else {
+				if a.logger != nil {
+					a.logger.Info(context.Background(), "LLM already provided programmatically, skipping YAML config", map[string]interface{}{
+						"yaml_provider": expandedConfig.LLMProvider.Provider,
+					})
+				}
+			}
+		} else {
+			if a.logger != nil {
+				a.logger.Info(context.Background(), "No LLM provider configuration found in YAML", map[string]interface{}{
+					"has_llm": a.llm != nil,
+				})
+			}
+		}
+
+		// Process tools
+		if expandedConfig.Tools != nil {
+			factory := NewToolFactory()
+			for _, toolConfig := range expandedConfig.Tools {
+				if toolConfig.Enabled != nil && !*toolConfig.Enabled {
+					continue // Skip disabled tools
+				}
+				tool, err := factory.CreateTool(toolConfig)
+				if err != nil {
+					// Log warning but continue - don't fail agent creation for tool issues
+					if a.logger != nil {
+						a.logger.Warn(context.Background(), "Failed to create tool from config", map[string]interface{}{
+							"tool_name": toolConfig.Name,
+							"tool_type": toolConfig.Type,
+							"error":     err.Error(),
+						})
+					}
+					continue
+				}
+				a.tools = append(a.tools, tool)
+			}
+		}
+
+		// Store memory config for later instantiation (after LLM is set)
+		if expandedConfig.Memory != nil {
+			a.memoryConfig = convertMemoryConfigYAMLToInterface(expandedConfig.Memory)
+		}
+
+		// Apply runtime settings
+		if expandedConfig.Runtime != nil {
+			// TODO: Set log level if logger supports it when LogLevel is specified
+			// Currently the logger interface doesn't support dynamic level setting
+			if expandedConfig.Runtime.TimeoutDuration != "" {
+				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
+					a.timeout = timeout
+				}
+			}
+			if expandedConfig.Runtime.EnableTracing != nil && *expandedConfig.Runtime.EnableTracing {
+				// Tracing enablement flag stored for later use
+				a.tracingEnabled = true
+			}
+			if expandedConfig.Runtime.EnableMetrics != nil && *expandedConfig.Runtime.EnableMetrics {
+				// Metrics enablement flag stored for later use
+				a.metricsEnabled = true
+			}
+		}
+
+		// Process sub-agents recursively
+		if expandedConfig.SubAgents != nil {
+			subAgents, err := createSubAgentsFromConfig(expandedConfig.SubAgents, variables, a.llm, a.memory, a.tracer, a.logger)
+			if err != nil {
+				// Log error but don't fail agent creation
+				if a.logger != nil {
+					a.logger.Warn(context.Background(), "Failed to create some sub-agents from config", map[string]interface{}{
+						"error": err.Error(),
+					})
+				}
+			} else if len(subAgents) > 0 {
+				// Add sub-agents using WithAgents
+				a.subAgents = subAgents
+				// Convert sub-agents to tools
+				for _, subAgent := range subAgents {
+					agentTool := tools.NewAgentTool(subAgent)
+					// Pass logger and tracer if available on parent agent
+					if a.logger != nil {
+						agentTool = agentTool.WithLogger(a.logger)
+					}
+					if a.tracer != nil {
+						agentTool = agentTool.WithTracer(a.tracer)
+					}
+					a.tools = append(a.tools, agentTool)
+				}
+			}
 		}
 	}
 }
@@ -358,6 +505,23 @@ func NewAgent(options ...Option) (*Agent, error) {
 		agent.logger = logging.New()
 	}
 
+	// Create memory from config if specified and LLM is available
+	if agent.memoryConfig != nil && agent.llm != nil && agent.memory == nil {
+		memoryInstance, err := CreateMemoryFromConfig(agent.memoryConfig, agent.llm)
+		if err != nil {
+			// Log warning but don't fail agent creation
+			if agent.logger != nil {
+				agent.logger.Warn(context.Background(), "Failed to create memory from config, using default", map[string]interface{}{
+					"error": err.Error(),
+					"type":  agent.memoryConfig["type"],
+				})
+			}
+		} else {
+			// Apply the memory instance
+			agent.memory = memoryInstance
+		}
+	}
+
 	// Different validation for local vs remote agents
 	if agent.isRemote {
 		return validateRemoteAgent(agent)
@@ -400,7 +564,7 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
-	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt)
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt, agent.requirePlanApproval)
 	agent.planExecutor = executionplan.NewExecutor(allTools)
 
 	return agent, nil
@@ -663,7 +827,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
+		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
 		return a.runWithExecutionPlan(ctx, input)
 	}
 
@@ -1599,4 +1763,90 @@ func (a *Agent) initializeMCPTools() error {
 func (a *Agent) getAllToolsSync() []interfaces.Tool {
 	// At this point, a.tools already contains manual tools + initialized MCP tools
 	return a.tools
+}
+
+// createSubAgentsFromConfig recursively creates sub-agents from YAML configuration
+func createSubAgentsFromConfig(subAgentConfigs map[string]AgentConfig, variables map[string]string, llm interfaces.LLM, memory interfaces.Memory, tracer interfaces.Tracer, logger logging.Logger) ([]*Agent, error) {
+	if len(subAgentConfigs) == 0 {
+		return nil, nil
+	}
+
+	var subAgents []*Agent
+	var errors []string
+
+	for name, config := range subAgentConfigs {
+		// Create agent options for this sub-agent
+		agentOptions := []Option{
+			WithAgentConfig(config, variables), // This will recursively process sub-agents of sub-agents
+			WithName(name),
+		}
+
+		// Inherit infrastructure dependencies (LLM, memory, tracer, logger) but NOT tools
+		if llm != nil {
+			agentOptions = append(agentOptions, WithLLM(llm))
+		}
+		if memory != nil {
+			agentOptions = append(agentOptions, WithMemory(memory))
+		}
+		if tracer != nil {
+			agentOptions = append(agentOptions, WithTracer(tracer))
+		}
+		if logger != nil {
+			agentOptions = append(agentOptions, WithLogger(logger))
+		}
+		// NOTE: Tools are NOT inherited - each sub-agent defines its own tools through MCP/YAML config
+
+		// Create the sub-agent (this will recursively create its own sub-agents)
+		subAgent, err := NewAgent(agentOptions...)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("failed to create sub-agent '%s': %v", name, err))
+			if logger != nil {
+				logger.Error(context.Background(), "Failed to create sub-agent", map[string]interface{}{
+					"sub_agent_name": name,
+					"error":          err.Error(),
+				})
+			}
+			continue
+		}
+
+		// Set the agent name if not already set
+		if subAgent.name == "" {
+			subAgent.name = name
+		}
+
+		subAgents = append(subAgents, subAgent)
+
+		if logger != nil {
+			logger.Info(context.Background(), "Successfully created sub-agent from YAML config", map[string]interface{}{
+				"sub_agent_name":        name,
+				"require_plan_approval": config.RequirePlanApproval,
+				"has_sub_agents":        len(config.SubAgents) > 0,
+			})
+		}
+	}
+
+	// Return error if any sub-agents failed to create
+	if len(errors) > 0 {
+		return subAgents, fmt.Errorf("some sub-agents failed to create: %s", strings.Join(errors, "; "))
+	}
+
+	return subAgents, nil
+}
+
+// CreateMemoryFromConfig creates a memory instance from YAML configuration
+// This function is intended to be used by agent-blueprint applications that need
+// to instantiate memory from YAML config stored in the agent
+func CreateMemoryFromConfig(memoryConfig map[string]interface{}, llmClient interfaces.LLM) (interfaces.Memory, error) {
+	if memoryConfig == nil {
+		return nil, fmt.Errorf("memory config is nil")
+	}
+
+	factory := memory.NewMemoryFactory()
+	return factory.CreateMemory(memoryConfig, llmClient)
+}
+
+// GetMemoryConfig returns the stored memory configuration from YAML
+// This allows agent-blueprint to access the memory config for instantiation
+func (a *Agent) GetMemoryConfig() map[string]interface{} {
+	return a.memoryConfig
 }

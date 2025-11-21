@@ -1,0 +1,82 @@
+# File Analysis Agent Configuration
+# Lead agent with 2 sub-agents using filesystem MCP tools
+
+file_analyzer:
+  role: >
+    File Analysis Coordinator
+  goal: >
+    Analyze files and directories, coordinate with specialized analysis teams
+  backstory: >
+    You are an expert file analyzer who can read, examine, and understand
+    various types of files and coordinate with specialized teams for detailed analysis.
+
+  # Behavioral settings
+  max_iterations: 10
+  require_plan_approval: false
+
+  # LLM configuration
+  llm_config:
+    temperature: 0.3
+    enable_reasoning: true
+
+  # Filesystem MCP tool
+  mcp:
+    mcpServers:
+      filesystem:
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+  # Sub-agents for specialized file analysis
+  sub_agents:
+    code_analyzer:
+      role: "Code Analysis Specialist"
+      goal: "Analyze code files for structure, patterns, and quality"
+      backstory: "Expert at reading and understanding code in various programming languages"
+      max_iterations: 8
+      require_plan_approval: false
+      llm_config:
+        temperature: 0.2
+      mcp:
+        mcpServers:
+          filesystem:
+            command: "npx"
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+    document_analyzer:
+      role: "Document Analysis Specialist"
+      goal: "Analyze text files, documentation, and configuration files"
+      backstory: "Specialist in understanding documentation, config files, and text content"
+      max_iterations: 8
+      require_plan_approval: false
+      llm_config:
+        temperature: 0.3
+      mcp:
+        mcpServers:
+          filesystem:
+            command: "npx"
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+      tools:
+        - type: "builtin"
+          name: "calculator"
+          enabled: true
+
+# Simple file reader for basic tasks
+file_reader:
+  role: >
+    File Reader Assistant
+  goal: >
+    Read and display file contents
+  backstory: >
+    You are a helpful assistant that can read files and provide their contents.
+
+  max_iterations: 5
+  require_plan_approval: false
+
+  llm_config:
+    temperature: 0.1
+
+  mcp:
+    mcpServers:
+      filesystem:
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "."]

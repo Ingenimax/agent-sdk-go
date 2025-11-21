@@ -25,6 +25,29 @@ type AgentConfig struct {
 	Backstory      string                `yaml:"backstory"`
 	ResponseFormat *ResponseFormatConfig `yaml:"response_format,omitempty"`
 	MCP            *MCPConfiguration     `yaml:"mcp,omitempty"`
+
+	// NEW: Behavioral settings
+	MaxIterations       *int  `yaml:"max_iterations,omitempty"`
+	RequirePlanApproval *bool `yaml:"require_plan_approval,omitempty"`
+
+	// NEW: Complex configuration objects
+	StreamConfig *StreamConfigYAML `yaml:"stream_config,omitempty"`
+	LLMConfig    *LLMConfigYAML    `yaml:"llm_config,omitempty"`
+
+	// NEW: LLM Provider configuration
+	LLMProvider *LLMProviderYAML `yaml:"llm_provider,omitempty"`
+
+	// NEW: Tool configurations
+	Tools []ToolConfigYAML `yaml:"tools,omitempty"`
+
+	// NEW: Memory configuration (config only)
+	Memory *MemoryConfigYAML `yaml:"memory,omitempty"`
+
+	// NEW: Runtime settings
+	Runtime *RuntimeConfigYAML `yaml:"runtime,omitempty"`
+
+	// NEW: Sub-agents configuration (recursive)
+	SubAgents map[string]AgentConfig `yaml:"sub_agents,omitempty"`
 }
 
 // TaskConfig represents a task definition loaded from YAML
@@ -34,6 +57,59 @@ type TaskConfig struct {
 	Agent          string                `yaml:"agent"`
 	OutputFile     string                `yaml:"output_file,omitempty"`
 	ResponseFormat *ResponseFormatConfig `yaml:"response_format,omitempty"`
+}
+
+// StreamConfigYAML represents streaming configuration in YAML
+type StreamConfigYAML struct {
+	BufferSize                  *int  `yaml:"buffer_size,omitempty"`
+	IncludeToolProgress         *bool `yaml:"include_tool_progress,omitempty"`
+	IncludeIntermediateMessages *bool `yaml:"include_intermediate_messages,omitempty"`
+}
+
+// LLMConfigYAML represents LLM configuration in YAML
+type LLMConfigYAML struct {
+	Temperature      *float64  `yaml:"temperature,omitempty"`
+	TopP             *float64  `yaml:"top_p,omitempty"`
+	FrequencyPenalty *float64  `yaml:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64  `yaml:"presence_penalty,omitempty"`
+	StopSequences    []string  `yaml:"stop_sequences,omitempty"`
+	EnableReasoning  *bool     `yaml:"enable_reasoning,omitempty"`
+	ReasoningBudget  *int      `yaml:"reasoning_budget,omitempty"`
+	Reasoning        *string   `yaml:"reasoning,omitempty"`
+}
+
+// LLMProviderYAML represents LLM provider configuration in YAML
+type LLMProviderYAML struct {
+	Provider string                 `yaml:"provider"`
+	Model    string                 `yaml:"model,omitempty"`
+	Config   map[string]interface{} `yaml:"config,omitempty"`
+}
+
+// ToolConfigYAML represents tool configuration in YAML
+type ToolConfigYAML struct {
+	Type        string                 `yaml:"type"`           // "builtin", "custom", "mcp", "agent"
+	Name        string                 `yaml:"name"`
+	Description string                 `yaml:"description,omitempty"`
+	Config      map[string]interface{} `yaml:"config,omitempty"`
+	Enabled     *bool                  `yaml:"enabled,omitempty"`
+
+	// For agent tools
+	URL     string `yaml:"url,omitempty"`     // Remote agent URL
+	Timeout string `yaml:"timeout,omitempty"` // Timeout duration
+}
+
+// MemoryConfigYAML represents memory configuration in YAML
+type MemoryConfigYAML struct {
+	Type   string                 `yaml:"type"`    // "buffer", "redis", "vector"
+	Config map[string]interface{} `yaml:"config,omitempty"`
+}
+
+// RuntimeConfigYAML represents runtime behavior settings in YAML
+type RuntimeConfigYAML struct {
+	LogLevel        string `yaml:"log_level,omitempty"`        // "debug", "info", "warn", "error"
+	EnableTracing   *bool  `yaml:"enable_tracing,omitempty"`
+	EnableMetrics   *bool  `yaml:"enable_metrics,omitempty"`
+	TimeoutDuration string `yaml:"timeout_duration,omitempty"` // "30s", "5m"
 }
 
 // AgentConfigs represents a map of agent configurations
@@ -371,4 +447,171 @@ func ConvertYAMLSchemaToResponseFormat(config *ResponseFormatConfig) (*interface
 		Name:   config.SchemaName,
 		Schema: schema,
 	}, nil
+}
+
+// expandEnvironmentVariables expands environment variables in various types
+func expandEnvironmentVariables(value interface{}) interface{} {
+	switch v := value.(type) {
+	case string:
+		return ExpandEnv(v)
+	case map[string]interface{}:
+		return expandConfigMap(v)
+	case []interface{}:
+		expanded := make([]interface{}, len(v))
+		for i, item := range v {
+			expanded[i] = expandEnvironmentVariables(item)
+		}
+		return expanded
+	default:
+		return value
+	}
+}
+
+// expandConfigMap expands environment variables in a configuration map
+func expandConfigMap(config map[string]interface{}) map[string]interface{} {
+	expanded := make(map[string]interface{})
+	for key, value := range config {
+		expanded[key] = expandEnvironmentVariables(value)
+	}
+	return expanded
+}
+
+// expandAgentConfig expands environment variables in agent configuration
+func expandAgentConfig(config AgentConfig) AgentConfig {
+	expanded := config
+	expanded.Role = ExpandEnv(config.Role)
+	expanded.Goal = ExpandEnv(config.Goal)
+	expanded.Backstory = ExpandEnv(config.Backstory)
+
+	// Expand memory configuration
+	if config.Memory != nil && config.Memory.Config != nil {
+		expanded.Memory = &MemoryConfigYAML{
+			Type:   config.Memory.Type,
+			Config: expandConfigMap(config.Memory.Config),
+		}
+	}
+
+	// Expand tool configurations
+	if config.Tools != nil {
+		expandedTools := make([]ToolConfigYAML, len(config.Tools))
+		for i, tool := range config.Tools {
+			expandedTools[i] = ToolConfigYAML{
+				Type:        tool.Type,
+				Name:        tool.Name,
+				Description: ExpandEnv(tool.Description),
+				Config:      expandConfigMap(tool.Config),
+				Enabled:     tool.Enabled,
+				URL:         ExpandEnv(tool.URL),
+				Timeout:     ExpandEnv(tool.Timeout),
+			}
+		}
+		expanded.Tools = expandedTools
+	}
+
+	// Expand runtime configuration
+	if config.Runtime != nil {
+		expanded.Runtime = &RuntimeConfigYAML{
+			LogLevel:        ExpandEnv(config.Runtime.LogLevel),
+			EnableTracing:   config.Runtime.EnableTracing,
+			EnableMetrics:   config.Runtime.EnableMetrics,
+			TimeoutDuration: ExpandEnv(config.Runtime.TimeoutDuration),
+		}
+	}
+
+	// Recursively expand sub-agents configuration
+	if config.SubAgents != nil {
+		expandedSubAgents := make(map[string]AgentConfig)
+		for name, subAgentConfig := range config.SubAgents {
+			expandedSubAgents[name] = expandAgentConfig(subAgentConfig) // Recursive expansion
+		}
+		expanded.SubAgents = expandedSubAgents
+	}
+
+	// Expand LLM provider configuration
+	if config.LLMProvider != nil {
+		expanded.LLMProvider = &LLMProviderYAML{
+			Provider: ExpandEnv(config.LLMProvider.Provider),
+			Model:    ExpandEnv(config.LLMProvider.Model),
+			Config:   expandConfigMap(config.LLMProvider.Config),
+		}
+	}
+
+	return expanded
+}
+
+// convertStreamConfigYAMLToInterface converts StreamConfigYAML to interfaces.StreamConfig
+func convertStreamConfigYAMLToInterface(config *StreamConfigYAML) *interfaces.StreamConfig {
+	if config == nil {
+		return nil
+	}
+
+	streamConfig := &interfaces.StreamConfig{}
+
+	if config.BufferSize != nil {
+		streamConfig.BufferSize = *config.BufferSize
+	}
+	if config.IncludeToolProgress != nil {
+		streamConfig.IncludeToolProgress = *config.IncludeToolProgress
+	}
+	if config.IncludeIntermediateMessages != nil {
+		streamConfig.IncludeIntermediateMessages = *config.IncludeIntermediateMessages
+	}
+
+	return streamConfig
+}
+
+// convertLLMConfigYAMLToInterface converts LLMConfigYAML to interfaces.LLMConfig
+func convertLLMConfigYAMLToInterface(config *LLMConfigYAML) *interfaces.LLMConfig {
+	if config == nil {
+		return nil
+	}
+
+	llmConfig := &interfaces.LLMConfig{}
+
+	if config.Temperature != nil {
+		llmConfig.Temperature = *config.Temperature
+	}
+	if config.TopP != nil {
+		llmConfig.TopP = *config.TopP
+	}
+	if config.FrequencyPenalty != nil {
+		llmConfig.FrequencyPenalty = *config.FrequencyPenalty
+	}
+	if config.PresencePenalty != nil {
+		llmConfig.PresencePenalty = *config.PresencePenalty
+	}
+	if config.StopSequences != nil {
+		llmConfig.StopSequences = config.StopSequences
+	}
+	if config.EnableReasoning != nil {
+		llmConfig.EnableReasoning = *config.EnableReasoning
+	}
+	if config.ReasoningBudget != nil {
+		llmConfig.ReasoningBudget = *config.ReasoningBudget
+	}
+	if config.Reasoning != nil {
+		llmConfig.Reasoning = *config.Reasoning
+	}
+
+	return llmConfig
+}
+
+// convertMemoryConfigYAMLToInterface converts MemoryConfigYAML to runtime memory config (placeholder)
+// Note: This returns config data that will be used at runtime to create actual memory instances
+func convertMemoryConfigYAMLToInterface(config *MemoryConfigYAML) map[string]interface{} {
+	if config == nil {
+		return nil
+	}
+
+	result := map[string]interface{}{
+		"type": config.Type,
+	}
+
+	if config.Config != nil {
+		for k, v := range config.Config {
+			result[k] = v
+		}
+	}
+
+	return result
 }

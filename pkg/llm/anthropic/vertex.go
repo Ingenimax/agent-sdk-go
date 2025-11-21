@@ -98,6 +98,34 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 	return config, nil
 }
 
+// NewVertexConfigWithCredentialsContent creates a new VertexConfig with explicit credentials content
+func NewVertexConfigWithCredentialsContent(ctx context.Context, region, projectID, credentialsContent string) (*VertexConfig, error) {
+	if region == "" {
+		return nil, fmt.Errorf("region is required for Vertex AI")
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("projectID is required for Vertex AI")
+	}
+	if credentialsContent == "" {
+		return nil, fmt.Errorf("credentialsContent is required")
+	}
+
+	credentials, err := google.CredentialsFromJSON(ctx, []byte(credentialsContent), "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load credentials from content: %w", err)
+	}
+
+	config := &VertexConfig{
+		Enabled:     true,
+		ProjectID:   projectID,
+		Region:      region,
+		TokenSource: credentials.TokenSource,
+		Credentials: credentials,
+	}
+	config.parseRegions()
+	return config, nil
+}
+
 // parseRegions splits the Region field by comma and stores as a list
 func (vc *VertexConfig) parseRegions() {
 	if vc.Region == "" {
