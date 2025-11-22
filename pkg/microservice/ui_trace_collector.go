@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/google/uuid"
@@ -80,6 +80,7 @@ type UITraceCollector struct {
 	maxSizeBytes     int
 	currentSizeBytes int
 	maxAge           time.Duration
+	logger           logging.Logger
 }
 
 // uiSpanContext holds context for an active span
@@ -96,7 +97,7 @@ type uiCollectorSpan struct {
 }
 
 // NewUITraceCollector creates a new UI trace collector
-func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Tracer) *UITraceCollector {
+func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Tracer, logger logging.Logger) *UITraceCollector {
 	if config == nil {
 		config = &UITracingConfig{
 			Enabled:         true,
@@ -112,6 +113,11 @@ func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Trace
 		maxAge = time.Hour // Default to 1 hour
 	}
 
+	// Use default logger if none provided
+	if logger == nil {
+		logger = logging.New()
+	}
+
 	return &UITraceCollector{
 		config:        config,
 		wrappedTracer: wrappedTracer,
@@ -119,12 +125,15 @@ func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Trace
 		activeSpans:   make(map[string]*uiSpanContext),
 		maxSizeBytes:  config.MaxBufferSizeKB * 1024,
 		maxAge:        maxAge,
+		logger:        logger,
 	}
 }
 
 // StartSpan starts a new span and collects it
 func (c *UITraceCollector) StartSpan(ctx context.Context, name string) (context.Context, interfaces.Span) {
-	log.Printf("[UITraceCollector] StartSpan called with name: %s", name)
+	c.logger.Debug(ctx, "StartSpan called", map[string]interface{}{
+		"name": name,
+	})
 
 	if !c.config.Enabled {
 		if c.wrappedTracer != nil {
@@ -215,10 +224,12 @@ func (c *UITraceCollector) StartSpan(ctx context.Context, name string) (context.
 
 // StartTraceSession starts a root trace session
 func (c *UITraceCollector) StartTraceSession(ctx context.Context, contextID string) (context.Context, interfaces.Span) {
-	log.Printf("[UITraceCollector] StartTraceSession called with contextID: %s", contextID)
+	c.logger.Debug(ctx, "StartTraceSession called", map[string]interface{}{
+		"context_id": contextID,
+	})
 
 	if !c.config.Enabled {
-		log.Printf("[UITraceCollector] Tracing disabled, delegating to wrapped tracer")
+		c.logger.Debug(ctx, "Tracing disabled, delegating to wrapped tracer", nil)
 		if c.wrappedTracer != nil {
 			return c.wrappedTracer.StartTraceSession(ctx, contextID)
 		}
@@ -227,20 +238,25 @@ func (c *UITraceCollector) StartTraceSession(ctx context.Context, contextID stri
 
 	// Create a root span with the session name
 	sessionName := fmt.Sprintf("session:%s", contextID)
-	log.Printf("[UITraceCollector] Creating root span: %s", sessionName)
+	c.logger.Debug(ctx, "Creating root span", map[string]interface{}{
+		"session_name": sessionName,
+	})
 	ctx, span := c.StartSpan(ctx, sessionName)
 
 	// Add session metadata
 	span.SetAttribute("session_id", contextID)
 	span.SetAttribute("is_root", true)
 
-	log.Printf("[UITraceCollector] Root trace session started successfully")
+	c.logger.Debug(ctx, "Root trace session started successfully", nil)
 	return ctx, span
 }
 
 // End ends the span
 func (s *uiCollectorSpan) End() {
-	log.Printf("[UITraceCollector] End() called for span: %s", s.spanContext.span.Name)
+	ctx := context.Background()
+	s.collector.logger.Debug(ctx, "End() called for span", map[string]interface{}{
+		"span_name": s.spanContext.span.Name,
+	})
 
 	if s.spanContext.wrappedSpan != nil {
 		s.spanContext.wrappedSpan.End()
@@ -257,22 +273,33 @@ func (s *uiCollectorSpan) End() {
 		if s.spanContext.trace.Spans[i].ID == s.spanContext.span.ID {
 			s.spanContext.trace.Spans[i].EndTime = &endTime
 			s.spanContext.trace.Spans[i].Duration = endTime.Sub(s.spanContext.trace.Spans[i].StartTime).Milliseconds()
-			log.Printf("[UITraceCollector] Updated span %s with duration %dms", s.spanContext.span.ID, s.spanContext.trace.Spans[i].Duration)
+			s.collector.logger.Debug(ctx, "Updated span with duration", map[string]interface{}{
+				"span_id":     s.spanContext.span.ID,
+				"duration_ms": s.spanContext.trace.Spans[i].Duration,
+			})
 			found = true
 			break
 		}
 	}
 	if !found {
-		log.Printf("[UITraceCollector] WARNING: Span %s not found in trace %s", s.spanContext.span.ID, s.spanContext.trace.ID)
+		s.collector.logger.Warn(ctx, "Span not found in trace", map[string]interface{}{
+			"span_id":  s.spanContext.span.ID,
+			"trace_id": s.spanContext.trace.ID,
+		})
 	}
 
 	// Remove from active spans
 	delete(s.collector.activeSpans, s.spanContext.span.ID)
-	log.Printf("[UITraceCollector] Removed span %s from active spans", s.spanContext.span.ID)
+	s.collector.logger.Debug(ctx, "Removed span from active spans", map[string]interface{}{
+		"span_id": s.spanContext.span.ID,
+	})
 
 	// Update trace if all spans are complete
 	isComplete := s.collector.isTraceComplete(s.spanContext.trace)
-	log.Printf("[UITraceCollector] Trace %s complete: %v", s.spanContext.trace.ID, isComplete)
+	s.collector.logger.Debug(ctx, "Trace completion status", map[string]interface{}{
+		"trace_id":    s.spanContext.trace.ID,
+		"is_complete": isComplete,
+	})
 	if isComplete {
 		// Only set status to completed if it's not already an error
 		if s.spanContext.trace.Status != "error" {
@@ -281,12 +308,18 @@ func (s *uiCollectorSpan) End() {
 		traceEndTime := s.collector.getTraceEndTime(s.spanContext.trace)
 		s.spanContext.trace.EndTime = &traceEndTime
 		s.spanContext.trace.Duration = traceEndTime.Sub(s.spanContext.trace.StartTime).Milliseconds()
-		log.Printf("[UITraceCollector] Trace %s completed with duration %dms", s.spanContext.trace.ID, s.spanContext.trace.Duration)
+		s.collector.logger.Debug(ctx, "Trace completed with duration", map[string]interface{}{
+			"trace_id":    s.spanContext.trace.ID,
+			"duration_ms": s.spanContext.trace.Duration,
+		})
 	}
 
 	// Update trace size
 	s.collector.updateTraceSize(s.spanContext.trace)
-	log.Printf("[UITraceCollector] Trace %s size updated, total traces: %d", s.spanContext.trace.ID, len(s.collector.traces))
+	s.collector.logger.Debug(ctx, "Trace size updated", map[string]interface{}{
+		"trace_id":     s.spanContext.trace.ID,
+		"total_traces": len(s.collector.traces),
+	})
 }
 
 // AddEvent adds an event to the span
