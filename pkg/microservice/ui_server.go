@@ -190,12 +190,12 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 				log.Printf("[UI Server] Using existing UITraceCollector from agent")
 			} else {
 				// Agent has a different tracer, wrap it with new UITraceCollector
-				server.traceCollector = NewUITraceCollector(config.Tracing, agent.GetTracer())
+				server.traceCollector = NewUITraceCollector(config.Tracing, agent.GetTracer(), agent.GetLogger())
 				log.Printf("[UI Server] Created new UITraceCollector wrapping agent's tracer")
 			}
 		} else {
 			// Agent has no tracer, create new UITraceCollector
-			server.traceCollector = NewUITraceCollector(config.Tracing, nil)
+			server.traceCollector = NewUITraceCollector(config.Tracing, nil, agent.GetLogger())
 			log.Printf("[UI Server] Created new UITraceCollector (agent has no tracer)")
 		}
 	}
@@ -265,7 +265,7 @@ func (h *HTTPServerWithUI) Start() error {
 		Addr:         fmt.Sprintf(":%d", h.port),
 		Handler:      corsHandler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 40 * time.Minute, // Longer timeout for streaming
+		WriteTimeout: 15 * time.Minute, // Longer timeout for streaming
 		IdleTimeout:  60 * time.Second,
 	}
 

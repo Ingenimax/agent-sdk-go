@@ -11,7 +11,7 @@ import (
 
 func TestNewUITraceCollector(t *testing.T) {
 	t.Run("creates collector with default config", func(t *testing.T) {
-		collector := NewUITraceCollector(nil, nil)
+		collector := NewUITraceCollector(nil, nil, nil)
 		assert.NotNil(t, collector)
 		assert.NotNil(t, collector.config)
 		assert.True(t, collector.config.Enabled)
@@ -27,7 +27,7 @@ func TestNewUITraceCollector(t *testing.T) {
 			MaxTraceAge:     "30m",
 			RetentionCount:  50,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 		assert.NotNil(t, collector)
 		assert.Equal(t, config, collector.config)
 		assert.Equal(t, 5120*1024, collector.maxSizeBytes)
@@ -42,7 +42,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -71,7 +71,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		ctx, parentSpan := collector.StartSpan(ctx, "parent-operation")
@@ -99,7 +99,7 @@ func TestUITraceCollector_StartSpan(t *testing.T) {
 		config := &UITracingConfig{
 			Enabled: false,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -122,7 +122,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -146,7 +146,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -174,7 +174,7 @@ func TestUITraceCollector_SpanOperations(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -200,7 +200,7 @@ func TestUITraceCollector_TraceSession(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartTraceSession(ctx, "test-session")
@@ -224,7 +224,7 @@ func TestUITraceCollector_GetTraces(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		// Create multiple traces
 		for i := 0; i < 5; i++ {
@@ -255,7 +255,7 @@ func TestUITraceCollector_GetTraces(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		// Create traces with different timestamps
 		ctx := context.Background()
@@ -280,7 +280,7 @@ func TestUITraceCollector_GetTrace(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -302,7 +302,7 @@ func TestUITraceCollector_GetTrace(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		_, err := collector.GetTrace("non-existent-id")
 		assert.Error(t, err)
@@ -318,7 +318,7 @@ func TestUITraceCollector_DeleteTrace(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		ctx := context.Background()
 		_, span := collector.StartSpan(ctx, "test-operation")
@@ -346,7 +346,7 @@ func TestUITraceCollector_DeleteTrace(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		err := collector.DeleteTrace("non-existent-id")
 		assert.Error(t, err)
@@ -362,7 +362,7 @@ func TestUITraceCollector_GetStats(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		// Create some traces
 		ctx := context.Background()
@@ -405,7 +405,7 @@ func TestUITraceCollector_RetentionLimits(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  3,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		// Create more traces than retention limit
 		for i := 0; i < 5; i++ {
@@ -432,7 +432,7 @@ func TestUITraceCollector_InferSpanType(t *testing.T) {
 			MaxTraceAge:     "1h",
 			RetentionCount:  100,
 		}
-		collector := NewUITraceCollector(config, nil)
+		collector := NewUITraceCollector(config, nil, nil)
 
 		testCases := []struct {
 			name     string
