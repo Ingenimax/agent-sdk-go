@@ -131,9 +131,7 @@ func NewUITraceCollector(config *UITracingConfig, wrappedTracer interfaces.Trace
 
 // StartSpan starts a new span and collects it
 func (c *UITraceCollector) StartSpan(ctx context.Context, name string) (context.Context, interfaces.Span) {
-	c.logger.Debug(ctx, "StartSpan called", map[string]interface{}{
-		"name": name,
-	})
+	// Debug logging removed for production - too verbose
 
 	if !c.config.Enabled {
 		if c.wrappedTracer != nil {
@@ -224,12 +222,7 @@ func (c *UITraceCollector) StartSpan(ctx context.Context, name string) (context.
 
 // StartTraceSession starts a root trace session
 func (c *UITraceCollector) StartTraceSession(ctx context.Context, contextID string) (context.Context, interfaces.Span) {
-	c.logger.Debug(ctx, "StartTraceSession called", map[string]interface{}{
-		"context_id": contextID,
-	})
-
 	if !c.config.Enabled {
-		c.logger.Debug(ctx, "Tracing disabled, delegating to wrapped tracer", nil)
 		if c.wrappedTracer != nil {
 			return c.wrappedTracer.StartTraceSession(ctx, contextID)
 		}
@@ -238,26 +231,17 @@ func (c *UITraceCollector) StartTraceSession(ctx context.Context, contextID stri
 
 	// Create a root span with the session name
 	sessionName := fmt.Sprintf("session:%s", contextID)
-	c.logger.Debug(ctx, "Creating root span", map[string]interface{}{
-		"session_name": sessionName,
-	})
 	ctx, span := c.StartSpan(ctx, sessionName)
 
 	// Add session metadata
 	span.SetAttribute("session_id", contextID)
 	span.SetAttribute("is_root", true)
 
-	c.logger.Debug(ctx, "Root trace session started successfully", nil)
 	return ctx, span
 }
 
 // End ends the span
 func (s *uiCollectorSpan) End() {
-	ctx := context.Background()
-	s.collector.logger.Debug(ctx, "End() called for span", map[string]interface{}{
-		"span_name": s.spanContext.span.Name,
-	})
-
 	if s.spanContext.wrappedSpan != nil {
 		s.spanContext.wrappedSpan.End()
 	}
@@ -273,15 +257,13 @@ func (s *uiCollectorSpan) End() {
 		if s.spanContext.trace.Spans[i].ID == s.spanContext.span.ID {
 			s.spanContext.trace.Spans[i].EndTime = &endTime
 			s.spanContext.trace.Spans[i].Duration = endTime.Sub(s.spanContext.trace.Spans[i].StartTime).Milliseconds()
-			s.collector.logger.Debug(ctx, "Updated span with duration", map[string]interface{}{
-				"span_id":     s.spanContext.span.ID,
-				"duration_ms": s.spanContext.trace.Spans[i].Duration,
-			})
 			found = true
 			break
 		}
 	}
 	if !found {
+		// Only log warnings for unexpected conditions
+		ctx := context.Background()
 		s.collector.logger.Warn(ctx, "Span not found in trace", map[string]interface{}{
 			"span_id":  s.spanContext.span.ID,
 			"trace_id": s.spanContext.trace.ID,
@@ -290,16 +272,9 @@ func (s *uiCollectorSpan) End() {
 
 	// Remove from active spans
 	delete(s.collector.activeSpans, s.spanContext.span.ID)
-	s.collector.logger.Debug(ctx, "Removed span from active spans", map[string]interface{}{
-		"span_id": s.spanContext.span.ID,
-	})
 
 	// Update trace if all spans are complete
 	isComplete := s.collector.isTraceComplete(s.spanContext.trace)
-	s.collector.logger.Debug(ctx, "Trace completion status", map[string]interface{}{
-		"trace_id":    s.spanContext.trace.ID,
-		"is_complete": isComplete,
-	})
 	if isComplete {
 		// Only set status to completed if it's not already an error
 		if s.spanContext.trace.Status != "error" {
@@ -308,18 +283,10 @@ func (s *uiCollectorSpan) End() {
 		traceEndTime := s.collector.getTraceEndTime(s.spanContext.trace)
 		s.spanContext.trace.EndTime = &traceEndTime
 		s.spanContext.trace.Duration = traceEndTime.Sub(s.spanContext.trace.StartTime).Milliseconds()
-		s.collector.logger.Debug(ctx, "Trace completed with duration", map[string]interface{}{
-			"trace_id":    s.spanContext.trace.ID,
-			"duration_ms": s.spanContext.trace.Duration,
-		})
 	}
 
 	// Update trace size
 	s.collector.updateTraceSize(s.spanContext.trace)
-	s.collector.logger.Debug(ctx, "Trace size updated", map[string]interface{}{
-		"trace_id":     s.spanContext.trace.ID,
-		"total_traces": len(s.collector.traces),
-	})
 }
 
 // AddEvent adds an event to the span
