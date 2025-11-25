@@ -6,10 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"gopkg.in/yaml.v3"
 )
+
+// ConfigSourceMetadata tracks where a configuration was loaded from
+type ConfigSourceMetadata struct {
+	Type        string            `yaml:"type" json:"type"`        // "local", "remote"
+	Source      string            `yaml:"source" json:"source"`    // file path or service URL
+	AgentID     string            `yaml:"agent_id,omitempty" json:"agent_id,omitempty"`
+	AgentName   string            `yaml:"agent_name,omitempty" json:"agent_name,omitempty"`
+	Environment string            `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Variables   map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
+	LoadedAt    time.Time         `yaml:"loaded_at" json:"loaded_at"`
+}
 
 // ResponseFormatConfig represents the configuration for the response format of an agent or task
 type ResponseFormatConfig struct {
@@ -48,6 +60,9 @@ type AgentConfig struct {
 
 	// NEW: Sub-agents configuration (recursive)
 	SubAgents map[string]AgentConfig `yaml:"sub_agents,omitempty"`
+
+	// NEW: Configuration source metadata
+	ConfigSource *ConfigSourceMetadata `yaml:"config_source,omitempty" json:"config_source,omitempty"`
 }
 
 // TaskConfig represents a task definition loaded from YAML
@@ -476,8 +491,8 @@ func expandConfigMap(config map[string]interface{}) map[string]interface{} {
 	return expanded
 }
 
-// expandAgentConfig expands environment variables in agent configuration
-func expandAgentConfig(config AgentConfig) AgentConfig {
+// ExpandAgentConfig expands environment variables in agent configuration
+func ExpandAgentConfig(config AgentConfig) AgentConfig {
 	expanded := config
 	expanded.Role = ExpandEnv(config.Role)
 	expanded.Goal = ExpandEnv(config.Goal)
@@ -522,7 +537,7 @@ func expandAgentConfig(config AgentConfig) AgentConfig {
 	if config.SubAgents != nil {
 		expandedSubAgents := make(map[string]AgentConfig)
 		for name, subAgentConfig := range config.SubAgents {
-			expandedSubAgents[name] = expandAgentConfig(subAgentConfig) // Recursive expansion
+			expandedSubAgents[name] = ExpandAgentConfig(subAgentConfig) // Recursive expansion
 		}
 		expanded.SubAgents = expandedSubAgents
 	}

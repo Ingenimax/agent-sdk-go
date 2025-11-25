@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
@@ -102,4 +103,94 @@ func (c *ConfigurationClient) FetchDeploymentConfig(ctx context.Context, deploym
 	}
 
 	return result, nil
+}
+
+// FetchAgentConfig retrieves a resolved agent configuration by agent_id and environment
+func (c *ConfigurationClient) FetchAgentConfig(ctx context.Context, agentID, environment string) (*AgentConfigResponse, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("agentID cannot be empty")
+	}
+	if environment == "" {
+		environment = "development" // Default environment
+	}
+
+	// Build the request URL
+	reqURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	// Use the resolved endpoint that returns generated YAML
+	reqURL.Path = fmt.Sprintf("/api/v1/agent-configs/%s/resolved", agentID)
+
+	// Add query parameters
+	params := url.Values{}
+	params.Set("environment", environment)
+	reqURL.RawQuery = params.Encode()
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add authentication if available
+	if authToken := c.getAuthToken(); authToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
+	}
+
+	// Execute request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log or handle close error if needed
+			_ = closeErr
+		}
+	}()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check status code
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Success - parse response
+		var response AgentConfigResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+		return &response, nil
+
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("agent configuration not found: agent_id=%s, environment=%s", agentID, environment)
+
+	case http.StatusUnauthorized:
+		return nil, fmt.Errorf("unauthorized: check your authentication credentials")
+
+	default:
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// getAuthToken retrieves the auth token from environment variables
+func (c *ConfigurationClient) getAuthToken() string {
+	// First try environment variable
+	if token := os.Getenv("STAROPS_AUTH_TOKEN"); token != "" {
+		return token
+	}
+
+	// Then try from config service token
+	if token := os.Getenv("STAROPS_CONFIG_SERVICE_TOKEN"); token != "" {
+		return token
+	}
+
+	return ""
 }
