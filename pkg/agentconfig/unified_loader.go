@@ -220,37 +220,6 @@ func loadFromRemoteByID(ctx context.Context, agentID, environment string, opts *
 	return &config, nil
 }
 
-// loadFromRemote loads configuration from starops-config-service
-// Deprecated: Use loadFromRemoteByID instead
-func loadFromRemote(ctx context.Context, agentName, environment string, opts *LoadOptions) (*agent.AgentConfig, error) {
-	// Create client
-	client, err := NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config client: %w", err)
-	}
-
-	// Fetch from remote service
-	response, err := client.FetchAgentConfig(ctx, agentName, environment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch remote config: %w", err)
-	}
-
-	// Parse the resolved YAML into AgentConfig
-	var config agent.AgentConfig
-	if err := yaml.Unmarshal([]byte(response.ResolvedYAML), &config); err != nil {
-		return nil, fmt.Errorf("failed to parse remote YAML: %w", err)
-	}
-
-	// Set source metadata
-	config.ConfigSource = &agent.ConfigSourceMetadata{
-		Type:      "remote",
-		Source:    fmt.Sprintf("starops-config-service://%s/%s", agentName, environment),
-		Variables: response.ResolvedVariables,
-	}
-
-	return &config, nil
-}
-
 // loadFromLocal loads configuration from local YAML file
 func loadFromLocal(agentName, environment string, opts *LoadOptions) (*agent.AgentConfig, error) {
 	// Determine file path
