@@ -1862,22 +1862,6 @@ func (a *Agent) GetConfig() *AgentConfig {
 	return a.generatedAgentConfig
 }
 
-// NewAgentWithUnifiedConfig creates an agent with automatic configuration source detection
-// This is a placeholder - users should use agentconfig.LoadAgentAuto() for full functionality
-func NewAgentWithUnifiedConfig(ctx context.Context, agentName, environment string, options ...Option) (*Agent, error) {
-	return nil, fmt.Errorf("for centralized configuration management, use:\n" +
-		"import \"github.com/Ingenimax/agent-sdk-go/pkg/agentconfig\"\n" +
-		"agent, err := agentconfig.LoadAgentAuto(ctx, %q, %q)", agentName, environment)
-}
-
-// NewAgentFromUnifiedConfig creates an agent using the unified configuration loader
-// This is a placeholder - users should use the agentconfig package for dual source loading
-func NewAgentFromUnifiedConfig(ctx context.Context, agentName, environment string, options ...Option) (*Agent, error) {
-	return nil, fmt.Errorf("for remote configuration with local fallback, use:\n" +
-		"import \"github.com/Ingenimax/agent-sdk-go/pkg/agentconfig\"\n" +
-		"agent, err := agentconfig.LoadAgentAuto(ctx, %q, %q)", agentName, environment)
-}
-
 // NewAgentFromConfigObject creates an agent from a pre-loaded AgentConfig object
 // This is useful when you already have a loaded configuration from any source
 func NewAgentFromConfigObject(ctx context.Context, config *AgentConfig, variables map[string]string, options ...Option) (*Agent, error) {
