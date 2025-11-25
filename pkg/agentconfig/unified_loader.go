@@ -286,6 +286,7 @@ func loadFromLocal(agentName, environment string, opts *LoadOptions) (*agent.Age
 	config, exists := configs[agentName]
 	if !exists {
 		// Try loading as single agent config
+		// #nosec G304 - localPath is controlled by application logic, not user input
 		data, err := os.ReadFile(localPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read config file: %w", err)
