@@ -204,7 +204,8 @@ func LoadAgentConfig(ctx context.Context, agentName, environment string, options
 		}
 
 		// Perform merge based on strategy
-		if opts.MergeStrategy == MergeStrategyRemotePriority {
+		switch opts.MergeStrategy {
+		case MergeStrategyRemotePriority:
 			if remoteConfig != nil && localConfig != nil {
 				// Both configs available - merge with remote priority
 				config = MergeAgentConfig(remoteConfig, localConfig, opts.MergeStrategy)
@@ -221,7 +222,7 @@ func LoadAgentConfig(ctx context.Context, agentName, environment string, options
 				config = localConfig
 				source = ConfigSourceLocal
 			}
-		} else if opts.MergeStrategy == MergeStrategyLocalPriority {
+		case MergeStrategyLocalPriority:
 			if remoteConfig != nil && localConfig != nil {
 				// Both configs available - merge with local priority
 				config = MergeAgentConfig(localConfig, remoteConfig, opts.MergeStrategy)
