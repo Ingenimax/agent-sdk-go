@@ -172,7 +172,7 @@ func WithDescription(description string) Option {
 func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 	return func(a *Agent) {
 		// Expand environment variables in all config sections
-		expandedConfig := expandAgentConfig(config)
+		expandedConfig := ExpandAgentConfig(config)
 
 		// Existing system prompt processing
 		systemPrompt := FormatSystemPromptFromConfig(expandedConfig, variables)
@@ -324,6 +324,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 				}
 			}
 		}
+
+		// Store the expanded configuration for later access
+		a.generatedAgentConfig = &expandedConfig
 	}
 }
 
@@ -1849,4 +1852,35 @@ func CreateMemoryFromConfig(memoryConfig map[string]interface{}, llmClient inter
 // This allows agent-blueprint to access the memory config for instantiation
 func (a *Agent) GetMemoryConfig() map[string]interface{} {
 	return a.memoryConfig
+}
+
+// GetConfig returns the agent's configuration for inspection
+func (a *Agent) GetConfig() *AgentConfig {
+	if a.generatedAgentConfig == nil {
+		return &AgentConfig{}
+	}
+	return a.generatedAgentConfig
+}
+
+// NewAgentFromConfigObject creates an agent from a pre-loaded AgentConfig object
+// This is useful when you already have a loaded configuration from any source
+func NewAgentFromConfigObject(ctx context.Context, config *AgentConfig, variables map[string]string, options ...Option) (*Agent, error) {
+	if config == nil {
+		return nil, fmt.Errorf("config cannot be nil")
+	}
+
+	// Create options from config
+	configOption := WithAgentConfig(*config, variables)
+
+	// Extract agent name from config source or use a default
+	agentName := "agent"
+	if config.ConfigSource != nil && config.ConfigSource.AgentName != "" {
+		agentName = config.ConfigSource.AgentName
+	}
+	nameOption := WithName(agentName)
+
+	// Combine all options
+	allOptions := append([]Option{configOption, nameOption}, options...)
+
+	return NewAgent(allOptions...)
 }
