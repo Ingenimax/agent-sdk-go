@@ -95,13 +95,16 @@ func LoadAndMergeWithViper(ctx context.Context, v *viper.Viper) (configsLoaded i
 	configsMerged = 0
 	configsSkipped := 0
 	for key, value := range dynamicConfig {
-		if v.GetString(key) == "" {
+		// Check OS environment, not viper, since BindEnv will check OS env
+		if os.Getenv(key) == "" {
 			v.Set(key, value)
-			configsMerged++
-			// Log important secrets/keys being loaded (without showing values)
-			if key == "LANGFUSE_SECRET_KEY" || key == "LANGFUSE_PUBLIC_KEY" {
-				log.Debug().Str("key", key).Bool("has_value", value != "").Msg("Loaded config key")
+			// Also set in OS environment so BindEnv can find it
+			if err := os.Setenv(key, value); err != nil {
+				log.Warn().Err(err).Str("key", key).Msg("Failed to set environment variable")
 			}
+			configsMerged++
+			// Log all merged configs for debugging
+			log.Debug().Str("key", key).Bool("has_value", value != "").Msg("Merged config from service")
 		} else {
 			configsSkipped++
 			log.Debug().Str("key", key).Msg("Skipped config (already set locally)")
