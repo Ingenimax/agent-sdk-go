@@ -50,9 +50,16 @@ func (c *OpenAIClient) GenerateStream(
 	go func() {
 		defer close(eventChan)
 
+		// Build messages starting with system message if provided
+		messages := []openai.ChatCompletionMessageParamUnion{}
+		if params.SystemMessage != "" {
+			messages = append(messages, openai.SystemMessage(params.SystemMessage))
+			c.logger.Debug(ctx, "Using system message", map[string]interface{}{"system_message": params.SystemMessage})
+		}
+
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages := builder.buildMessages(ctx, prompt, params.Memory)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
 
 		// Create stream request
 		streamParams := openai.ChatCompletionNewParams{
@@ -303,9 +310,16 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			})
 		}
 
+		// Build messages starting with system message if provided
+		messages := []openai.ChatCompletionMessageParamUnion{}
+		if params.SystemMessage != "" {
+			messages = append(messages, openai.SystemMessage(params.SystemMessage))
+			c.logger.Debug(ctx, "Using system message for tools", map[string]interface{}{"system_message": params.SystemMessage})
+		}
+
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages := builder.buildMessages(ctx, prompt, params.Memory)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{

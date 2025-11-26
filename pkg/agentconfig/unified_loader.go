@@ -162,14 +162,24 @@ func LoadAgentConfig(ctx context.Context, agentName, environment string, options
 		return nil, fmt.Errorf("failed to load agent config from any source: %w", err)
 	}
 
-	// Add source metadata
+	// Add source metadata (preserve existing metadata if already set by loader)
 	if config.ConfigSource == nil {
 		config.ConfigSource = &agent.ConfigSourceMetadata{}
 	}
-	config.ConfigSource.Type = string(source)
-	config.ConfigSource.AgentID = agentID
-	config.ConfigSource.AgentName = agentName
-	config.ConfigSource.Environment = environment
+	// Only override if not already set by the loader
+	if config.ConfigSource.Type == "" {
+		config.ConfigSource.Type = string(source)
+	}
+	if config.ConfigSource.AgentID == "" {
+		config.ConfigSource.AgentID = agentID
+	}
+	if config.ConfigSource.Environment == "" {
+		config.ConfigSource.Environment = environment
+	}
+	// Keep the actual agent name from remote if available, otherwise use the parameter
+	if config.ConfigSource.AgentName == "" {
+		config.ConfigSource.AgentName = agentName
+	}
 	config.ConfigSource.LoadedAt = time.Now()
 
 	// Apply environment overrides if enabled
@@ -204,17 +214,38 @@ func loadFromRemoteByID(ctx context.Context, agentID, environment string, opts *
 		return nil, fmt.Errorf("failed to fetch remote config: %w", err)
 	}
 
-	// Parse the resolved YAML into AgentConfig
-	var config agent.AgentConfig
-	if err := yaml.Unmarshal([]byte(response.ResolvedYAML), &config); err != nil {
+	// Parse the resolved YAML - it has the agent name as top-level key
+	// Format: agent_name: { role: "...", goal: "...", ... }
+	var wrappedConfig map[string]agent.AgentConfig
+	if err := yaml.Unmarshal([]byte(response.ResolvedYAML), &wrappedConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse remote YAML: %w", err)
 	}
 
-	// Set source metadata
+	// Extract the first (and only) agent config from the map
+	if len(wrappedConfig) == 0 {
+		return nil, fmt.Errorf("no agent configuration found in remote YAML")
+	}
+
+	var config agent.AgentConfig
+	var actualAgentName string
+	for name, cfg := range wrappedConfig {
+		actualAgentName = name
+		config = cfg
+		fmt.Printf("[DEBUG] loadFromRemoteByID - Loaded config for agent: %s\n", actualAgentName)
+		fmt.Printf("[DEBUG] loadFromRemoteByID - Role: %s\n", cfg.Role)
+		fmt.Printf("[DEBUG] loadFromRemoteByID - Goal: %s\n", cfg.Goal)
+		fmt.Printf("[DEBUG] loadFromRemoteByID - Backstory: %s\n", cfg.Backstory)
+		break
+	}
+
+	// Set source metadata with the actual agent name from YAML
 	config.ConfigSource = &agent.ConfigSourceMetadata{
-		Type:      "remote",
-		Source:    fmt.Sprintf("starops-config-service://agent_id=%s/%s", agentID, environment),
-		Variables: response.ResolvedVariables,
+		Type:        "remote",
+		Source:      fmt.Sprintf("starops-config-service://agent_id=%s/%s", agentID, environment),
+		AgentID:     agentID,
+		AgentName:   actualAgentName, // Use the actual agent name from YAML
+		Environment: environment,
+		Variables:   response.ResolvedVariables,
 	}
 
 	return &config, nil
