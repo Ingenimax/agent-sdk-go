@@ -2,8 +2,6 @@ package agentconfig
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // ConfigurationValueType represents the type of value stored
@@ -31,9 +29,9 @@ type ResolvedConfigurationValue struct {
 
 // ConfigurationResponse represents the response when returning a configuration with resolved secrets
 type ConfigurationResponse struct {
-	ID          uuid.UUID                  `json:"id"`
+	ID          string                     `json:"id"`
 	OrgID       string                     `json:"org_id"`
-	UserID      uuid.UUID                  `json:"user_id"`
+	UserID      string                     `json:"user_id"`
 	InstanceID  string                     `json:"instance_id"`
 	Environment string                     `json:"environment"`
 	Key         string                     `json:"key"`

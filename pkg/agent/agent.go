@@ -1115,7 +1115,10 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
+		fmt.Printf("[DEBUG] Using system prompt (length=%d):\n%s\n", len(a.systemPrompt), a.systemPrompt)
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
+	} else {
+		fmt.Printf("[DEBUG] WARNING: No system prompt set for agent %s\n", a.name)
 	}
 
 	if a.responseFormat != nil {
