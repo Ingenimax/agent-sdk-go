@@ -204,7 +204,7 @@ func LoadFromEnv() *Config {
 	config.Guardrails.ConfigPath = getEnv("GUARDRAILS_CONFIG_PATH", "")
 
 	// ConfigService configuration
-	config.ConfigService.Host = getEnv("STAROPS_CONFIG_SERVICE_HOST", "http://starops-config-service.starops-config-service.svc.cluster.local:8080")
+	config.ConfigService.Host = getEnv("STAROPS_CONFIG_SERVICE_HOST", "http://starops-config-service-service.starops-config-service.svc.cluster.local:8080")
 
 	return config
 }

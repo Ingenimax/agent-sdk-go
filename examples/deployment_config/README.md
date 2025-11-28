@@ -32,7 +32,7 @@ export ENVIRONMENT="preview"  # or "staging", "production", etc.
 
 ```bash
 # Override the default config service host
-export STAROPS_CONFIG_SERVICE_HOST="http://starops-config-service.starops-config-service.svc.cluster.local:8091"
+export STAROPS_CONFIG_SERVICE_HOST="http://starops-config-service-service.starops-config-service.svc.cluster.local:8080"
 
 # For testing with specific deployment
 export TEST_DEPLOYMENT_ID="example-agent-deployment-001"
@@ -196,7 +196,7 @@ Both types are returned as strings in the configuration map.
 
 Solution: Set the environment variable:
 ```bash
-export STAROPS_CONFIG_SERVICE_HOST="http://starops-config-service.starops-config-service.svc.cluster.local:8091"
+export STAROPS_CONFIG_SERVICE_HOST="http://starops-config-service-service.starops-config-service.svc.cluster.local:8080"
 ```
 
 ### Error: "AGENT_DEPLOYMENT_ID environment variable is required"
