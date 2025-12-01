@@ -14,10 +14,10 @@ jobs:
         go-version: [ '1.23.8' ]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go-version }}
 
@@ -36,14 +36,14 @@ jobs:
         files: ./coverage.txt
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v9
       with:
         version: latest
 
   security:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Run Gosec Security Scanner
       uses: securego/gosec@master
