@@ -586,6 +586,11 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 		Arguments: args,
 	}
 
+	s.logger.Debug(ctx, "Calling session.CallTool", map[string]interface{}{
+		"tool_name": name,
+		"params":    params,
+	})
+
 	resp, err := s.session.CallTool(ctx, params)
 	if err != nil {
 		mcpErr := ClassifyError(err, "CallTool", "server", "unknown")
@@ -598,6 +603,13 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 		})
 		return nil, mcpErr
 	}
+
+	s.logger.Debug(ctx, "Received response from session.CallTool", map[string]interface{}{
+		"tool_name": name,
+		"is_error":  resp.IsError,
+		"content":   resp.Content,
+		"meta":      resp.Meta,
+	})
 
 	if resp.IsError {
 		s.logger.Warn(ctx, "MCP tool returned error", map[string]interface{}{

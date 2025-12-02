@@ -14,8 +14,8 @@ import (
 
 // ConfigSourceMetadata tracks where a configuration was loaded from
 type ConfigSourceMetadata struct {
-	Type        string            `yaml:"type" json:"type"`        // "local", "remote"
-	Source      string            `yaml:"source" json:"source"`    // file path or service URL
+	Type        string            `yaml:"type" json:"type"`     // "local", "remote"
+	Source      string            `yaml:"source" json:"source"` // file path or service URL
 	AgentID     string            `yaml:"agent_id,omitempty" json:"agent_id,omitempty"`
 	AgentName   string            `yaml:"agent_name,omitempty" json:"agent_name,omitempty"`
 	Environment string            `yaml:"environment,omitempty" json:"environment,omitempty"`
@@ -83,14 +83,14 @@ type StreamConfigYAML struct {
 
 // LLMConfigYAML represents LLM configuration in YAML
 type LLMConfigYAML struct {
-	Temperature      *float64  `yaml:"temperature,omitempty"`
-	TopP             *float64  `yaml:"top_p,omitempty"`
-	FrequencyPenalty *float64  `yaml:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64  `yaml:"presence_penalty,omitempty"`
-	StopSequences    []string  `yaml:"stop_sequences,omitempty"`
-	EnableReasoning  *bool     `yaml:"enable_reasoning,omitempty"`
-	ReasoningBudget  *int      `yaml:"reasoning_budget,omitempty"`
-	Reasoning        *string   `yaml:"reasoning,omitempty"`
+	Temperature      *float64 `yaml:"temperature,omitempty"`
+	TopP             *float64 `yaml:"top_p,omitempty"`
+	FrequencyPenalty *float64 `yaml:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `yaml:"presence_penalty,omitempty"`
+	StopSequences    []string `yaml:"stop_sequences,omitempty"`
+	EnableReasoning  *bool    `yaml:"enable_reasoning,omitempty"`
+	ReasoningBudget  *int     `yaml:"reasoning_budget,omitempty"`
+	Reasoning        *string  `yaml:"reasoning,omitempty"`
 }
 
 // LLMProviderYAML represents LLM provider configuration in YAML
@@ -102,7 +102,7 @@ type LLMProviderYAML struct {
 
 // ToolConfigYAML represents tool configuration in YAML
 type ToolConfigYAML struct {
-	Type        string                 `yaml:"type"`           // "builtin", "custom", "mcp", "agent"
+	Type        string                 `yaml:"type"` // "builtin", "custom", "mcp", "agent"
 	Name        string                 `yaml:"name"`
 	Description string                 `yaml:"description,omitempty"`
 	Config      map[string]interface{} `yaml:"config,omitempty"`
@@ -115,13 +115,13 @@ type ToolConfigYAML struct {
 
 // MemoryConfigYAML represents memory configuration in YAML
 type MemoryConfigYAML struct {
-	Type   string                 `yaml:"type"`    // "buffer", "redis", "vector"
+	Type   string                 `yaml:"type"` // "buffer", "redis", "vector"
 	Config map[string]interface{} `yaml:"config,omitempty"`
 }
 
 // RuntimeConfigYAML represents runtime behavior settings in YAML
 type RuntimeConfigYAML struct {
-	LogLevel        string `yaml:"log_level,omitempty"`        // "debug", "info", "warn", "error"
+	LogLevel        string `yaml:"log_level,omitempty"` // "debug", "info", "warn", "error"
 	EnableTracing   *bool  `yaml:"enable_tracing,omitempty"`
 	EnableMetrics   *bool  `yaml:"enable_metrics,omitempty"`
 	TimeoutDuration string `yaml:"timeout_duration,omitempty"` // "30s", "5m"
@@ -549,6 +549,38 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 			Model:    ExpandEnv(config.LLMProvider.Model),
 			Config:   expandConfigMap(config.LLMProvider.Config),
 		}
+	}
+
+	// Expand MCP configuration
+	if config.MCP != nil {
+		expandedMCP := &MCPConfiguration{
+			MCPServers: make(map[string]MCPServerConfig),
+			Global:     config.MCP.Global,
+		}
+
+		for serverName, serverConfig := range config.MCP.MCPServers {
+			expandedServerConfig := MCPServerConfig{
+				Command: ExpandEnv(serverConfig.Command),
+				Args:    make([]string, len(serverConfig.Args)),
+				Env:     make(map[string]string),
+				URL:     ExpandEnv(serverConfig.URL),
+				Token:   ExpandEnv(serverConfig.Token),
+			}
+
+			// Expand args
+			for i, arg := range serverConfig.Args {
+				expandedServerConfig.Args[i] = ExpandEnv(arg)
+			}
+
+			// Expand environment variables
+			for key, value := range serverConfig.Env {
+				expandedServerConfig.Env[key] = ExpandEnv(value)
+			}
+
+			expandedMCP.MCPServers[serverName] = expandedServerConfig
+		}
+
+		expanded.MCP = expandedMCP
 	}
 
 	return expanded

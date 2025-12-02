@@ -58,6 +58,9 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 	cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
 		"server_name": config.Name,
 		"server_type": config.Type,
+		"command":     config.Command,
+		"args":        config.Args,
+		"env_count":   len(config.Env),
 	})
 
 	var server interfaces.MCPServer
@@ -282,6 +285,14 @@ func (t *LazyMCPTool) Run(ctx context.Context, input string) (string, error) {
 		}
 	}
 
+	// Log the tool call for debugging
+	t.logger.Debug(ctx, "Calling MCP tool", map[string]interface{}{
+		"tool_name":   t.name,
+		"args":        args,
+		"server_name": t.serverConfig.Name,
+		"server_type": t.serverConfig.Type,
+	})
+
 	// Call the tool on the MCP server
 	resp, err := server.CallTool(ctx, t.name, args)
 	if err != nil {
@@ -291,6 +302,13 @@ func (t *LazyMCPTool) Run(ctx context.Context, input string) (string, error) {
 		})
 		return "", fmt.Errorf("MCP server call failed: %v", err)
 	}
+
+	// Log the response for debugging
+	t.logger.Debug(ctx, "Received MCP tool response", map[string]interface{}{
+		"tool_name": t.name,
+		"is_error":  resp.IsError,
+		"content":   resp.Content,
+	})
 
 	// Handle error response
 	if resp.IsError {

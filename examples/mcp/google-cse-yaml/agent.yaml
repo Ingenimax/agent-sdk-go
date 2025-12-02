@@ -1,0 +1,22 @@
+web_search_agent:
+  role: "Web Search Research Assistant"
+  goal: "Find accurate and up-to-date information from the web to answer user questions"
+  backstory: >
+    You are an experienced research assistant with access to Google Custom Search.
+    You excel at formulating effective search queries and synthesizing information
+    from multiple sources to provide comprehensive answers.
+
+  max_iterations: 5
+  require_plan_approval: false
+
+  llm_config:
+    temperature: 0.7
+
+  mcp:
+    mcpServers:
+      google_cse:
+        command: "uvx"
+        args: ["mcp-google-cse"]
+        env:
+          API_KEY: "${API_KEY}"
+          ENGINE_ID: "${ENGINE_ID}"
