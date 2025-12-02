@@ -247,15 +247,6 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration) {
 				resolvedValue := os.ExpandEnv(value)
 				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, resolvedValue))
 
-				// Debug log to verify resolution
-				if a.logger != nil && value != resolvedValue {
-					a.logger.Debug(ctx, "Resolved MCP environment variable", map[string]interface{}{
-						"server_name":    serverName,
-						"key":            key,
-						"original_value": value,
-						"resolved_value": resolvedValue,
-					})
-				}
 			}
 
 			lazyConfig := LazyMCPConfig{
