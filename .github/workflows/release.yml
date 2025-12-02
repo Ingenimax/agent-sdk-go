@@ -24,7 +24,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -74,7 +74,7 @@ jobs:
           git push origin ${{ steps.calculate_version.outputs.new_tag }} || echo "Tag already exists remotely"
 
       - name: Checkout with new tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.calculate_version.outputs.new_tag }}
           fetch-depth: 0
