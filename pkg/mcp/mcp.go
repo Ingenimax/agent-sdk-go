@@ -890,12 +890,6 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		mcpErr := ClassifyError(err, "Connect", "http-server", "http")
-		logger.Error(ctx, "Failed to connect to HTTP MCP server", map[string]interface{}{
-			"error":      err.Error(),
-			"error_type": mcpErr.ErrorType,
-			"retryable":  mcpErr.Retryable,
-			"base_url":   config.BaseURL,
-		})
 		return nil, mcpErr
 	}
 
