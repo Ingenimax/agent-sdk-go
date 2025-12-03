@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -1189,192 +1190,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			})
 		}
 
-		// Process each tool call
-		var toolResults []ToolResult
-		for _, toolCall := range toolCalls {
-			// Get tool name - it could be in either Name or RecipientName field
-			toolName := ""
-			if toolCall.Name != "" {
-				toolName = toolCall.Name
-			} else if toolCall.RecipientName != "" {
-				toolName = toolCall.RecipientName
-			} else {
-				c.logger.Error(ctx, "Tool call missing both Name and RecipientName", map[string]interface{}{"iteration": iteration + 1})
-				continue
-			}
-
-			// Find the requested tool
-			var selectedTool interfaces.Tool
-			for _, tool := range tools {
-				if tool.Name() == toolName {
-					selectedTool = tool
-					break
-				}
-			}
-
-			if selectedTool == nil {
-				c.logger.Error(ctx, "Tool not found", map[string]interface{}{
-					"toolName":  toolName,
-					"iteration": iteration + 1,
-					"availableTools": func() []string {
-						names := make([]string, len(tools))
-						for i, t := range tools {
-							names[i] = t.Name()
-						}
-						return names
-					}(),
-				})
-
-				// Add tool not found error as tool result instead of returning
-				errorMessage := fmt.Sprintf("Error: tool not found: %s", toolName)
-
-				// Store failed tool call in memory if provided
-				if params.Memory != nil {
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolName,
-							Arguments: "{}",
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    errorMessage,
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolName,
-						},
-					})
-				}
-
-				// Add error as tool result
-				toolResults = append(toolResults, ToolResult{
-					Type:     "tool_result",
-					Content:  errorMessage,
-					ToolName: toolName,
-				})
-
-				continue // Continue processing other tool calls
-			}
-
-			// Get parameters - could be in either Input or Parameters field
-			var parameters map[string]interface{}
-			if len(toolCall.Input) > 0 {
-				parameters = toolCall.Input
-			} else if len(toolCall.Parameters) > 0 {
-				parameters = toolCall.Parameters
-			}
-
-			// Convert parameters to JSON string
-			toolCallJSON, err := json.Marshal(parameters)
-			if err != nil {
-				c.logger.Error(ctx, "Error marshalling parameters", map[string]interface{}{
-					"error":      err.Error(),
-					"parameters": parameters,
-					"iteration":  iteration + 1,
-				})
-				return "", fmt.Errorf("error marshalling parameters (iteration %d): %w", iteration+1, err)
-			}
-
-			// Log parameters for debugging
-			c.logger.Debug(ctx, "Tool parameters", map[string]interface{}{
-				"toolName":   toolName,
-				"parameters": string(toolCallJSON),
-				"iteration":  iteration + 1,
-			})
-
-			// Execute the tool
-			c.logger.Info(ctx, "Executing tool", map[string]interface{}{
-				"toolName":  selectedTool.Name(),
-				"iteration": iteration + 1,
-			})
-			toolResult, err := selectedTool.Execute(ctx, string(toolCallJSON))
-
-			// Check for repetitive calls and add warning if needed
-			cacheKey := toolName + ":" + string(toolCallJSON)
-			toolCallHistory[cacheKey]++
-
-			if toolCallHistory[cacheKey] > 2 {
-				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop. Consider using the available information to provide a final answer.]",
-					toolCallHistory[cacheKey],
-					toolName)
-				if err == nil {
-					toolResult += warning
-				}
-				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
-					"toolName":  toolName,
-					"callCount": toolCallHistory[cacheKey],
-					"iteration": iteration + 1,
-				})
-			}
-
-			// Store tool call and result in memory if provided
-			if params.Memory != nil {
-				if err != nil {
-					// Store failed tool call result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolName,
-							Arguments: string(toolCallJSON),
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    fmt.Sprintf("Error: %v", err),
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolName,
-						},
-					})
-				} else {
-					// Store successful tool call and result
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:    "assistant",
-						Content: "",
-						ToolCalls: []interfaces.ToolCall{{
-							ID:        toolCall.ID,
-							Name:      toolName,
-							Arguments: string(toolCallJSON),
-						}},
-					})
-					_ = params.Memory.AddMessage(ctx, interfaces.Message{
-						Role:       "tool",
-						Content:    toolResult,
-						ToolCallID: toolCall.ID,
-						Metadata: map[string]interface{}{
-							"tool_name": toolName,
-						},
-					})
-				}
-			}
-
-			if err != nil {
-				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
-					"toolName":  selectedTool.Name(),
-					"error":     err.Error(),
-					"iteration": iteration + 1,
-				})
-				// Return error as tool result
-				toolResults = append(toolResults, ToolResult{
-					Type:     "tool_result",
-					Content:  fmt.Sprintf("Error: %v", err),
-					ToolName: toolName,
-				})
-				continue
-			}
-
-			// Add tool result
-			toolResults = append(toolResults, ToolResult{
-				Type:     "tool_result",
-				Content:  toolResult,
-				ToolName: toolName,
-			})
-		}
+		// Process tool calls in PARALLEL for better performance
+		toolResults := c.executeToolsParallel(ctx, toolCalls, tools, params, toolCallHistory, iteration)
 
 		// Create a new message from the user with the tool results
 		toolResultsJSON, err := json.Marshal(toolResults)
@@ -1891,6 +1708,251 @@ func extractJSONFromResponse(response string) string {
 func isValidJSONStart(s string) bool {
 	s = strings.TrimSpace(s)
 	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
+}
+
+// toolExecResult holds the result of a parallel tool execution
+type toolExecResult struct {
+	index    int
+	result   ToolResult
+	toolName string
+	toolJSON string
+	err      error
+}
+
+// executeToolsParallel executes multiple tool calls concurrently for better performance
+func (c *AnthropicClient) executeToolsParallel(
+	ctx context.Context,
+	toolCalls []ToolUse,
+	tools []interfaces.Tool,
+	params *interfaces.GenerateOptions,
+	toolCallHistory map[string]int,
+	iteration int,
+) []ToolResult {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+
+	c.logger.Info(ctx, "Executing tools in parallel", map[string]interface{}{
+		"count":     len(toolCalls),
+		"iteration": iteration + 1,
+	})
+
+	// Channel to collect results
+	resultChan := make(chan toolExecResult, len(toolCalls))
+	var wg sync.WaitGroup
+
+	// Mutex for toolCallHistory (shared state)
+	var historyMu sync.Mutex
+
+	for i, toolCall := range toolCalls {
+		// Get tool name
+		toolName := ""
+		if toolCall.Name != "" {
+			toolName = toolCall.Name
+		} else if toolCall.RecipientName != "" {
+			toolName = toolCall.RecipientName
+		} else {
+			c.logger.Error(ctx, "Tool call missing both Name and RecipientName", map[string]interface{}{"iteration": iteration + 1})
+			resultChan <- toolExecResult{
+				index:  i,
+				result: ToolResult{Type: "tool_result", Content: "Error: tool call missing name", ToolName: "unknown"},
+			}
+			continue
+		}
+
+		// Find the requested tool
+		var selectedTool interfaces.Tool
+		for _, tool := range tools {
+			if tool.Name() == toolName {
+				selectedTool = tool
+				break
+			}
+		}
+
+		if selectedTool == nil {
+			c.logger.Error(ctx, "Tool not found", map[string]interface{}{
+				"toolName":  toolName,
+				"iteration": iteration + 1,
+			})
+			errorMessage := fmt.Sprintf("Error: tool not found: %s", toolName)
+
+			// Store failed tool call in memory if provided
+			if params.Memory != nil {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []interfaces.ToolCall{{
+						ID:        toolCall.ID,
+						Name:      toolName,
+						Arguments: "{}",
+					}},
+				})
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:       "tool",
+					Content:    errorMessage,
+					ToolCallID: toolCall.ID,
+					Metadata: map[string]interface{}{
+						"tool_name": toolName,
+					},
+				})
+			}
+
+			resultChan <- toolExecResult{
+				index:    i,
+				result:   ToolResult{Type: "tool_result", Content: errorMessage, ToolName: toolName},
+				toolName: toolName,
+			}
+			continue
+		}
+
+		// Get parameters
+		var parameters map[string]interface{}
+		if len(toolCall.Input) > 0 {
+			parameters = toolCall.Input
+		} else if len(toolCall.Parameters) > 0 {
+			parameters = toolCall.Parameters
+		}
+
+		toolCallJSON, err := json.Marshal(parameters)
+		if err != nil {
+			c.logger.Error(ctx, "Error marshalling parameters", map[string]interface{}{
+				"error":     err.Error(),
+				"iteration": iteration + 1,
+			})
+			resultChan <- toolExecResult{
+				index:    i,
+				result:   ToolResult{Type: "tool_result", Content: fmt.Sprintf("Error: %v", err), ToolName: toolName},
+				toolName: toolName,
+				err:      err,
+			}
+			continue
+		}
+
+		// Execute tool in goroutine
+		wg.Add(1)
+		go func(idx int, tc ToolUse, tool interfaces.Tool, tName string, tJSON []byte) {
+			defer wg.Done()
+
+			c.logger.Debug(ctx, "Tool parameters", map[string]interface{}{
+				"toolName":   tName,
+				"parameters": string(tJSON),
+				"iteration":  iteration + 1,
+			})
+
+			c.logger.Info(ctx, "Executing tool (parallel)", map[string]interface{}{
+				"toolName":  tName,
+				"iteration": iteration + 1,
+			})
+
+			toolResult, execErr := tool.Execute(ctx, string(tJSON))
+
+			// Check for repetitive calls (thread-safe)
+			historyMu.Lock()
+			cacheKey := tName + ":" + string(tJSON)
+			toolCallHistory[cacheKey]++
+			callCount := toolCallHistory[cacheKey]
+			historyMu.Unlock()
+
+			if callCount > 2 {
+				warning := fmt.Sprintf("\n\n[WARNING: This is call #%d to %s with identical parameters. You may be in a loop.]",
+					callCount, tName)
+				if execErr == nil {
+					toolResult += warning
+				}
+				c.logger.Warn(ctx, "Repetitive tool call detected", map[string]interface{}{
+					"toolName":  tName,
+					"callCount": callCount,
+					"iteration": iteration + 1,
+				})
+			}
+
+			// Store in memory
+			if params.Memory != nil {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:    "assistant",
+					Content: "",
+					ToolCalls: []interfaces.ToolCall{{
+						ID:        tc.ID,
+						Name:      tName,
+						Arguments: string(tJSON),
+					}},
+				})
+				if execErr != nil {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    fmt.Sprintf("Error: %v", execErr),
+						ToolCallID: tc.ID,
+						Metadata:   map[string]interface{}{"tool_name": tName},
+					})
+				} else {
+					_ = params.Memory.AddMessage(ctx, interfaces.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: tc.ID,
+						Metadata:   map[string]interface{}{"tool_name": tName},
+					})
+				}
+			}
+
+			if execErr != nil {
+				c.logger.Error(ctx, "Error executing tool", map[string]interface{}{
+					"toolName":  tName,
+					"error":     execErr.Error(),
+					"iteration": iteration + 1,
+				})
+				resultChan <- toolExecResult{
+					index:    idx,
+					result:   ToolResult{Type: "tool_result", Content: fmt.Sprintf("Error: %v", execErr), ToolName: tName},
+					toolName: tName,
+					toolJSON: string(tJSON),
+					err:      execErr,
+				}
+				return
+			}
+
+			resultChan <- toolExecResult{
+				index:    idx,
+				result:   ToolResult{Type: "tool_result", Content: toolResult, ToolName: tName},
+				toolName: tName,
+				toolJSON: string(tJSON),
+			}
+		}(i, toolCall, selectedTool, toolName, toolCallJSON)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results and preserve order
+	results := make([]toolExecResult, 0, len(toolCalls))
+	for result := range resultChan {
+		results = append(results, result)
+	}
+
+	// Sort by original index to preserve order
+	toolResults := make([]ToolResult, len(results))
+	for _, r := range results {
+		if r.index < len(toolResults) {
+			toolResults[r.index] = r.result
+		}
+	}
+
+	// Filter out empty results (from failed tool name resolution)
+	filteredResults := make([]ToolResult, 0, len(toolResults))
+	for _, r := range toolResults {
+		if r.ToolName != "" {
+			filteredResults = append(filteredResults, r)
+		}
+	}
+
+	c.logger.Info(ctx, "Parallel tool execution completed", map[string]interface{}{
+		"count":     len(filteredResults),
+		"iteration": iteration + 1,
+	})
+
+	return filteredResults
 }
 
 // buildMessagesWithMemory builds Anthropic messages from memory and current prompt
