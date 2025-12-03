@@ -436,11 +436,18 @@ Example output:
 Return only the JSON object, with no additional text or markdown formatting.`, prompt, string(schemaJSON), string(exampleStr))
 	}
 
+	// Calculate maxTokens - must be greater than budget_tokens when reasoning is enabled
+	maxTokens := 2048 // default
+	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && params.LLMConfig.ReasoningBudget > 0 {
+		// Ensure max_tokens > budget_tokens for reasoning
+		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
+	}
+
 	// Create request
 	req := CompletionRequest{
 		Model:       c.Model,
 		Messages:    messages,
-		MaxTokens:   2048,
+		MaxTokens:   maxTokens,
 		Temperature: params.LLMConfig.Temperature,
 		TopP:        params.LLMConfig.TopP,
 	}
@@ -930,13 +937,20 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	// Build messages with memory and current prompt
 	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
+	// Calculate maxTokens - must be greater than budget_tokens when reasoning is enabled
+	maxTokens := 2048 // default
+	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && params.LLMConfig.ReasoningBudget > 0 {
+		// Ensure max_tokens > budget_tokens for reasoning
+		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
+	}
+
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Create request
 		req := CompletionRequest{
 			Model:       c.Model,
 			Messages:    messages,
-			MaxTokens:   2048,
+			MaxTokens:   maxTokens,
 			Temperature: params.LLMConfig.Temperature,
 			TopP:        params.LLMConfig.TopP,
 			Tools:       anthropicTools,
@@ -1218,7 +1232,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	finalReq := CompletionRequest{
 		Model:       c.Model,
 		Messages:    messages,
-		MaxTokens:   2048,
+		MaxTokens:   maxTokens, // Use calculated maxTokens (already accounts for reasoning budget)
 		Temperature: params.LLMConfig.Temperature,
 		TopP:        params.LLMConfig.TopP,
 		Tools:       nil, // No tools for final call
