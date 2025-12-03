@@ -240,9 +240,13 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration) {
 			builder.AddStdioServer(serverName, serverConfig.Command, serverConfig.Args...)
 
 			// Convert environment map to string slice format
+			// Resolve environment variable placeholders (e.g., ${VAR_NAME})
 			var envSlice []string
 			for key, value := range serverConfig.Env {
-				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, value))
+				// Expand environment variables in the value
+				resolvedValue := os.ExpandEnv(value)
+				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, resolvedValue))
+
 			}
 
 			lazyConfig := LazyMCPConfig{

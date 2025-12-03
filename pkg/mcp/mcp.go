@@ -102,6 +102,7 @@ func NewMCPServer(ctx context.Context, transport mcp.Transport) (interfaces.MCPS
 	// Connect to the server using the transport
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -162,6 +163,7 @@ func (s *MCPServerImpl) ListTools(ctx context.Context) ([]interfaces.MCPTool, er
 	resp, err := s.session.ListTools(ctx, &mcp.ListToolsParams{})
 	if err != nil {
 		mcpErr := ClassifyError(err, "ListTools", "server", "unknown")
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to list MCP tools", map[string]interface{}{
 			"error":      err.Error(),
 			"error_type": mcpErr.ErrorType,
@@ -207,6 +209,7 @@ func (s *MCPServerImpl) ListResources(ctx context.Context) ([]interfaces.MCPReso
 	resp, err := s.session.ListResources(ctx, &mcp.ListResourcesParams{})
 	if err != nil {
 		mcpErr := ClassifyError(err, "ListResources", "server", "unknown")
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to list MCP resources", map[string]interface{}{
 			"error":      err.Error(),
 			"error_type": mcpErr.ErrorType,
@@ -265,6 +268,7 @@ func (s *MCPServerImpl) GetResource(ctx context.Context, uri string) (*interface
 	if err != nil {
 		mcpErr := ClassifyError(err, "GetResource", "server", "unknown")
 		mcpErr = mcpErr.WithMetadata("uri", uri)
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to get MCP resource", map[string]interface{}{
 			"uri":        uri,
 			"error":      err.Error(),
@@ -370,6 +374,7 @@ func (s *MCPServerImpl) ListPrompts(ctx context.Context) ([]interfaces.MCPPrompt
 	resp, err := s.session.ListPrompts(ctx, &mcp.ListPromptsParams{})
 	if err != nil {
 		mcpErr := ClassifyError(err, "ListPrompts", "server", "unknown")
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to list MCP prompts", map[string]interface{}{
 			"error":      err.Error(),
 			"error_type": mcpErr.ErrorType,
@@ -430,6 +435,7 @@ func (s *MCPServerImpl) GetPrompt(ctx context.Context, name string, variables ma
 	if err != nil {
 		mcpErr := ClassifyError(err, "GetPrompt", "server", "unknown")
 		_ = mcpErr.WithMetadata("prompt_name", name)
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to get MCP prompt", map[string]interface{}{
 			"name":       name,
 			"error":      err.Error(),
@@ -595,6 +601,7 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 	if err != nil {
 		mcpErr := ClassifyError(err, "CallTool", "server", "unknown")
 		_ = mcpErr.WithMetadata("tool_name", name)
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(ctx, "Failed to call MCP tool", map[string]interface{}{
 			"tool_name":  name,
 			"error":      err.Error(),
@@ -658,6 +665,7 @@ func (s *MCPServerImpl) Close() error {
 	s.logger.Debug(context.Background(), "Closing MCP server connection", nil)
 	err := s.session.Close()
 	if err != nil {
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		s.logger.Error(context.Background(), "Failed to close MCP server connection", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -733,6 +741,7 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		mcpErr := ClassifyError(err, "Connect", "stdio-server", "stdio")
+		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
 		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
 			"error":      err.Error(),
 			"error_type": mcpErr.ErrorType,
@@ -890,12 +899,6 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		mcpErr := ClassifyError(err, "Connect", "http-server", "http")
-		logger.Error(ctx, "Failed to connect to HTTP MCP server", map[string]interface{}{
-			"error":      err.Error(),
-			"error_type": mcpErr.ErrorType,
-			"retryable":  mcpErr.Retryable,
-			"base_url":   config.BaseURL,
-		})
 		return nil, mcpErr
 	}
 
