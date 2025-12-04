@@ -2,16 +2,22 @@
 
 This package provides advanced embedding generation and manipulation capabilities for the Agent SDK. It includes features for configuring embedding models, batch processing, similarity calculations, and metadata filtering.
 
+## Supported Providers
+
+- **OpenAI**: text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
+- **Google Gemini/Vertex AI**: text-embedding-004, text-embedding-005, text-multilingual-embedding-002
+
 ## Features
 
 - **Configurable Embedding Generation**: Fine-tune embedding parameters such as dimensions, encoding format, and truncation behavior.
 - **Batch Processing**: Generate embeddings for multiple texts in a single API call.
 - **Similarity Calculations**: Calculate similarity between embeddings using different metrics (cosine, euclidean, dot product).
 - **Advanced Metadata Filtering**: Create complex filter conditions for precise document retrieval.
+- **Multi-Provider Support**: Use OpenAI or Google Gemini/Vertex AI for embedding generation.
 
 ## Usage
 
-### Basic Embedding Generation
+### OpenAI Embedding Generation
 
 ```go
 // Create an embedder with default configuration
@@ -22,6 +28,42 @@ vector, err := embedder.Embed(ctx, "Your text here")
 if err != nil {
     // Handle error
 }
+```
+
+### Gemini/Vertex AI Embedding Generation
+
+```go
+// Create a Gemini embedder with API key (Gemini API)
+embedder, err := embedding.NewGeminiEmbedder(ctx,
+    embedding.WithGeminiAPIKey(apiKey),
+    embedding.WithGeminiModel(embedding.ModelTextEmbedding004),
+)
+if err != nil {
+    // Handle error
+}
+
+// Generate an embedding
+vector, err := embedder.Embed(ctx, "Your text here")
+if err != nil {
+    // Handle error
+}
+
+// Create a Vertex AI embedder with project credentials
+vertexEmbedder, err := embedding.NewGeminiEmbedder(ctx,
+    embedding.WithGeminiBackend(genai.BackendVertexAI),
+    embedding.WithGeminiProjectID("your-project-id"),
+    embedding.WithGeminiLocation("us-central1"),
+    embedding.WithGeminiCredentialsFile("/path/to/service-account.json"),
+)
+if err != nil {
+    // Handle error
+}
+
+// Use task type for optimized embeddings
+queryEmbedder, err := embedding.NewGeminiEmbedder(ctx,
+    embedding.WithGeminiAPIKey(apiKey),
+    embedding.WithGeminiTaskType("RETRIEVAL_QUERY"),
+)
 ```
 
 ### Custom Configuration
@@ -146,11 +188,29 @@ filteredDocs := embedding.ApplyFilters(documents, filterGroup)
 
 ## Configuration Options
 
-### Embedding Models
+### OpenAI Embedding Models
 
 - `text-embedding-3-small`: Smaller, faster model (1536 dimensions by default)
 - `text-embedding-3-large`: Larger, more accurate model (3072 dimensions by default)
 - `text-embedding-ada-002`: Legacy model (1536 dimensions)
+
+### Gemini/Vertex AI Embedding Models
+
+- `text-embedding-004`: Latest text embedding model (768 dimensions)
+- `text-embedding-005`: Newest text embedding model (768 dimensions)
+- `text-multilingual-embedding-002`: Multilingual text embedding (768 dimensions)
+
+### Gemini Task Types
+
+Use task types to optimize embeddings for specific use cases:
+
+- `RETRIEVAL_QUERY`: Optimized for search queries
+- `RETRIEVAL_DOCUMENT`: Optimized for documents to be searched
+- `SEMANTIC_SIMILARITY`: For comparing text similarity
+- `CLASSIFICATION`: For classification tasks
+- `CLUSTERING`: For clustering documents
+- `QUESTION_ANSWERING`: For Q&A applications
+- `FACT_VERIFICATION`: For fact-checking applications
 
 ### Dimensions
 
