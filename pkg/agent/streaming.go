@@ -79,10 +79,10 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 					// Add comprehensive span attributes
 					spanData := map[string]interface{}{
-						"agent_name":        a.name,
+						"agent_name":      a.name,
 						"execution_time_ms": executionTimeMs,
-						"input_length":      len(input),
-						"response_length":   responseLength,
+						"input_length":    len(input),
+						"response_length": responseLength,
 					}
 
 					// Add organization and conversation context if available
@@ -214,8 +214,9 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			mcpTools, err := a.collectMCPTools(ctx)
 			if err != nil {
 				// Log the error but continue with the agent tools
-				// Warning: Failed to collect MCP tools
-				fmt.Printf("Warning: Failed to collect MCP tools: %v\n", err)
+				a.logger.Warn(ctx, "Failed to collect MCP tools", map[string]interface{}{
+					"error": err.Error(),
+				})
 			} else if len(mcpTools) > 0 {
 				allTools = append(allTools, mcpTools...)
 			}
@@ -307,29 +308,14 @@ func (a *Agent) runStreamingGeneration(
 		options = append(options, interfaces.WithStreamConfig(*a.streamConfig))
 	}
 
-	// Inject stream forwarder into context so sub-agents can forward their events
-	// This allows nested sub-agent streaming to work properly
-	streamForwarder := func(event interfaces.AgentStreamEvent) {
-		// Forward sub-agent events to the parent agent's event channel
-		select {
-		case eventChan <- event:
-		case <-ctx.Done():
-			// Context cancelled, stop forwarding
-		}
-	}
-
-	// Add the stream forwarder to context
-	// This is used by the tools package's AgentTool to forward sub-agent events
-	ctxWithForwarder := context.WithValue(ctx, interfaces.StreamForwarderKey, interfaces.StreamForwarder(streamForwarder))
-
 	// Start LLM streaming
 	var llmEventChan <-chan interfaces.StreamEvent
 	var err error
 
 	if len(allTools) > 0 {
-		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctxWithForwarder, input, allTools, options...)
+		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctx, input, allTools, options...)
 	} else {
-		llmEventChan, err = streamingLLM.GenerateStream(ctxWithForwarder, input, options...)
+		llmEventChan, err = streamingLLM.GenerateStream(ctx, input, options...)
 	}
 
 	if err != nil {
@@ -383,7 +369,9 @@ func (a *Agent) runStreamingGeneration(
 				ToolCalls: toolCalls,
 			})
 			if err != nil {
-				fmt.Printf("Warning: Failed to add assistant message with tool calls to memory: %v\n", err)
+				a.logger.Warn(ctx, "Failed to add assistant message with tool calls to memory", map[string]interface{}{
+					"error": err.Error(),
+				})
 			}
 
 			// Add tool result messages
@@ -398,7 +386,11 @@ func (a *Agent) runStreamingGeneration(
 						},
 					})
 					if err != nil {
-						fmt.Printf("Warning: Failed to add tool result to memory: %v\n", err)
+						a.logger.Warn(ctx, "Failed to add tool result to memory", map[string]interface{}{
+							"tool_call_id": toolCall.ID,
+							"tool_name":    toolCall.Name,
+							"error":        err.Error(),
+						})
 					}
 				}
 			}
@@ -409,7 +401,9 @@ func (a *Agent) runStreamingGeneration(
 				Content: accumulatedContent.String(),
 			})
 			if err != nil {
-				fmt.Printf("Warning: Failed to add assistant response to memory: %v\n", err)
+				a.logger.Warn(ctx, "Failed to add assistant response to memory", map[string]interface{}{
+					"error": err.Error(),
+				})
 			}
 		}
 	}
