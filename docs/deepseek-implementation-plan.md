@@ -230,61 +230,62 @@ GenerateWithToolsStream(ctx context.Context, prompt string, tools []Tool, option
   - [x] Use "default" org as fallback
   - [x] Pass org ID through to tool execution context
 
-### Phase 5: Streaming Implementation ⏭️ OPTIONAL (NOT IMPLEMENTED)
-- [ ] Implement `streaming.go`
-  - [ ] Define SSE parsing helpers
-    - [ ] `parseSSEEvent(line string)` to parse SSE format
-    - [ ] `processStreamChunk(data)` to parse JSON chunks
-  - [ ] Implement `GenerateStream(ctx, prompt, options)` method
-    - [ ] Build request with `stream: true`
-    - [ ] Make streaming HTTP request
-    - [ ] Create event channel with configurable buffer
-    - [ ] Launch goroutine to process stream
-    - [ ] Parse SSE events from response body
-    - [ ] Convert to `interfaces.StreamEvent`
-    - [ ] Send events to channel: message_start, content_delta, message_stop, error
-    - [ ] Handle context cancellation
-    - [ ] Close channel when done
-    - [ ] Return event channel
-  - [ ] Implement `GenerateWithToolsStream(ctx, prompt, tools, options)` method
-    - [ ] Similar iteration logic as non-streaming
-    - [ ] Stream intermediate tool use events
-    - [ ] Execute tools when tool calls received
-    - [ ] Stream tool result events
-    - [ ] Continue iteration loop
-    - [ ] Filter intermediate messages if configured
-    - [ ] Return final event stream
-  - [ ] Define stream event types
-    - [ ] message_start: Start of generation
-    - [ ] content_delta: Incremental content
-    - [ ] content_complete: Content finished
-    - [ ] tool_use: Tool call initiated
-    - [ ] tool_result: Tool execution result
-    - [ ] message_stop: End of generation
-    - [ ] error: Error occurred
-    - [ ] thinking: Reasoning tokens (if supported)
-  - [ ] Implement `convertToDeepSeekSchema(tools)` helper
-    - [ ] Convert tools to DeepSeek streaming format
-    - [ ] Handle parameter schemas
-- [ ] Add streaming configuration support
-  - [ ] Extract `StreamConfig` from options
-  - [ ] Support configurable buffer size
-  - [ ] Support content filtering option
-  - [ ] Support intermediate message filtering
-- [ ] Handle streaming errors gracefully
-  - [ ] Network errors during stream
-  - [ ] Malformed SSE events
-  - [ ] JSON parsing errors
-  - [ ] Context cancellation
-  - [ ] Send error events to channel
-- [ ] Write tests in `streaming_test.go`
-  - [ ] `TestGenerateStream()` - Basic streaming
-  - [ ] `TestGenerateWithToolsStream()` - Streaming with tools
-  - [ ] `TestStreamEvents()` - Event type handling
-  - [ ] `TestStreamError()` - Error handling
-  - [ ] `TestStreamCancellation()` - Context cancellation
-  - [ ] Mock streaming HTTP responses
-  - [ ] Verify event sequence and content
+### Phase 5: Streaming Implementation ✅ COMPLETED
+- [x] Implement `streaming.go`
+  - [x] Define SSE parsing helpers
+    - [x] Parse SSE format with scanner
+    - [x] Parse JSON chunks from stream data
+  - [x] Implement `GenerateStream(ctx, prompt, options)` method
+    - [x] Build request with `stream: true`
+    - [x] Make streaming HTTP request via `doStreamRequest`
+    - [x] Create event channel with configurable buffer
+    - [x] Launch goroutine to process stream
+    - [x] Parse SSE events from response body
+    - [x] Convert to `interfaces.StreamEvent`
+    - [x] Send events to channel: message_start, content_delta, message_stop, error
+    - [x] Handle context cancellation
+    - [x] Close channel when done
+    - [x] Return event channel
+  - [x] Implement `GenerateWithToolsStream(ctx, prompt, tools, options)` method
+    - [x] Similar iteration logic as non-streaming
+    - [x] Stream intermediate tool use events
+    - [x] Execute tools when tool calls received
+    - [x] Stream tool result events
+    - [x] Continue iteration loop
+    - [x] Filter intermediate messages if configured
+    - [x] Return final event stream
+  - [x] Define stream event types (using interfaces.StreamEvent)
+    - [x] message_start: Start of generation
+    - [x] content_delta: Incremental content
+    - [x] content_complete: Content finished
+    - [x] tool_use: Tool call initiated
+    - [x] tool_result: Tool execution result
+    - [x] message_stop: End of generation
+    - [x] error: Error occurred
+  - [x] Tool conversion handled by existing `convertToolsToDeepSeekFormat` helper
+    - [x] Convert tools to DeepSeek streaming format
+    - [x] Handle parameter schemas
+- [x] Add streaming configuration support
+  - [x] Extract `StreamConfig` from options
+  - [x] Support configurable buffer size
+  - [x] Support content filtering option (via IncludeIntermediateMessages)
+  - [x] Support intermediate message filtering
+- [x] Handle streaming errors gracefully
+  - [x] Network errors during stream
+  - [x] Malformed SSE events (logged and skipped)
+  - [x] JSON parsing errors (logged and skipped)
+  - [x] Context cancellation (handled via defer)
+  - [x] Send error events to channel
+- [x] Write tests in `streaming_test.go`
+  - [x] `TestGenerateStream()` - Basic streaming
+  - [x] `TestGenerateStreamWithTools()` - Streaming with tools
+  - [x] `TestGenerateStreamError()` - Error handling
+  - [x] Mock streaming HTTP responses
+  - [x] Verify event sequence and content
+- [x] Create streaming example under `examples/llm/deepseek/streaming/`
+  - [x] Demonstrate agent.RunStream with DeepSeek
+  - [x] Show real-time content generation
+  - [x] Display tool call streaming
 
 ### Phase 6: Integration with Agent Framework ✅ COMPLETED
 - [x] Update `pkg/agent/llm_factory.go`
