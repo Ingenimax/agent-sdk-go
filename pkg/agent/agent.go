@@ -15,7 +15,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
-	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
@@ -70,12 +69,6 @@ type Agent struct {
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
-
-	// Runtime configuration fields
-	memoryConfig   map[string]interface{} // Memory configuration from YAML
-	timeout        time.Duration          // Agent timeout from runtime config
-	tracingEnabled bool                   // Whether tracing is enabled
-	metricsEnabled bool                   // Whether metrics are enabled
 
 	// Remote agent fields
 	isRemote      bool                      // Whether this is a remote agent
@@ -171,162 +164,15 @@ func WithDescription(description string) Option {
 // WithAgentConfig sets the agent configuration from a YAML config
 func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 	return func(a *Agent) {
-		// Expand environment variables in all config sections
-		expandedConfig := ExpandAgentConfig(config)
-
-		// Existing system prompt processing
-		systemPrompt := FormatSystemPromptFromConfig(expandedConfig, variables)
+		systemPrompt := FormatSystemPromptFromConfig(config, variables)
 		a.systemPrompt = systemPrompt
-
-		// Existing response format and MCP config
-		if expandedConfig.ResponseFormat != nil {
-			responseFormat, err := ConvertYAMLSchemaToResponseFormat(expandedConfig.ResponseFormat)
+		// Add structured output if configured
+		if config.ResponseFormat != nil {
+			responseFormat, err := ConvertYAMLSchemaToResponseFormat(config.ResponseFormat)
 			if err == nil && responseFormat != nil {
 				a.responseFormat = responseFormat
 			}
 		}
-
-		if expandedConfig.MCP != nil {
-			applyMCPConfig(a, expandedConfig.MCP)
-		}
-
-		// Apply behavioral settings
-		if expandedConfig.MaxIterations != nil {
-			a.maxIterations = *expandedConfig.MaxIterations
-		}
-		if expandedConfig.RequirePlanApproval != nil {
-			a.requirePlanApproval = *expandedConfig.RequirePlanApproval
-		}
-
-		// Apply complex configuration objects
-		if expandedConfig.StreamConfig != nil {
-			a.streamConfig = convertStreamConfigYAMLToInterface(expandedConfig.StreamConfig)
-		}
-		if expandedConfig.LLMConfig != nil {
-			a.llmConfig = convertLLMConfigYAMLToInterface(expandedConfig.LLMConfig)
-		}
-
-		// Process LLM provider configuration
-		if expandedConfig.LLMProvider != nil {
-			if a.logger != nil {
-				a.logger.Info(context.Background(), "Found LLM provider configuration in YAML", map[string]interface{}{
-					"provider": expandedConfig.LLMProvider.Provider,
-					"model":    expandedConfig.LLMProvider.Model,
-					"has_llm":  a.llm != nil,
-				})
-			}
-			if a.llm == nil {
-				// Only create LLM from YAML if no LLM was provided programmatically
-				llmClient, err := createLLMFromConfig(expandedConfig.LLMProvider)
-				if err != nil {
-					// Log warning but continue - don't fail agent creation for LLM issues
-					if a.logger != nil {
-						a.logger.Warn(context.Background(), "Failed to create LLM from YAML config", map[string]interface{}{
-							"provider": expandedConfig.LLMProvider.Provider,
-							"error":    err.Error(),
-						})
-					}
-				} else {
-					if a.logger != nil {
-						a.logger.Info(context.Background(), "Successfully created LLM from YAML config", map[string]interface{}{
-							"provider": expandedConfig.LLMProvider.Provider,
-							"model":    expandedConfig.LLMProvider.Model,
-						})
-					}
-					a.llm = llmClient
-				}
-			} else {
-				if a.logger != nil {
-					a.logger.Info(context.Background(), "LLM already provided programmatically, skipping YAML config", map[string]interface{}{
-						"yaml_provider": expandedConfig.LLMProvider.Provider,
-					})
-				}
-			}
-		} else {
-			if a.logger != nil {
-				a.logger.Info(context.Background(), "No LLM provider configuration found in YAML", map[string]interface{}{
-					"has_llm": a.llm != nil,
-				})
-			}
-		}
-
-		// Process tools
-		if expandedConfig.Tools != nil {
-			factory := NewToolFactory()
-			for _, toolConfig := range expandedConfig.Tools {
-				if toolConfig.Enabled != nil && !*toolConfig.Enabled {
-					continue // Skip disabled tools
-				}
-				tool, err := factory.CreateTool(toolConfig)
-				if err != nil {
-					// Log warning but continue - don't fail agent creation for tool issues
-					if a.logger != nil {
-						a.logger.Warn(context.Background(), "Failed to create tool from config", map[string]interface{}{
-							"tool_name": toolConfig.Name,
-							"tool_type": toolConfig.Type,
-							"error":     err.Error(),
-						})
-					}
-					continue
-				}
-				a.tools = append(a.tools, tool)
-			}
-		}
-
-		// Store memory config for later instantiation (after LLM is set)
-		if expandedConfig.Memory != nil {
-			a.memoryConfig = convertMemoryConfigYAMLToInterface(expandedConfig.Memory)
-		}
-
-		// Apply runtime settings
-		if expandedConfig.Runtime != nil {
-			// TODO: Set log level if logger supports it when LogLevel is specified
-			// Currently the logger interface doesn't support dynamic level setting
-			if expandedConfig.Runtime.TimeoutDuration != "" {
-				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
-					a.timeout = timeout
-				}
-			}
-			if expandedConfig.Runtime.EnableTracing != nil && *expandedConfig.Runtime.EnableTracing {
-				// Tracing enablement flag stored for later use
-				a.tracingEnabled = true
-			}
-			if expandedConfig.Runtime.EnableMetrics != nil && *expandedConfig.Runtime.EnableMetrics {
-				// Metrics enablement flag stored for later use
-				a.metricsEnabled = true
-			}
-		}
-
-		// Process sub-agents recursively
-		if expandedConfig.SubAgents != nil {
-			subAgents, err := createSubAgentsFromConfig(expandedConfig.SubAgents, variables, a.llm, a.memory, a.tracer, a.logger)
-			if err != nil {
-				// Log error but don't fail agent creation
-				if a.logger != nil {
-					a.logger.Warn(context.Background(), "Failed to create some sub-agents from config", map[string]interface{}{
-						"error": err.Error(),
-					})
-				}
-			} else if len(subAgents) > 0 {
-				// Add sub-agents using WithAgents
-				a.subAgents = subAgents
-				// Convert sub-agents to tools
-				for _, subAgent := range subAgents {
-					agentTool := tools.NewAgentTool(subAgent)
-					// Pass logger and tracer if available on parent agent
-					if a.logger != nil {
-						agentTool = agentTool.WithLogger(a.logger)
-					}
-					if a.tracer != nil {
-						agentTool = agentTool.WithTracer(a.tracer)
-					}
-					a.tools = append(a.tools, agentTool)
-				}
-			}
-		}
-
-		// Store the expanded configuration for later access
-		a.generatedAgentConfig = &expandedConfig
 	}
 }
 
@@ -354,81 +200,6 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 	return func(a *Agent) {
 		a.lazyMCPConfigs = configs
-	}
-}
-
-// WithMCPURLs adds MCP servers from URL strings
-// Supports formats:
-// - stdio://command/path/to/executable
-// - http://localhost:8080/mcp
-// - https://api.example.com/mcp?token=xxx
-// - mcp://preset-name (for presets)
-func WithMCPURLs(urls ...string) Option {
-	return func(a *Agent) {
-		builder := mcp.NewBuilder()
-		for _, url := range urls {
-			builder.AddServer(url)
-		}
-
-		// Build lazy configurations
-		lazyConfigs, err := builder.BuildLazy()
-		if err != nil {
-			// Log error but don't fail agent creation
-			if a.logger != nil {
-				a.logger.Warn(context.Background(), "Failed to parse some MCP URLs", map[string]interface{}{
-					"error": err.Error(),
-				})
-			}
-			return
-		}
-
-		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
-		for _, config := range lazyConfigs {
-			agentConfig := LazyMCPConfig{
-				Name:    config.Name,
-				Type:    config.Type,
-				Command: config.Command,
-				Args:    config.Args,
-				Env:     config.Env,
-				URL:     config.URL,
-			}
-			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
-		}
-	}
-}
-
-// WithMCPPresets adds predefined MCP server configurations
-func WithMCPPresets(presetNames ...string) Option {
-	return func(a *Agent) {
-		builder := mcp.NewBuilder()
-		for _, preset := range presetNames {
-			builder.AddPreset(preset)
-		}
-
-		// Build lazy configurations
-		lazyConfigs, err := builder.BuildLazy()
-		if err != nil {
-			// Log error but don't fail agent creation
-			if a.logger != nil {
-				a.logger.Warn(context.Background(), "Failed to load some MCP presets", map[string]interface{}{
-					"error": err.Error(),
-				})
-			}
-			return
-		}
-
-		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
-		for _, config := range lazyConfigs {
-			agentConfig := LazyMCPConfig{
-				Name:    config.Name,
-				Type:    config.Type,
-				Command: config.Command,
-				Args:    config.Args,
-				Env:     config.Env,
-				URL:     config.URL,
-			}
-			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
-		}
 	}
 }
 
@@ -508,23 +279,6 @@ func NewAgent(options ...Option) (*Agent, error) {
 		agent.logger = logging.New()
 	}
 
-	// Create memory from config if specified and LLM is available
-	if agent.memoryConfig != nil && agent.llm != nil && agent.memory == nil {
-		memoryInstance, err := CreateMemoryFromConfig(agent.memoryConfig, agent.llm)
-		if err != nil {
-			// Log warning but don't fail agent creation
-			if agent.logger != nil {
-				agent.logger.Warn(context.Background(), "Failed to create memory from config, using default", map[string]interface{}{
-					"error": err.Error(),
-					"type":  agent.memoryConfig["type"],
-				})
-			}
-		} else {
-			// Apply the memory instance
-			agent.memory = memoryInstance
-		}
-	}
-
 	// Different validation for local vs remote agents
 	if agent.isRemote {
 		return validateRemoteAgent(agent)
@@ -556,19 +310,10 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Configure sub-agent tools with logger and tracer
 	agent.configureSubAgentTools()
 
-	// Eagerly load MCP tools during initialization to combine with manual tools
-	if err := agent.initializeMCPTools(); err != nil {
-		// Log warning but continue - MCP tools are optional
-		fmt.Printf("Warning: Failed to initialize MCP tools: %v\n", err)
-	}
-
-	// Get all tools (manual + MCP) for execution plan components
-	allTools := agent.getAllToolsSync()
-
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
-	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt, agent.requirePlanApproval)
-	agent.planExecutor = executionplan.NewExecutor(allTools)
+	agent.planGenerator = executionplan.NewGenerator(agent.llm, agent.tools, agent.systemPrompt)
+	agent.planExecutor = executionplan.NewExecutor(agent.tools)
 
 	return agent, nil
 }
@@ -755,8 +500,8 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":            a.name,
-			"execution_timestamp":   startTime.Unix(),
+			"agent_name":           a.name,
+			"execution_timestamp":  startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
 		},
 	}, nil
@@ -812,13 +557,14 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		return response, nil
 	}
 
-	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
 	allTools := a.tools
 
 	if len(a.mcpServers) > 0 {
 		mcpTools, err := a.collectMCPTools(ctx)
 		if err != nil {
-			fmt.Printf("Failed to collect MCP tools: %v\n", err)
+			a.logger.Warn(ctx, "Failed to collect MCP tools", map[string]interface{}{
+				"error": err.Error(),
+			})
 		} else if len(mcpTools) > 0 {
 			allTools = append(allTools, mcpTools...)
 		}
@@ -830,7 +576,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
+		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt)
 		return a.runWithExecutionPlan(ctx, input)
 	}
 
@@ -885,10 +631,10 @@ func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken
 		Model:            primaryModel,
 		ExecutionSummary: execSum,
 		Metadata: map[string]interface{}{
-			"agent_name":            a.name,
-			"execution_timestamp":   startTime.Unix(),
+			"agent_name":           a.name,
+			"execution_timestamp":  startTime.Unix(),
 			"execution_duration_ms": time.Since(startTime).Milliseconds(),
-			"auth_enabled":          true,
+			"auth_enabled":         true,
 		},
 	}, nil
 }
@@ -903,6 +649,7 @@ func (a *Agent) RunStreamWithAuth(ctx context.Context, input string, authToken s
 	// For local agents, the auth token isn't used but we maintain compatibility
 	return a.RunStream(ctx, input)
 }
+
 
 func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string, error) {
 	if a.remoteClient == nil {
@@ -934,6 +681,7 @@ func (a *Agent) runRemoteWithTracking(ctx context.Context, input string) (string
 
 	return a.remoteClient.Run(ctx, input)
 }
+
 
 func (a *Agent) runRemoteWithAuthTracking(ctx context.Context, input string, authToken string) (string, error) {
 	if a.remoteClient == nil {
@@ -988,7 +736,9 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 		// List tools from this server
 		tools, err := server.ListTools(ctx)
 		if err != nil {
-			fmt.Printf("Failed to list tools from MCP server: %v\n", err)
+			a.logger.Warn(ctx, "Failed to list tools from MCP server", map[string]interface{}{
+				"error": err.Error(),
+			})
 			continue
 		}
 
@@ -1007,11 +757,7 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	var lazyTools []interfaces.Tool
 
-	fmt.Printf("Creating lazy MCP tools from %d configs...\n", len(a.lazyMCPConfigs))
-
 	for _, config := range a.lazyMCPConfigs {
-		fmt.Printf("Processing MCP config: %s (type: %s)\n", config.Name, config.Type)
-
 		// Create lazy server config
 		lazyServerConfig := mcp.LazyMCPServerConfig{
 			Name:    config.Name,
@@ -1022,90 +768,21 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			URL:     config.URL,
 		}
 
-		// If no specific tools are defined, discover all tools from the server
-		if len(config.Tools) == 0 {
-			fmt.Printf("No tools specified for %s, discovering tools from server\n", config.Name)
-
-			// Create a temporary server instance to discover tools
-			ctx := context.Background()
-			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
-			if err != nil {
-				fmt.Printf("Failed to create server for tool discovery: %v\n", err)
-				continue
-			}
-
-			// Log discovered server metadata
-			if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
-				fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
-				fmt.Printf("  Name: %s\n", serverInfo.Name)
-				if serverInfo.Title != "" {
-					fmt.Printf("  Title: %s\n", serverInfo.Title)
-				}
-				if serverInfo.Version != "" {
-					fmt.Printf("  Version: %s\n", serverInfo.Version)
-				}
-			}
-
-			// Discover available tools from the server
-			discoveredTools, err := server.ListTools(ctx)
-			if err != nil {
-				fmt.Printf("Failed to discover tools from %s: %v\n", config.Name, err)
-				continue
-			}
-
-			fmt.Printf("Discovered %d tools from %s server\n", len(discoveredTools), config.Name)
-
-			// Create lazy tools for each discovered tool
-			for _, discoveredTool := range discoveredTools {
-				fmt.Printf("Creating lazy tool: %s\n", discoveredTool.Name)
-				fmt.Printf("  Description: '%s'\n", discoveredTool.Description)
-				fmt.Printf("  Schema: %+v\n", discoveredTool.Schema)
-
-				lazyTool := mcp.NewLazyMCPTool(
-					discoveredTool.Name,
-					discoveredTool.Description,
-					discoveredTool.Schema,
-					lazyServerConfig,
-				)
-				lazyTools = append(lazyTools, lazyTool)
-			}
-		} else {
-			// Create a temporary server instance to discover metadata even for configured tools
-			ctx := context.Background()
-			server, err := mcp.GetOrCreateServerFromCache(ctx, lazyServerConfig)
-			if err != nil {
-				fmt.Printf("Warning: Failed to create server for metadata discovery: %v\n", err)
-			} else {
-				// Log discovered server metadata
-				if serverInfo, err := server.GetServerInfo(); err == nil && serverInfo != nil {
-					fmt.Printf("Discovered MCP server metadata for %s:\n", config.Name)
-					fmt.Printf("  Name: %s\n", serverInfo.Name)
-					if serverInfo.Title != "" {
-						fmt.Printf("  Title: %s\n", serverInfo.Title)
-					}
-					if serverInfo.Version != "" {
-						fmt.Printf("  Version: %s\n", serverInfo.Version)
-					}
-				}
-			}
-
-			// Create lazy tools for each configured tool
-			for _, toolConfig := range config.Tools {
-				fmt.Printf("Creating tool: %s\n", toolConfig.Name)
-				lazyTool := mcp.NewLazyMCPTool(
-					toolConfig.Name,
-					toolConfig.Description,
-					toolConfig.Schema,
-					lazyServerConfig,
-				)
-				lazyTools = append(lazyTools, lazyTool)
-			}
+		// Create lazy tools for each configured tool
+		for _, toolConfig := range config.Tools {
+			lazyTool := mcp.NewLazyMCPTool(
+				toolConfig.Name,
+				toolConfig.Description,
+				toolConfig.Schema,
+				lazyServerConfig,
+			)
+			lazyTools = append(lazyTools, lazyTool)
 		}
 	}
 
-	fmt.Printf("Created %d lazy MCP tools\n", len(lazyTools))
 	return lazyTools
 }
+
 
 func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
 	prompt := input
@@ -1115,10 +792,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 
 	generateOptions := []interfaces.GenerateOption{}
 	if a.systemPrompt != "" {
-		fmt.Printf("[DEBUG] Using system prompt (length=%d):\n%s\n", len(a.systemPrompt), a.systemPrompt)
 		generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
-	} else {
-		fmt.Printf("[DEBUG] WARNING: No system prompt set for agent %s\n", a.name)
 	}
 
 	if a.responseFormat != nil {
@@ -1630,7 +1304,6 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 
 // GetTools returns the tools slice (for use in custom functions)
 func (a *Agent) GetTools() []interfaces.Tool {
-	// Return pre-initialized tools (manual + MCP tools already combined during agent creation)
 	return a.tools
 }
 
@@ -1673,18 +1346,8 @@ func (a *Agent) configureSubAgentTools() {
 // initializeRemoteAgent initializes the remote agent connection and fetches metadata
 func (a *Agent) initializeRemoteAgent() error {
 	// Connect to the remote agent
-	// NOTE: Connection failures are non-fatal during initialization
-	// This allows agents to be created even if the remote service is temporarily unavailable
-	// The SDK will automatically retry connection on first actual use
 	if err := a.remoteClient.Connect(); err != nil {
-		// Log warning but don't fail initialization - connection will be retried on first use
-		fmt.Printf("Warning: failed to connect to remote agent %s during initialization: %v (will retry on first use)\n", a.remoteURL, err)
-		// Return early - skip metadata fetch since connection is not available yet
-		// Set default name if not provided
-		if a.name == "" {
-			a.name = "Remote-Agent"
-		}
-		return nil // Return nil to allow agent creation despite connection failure
+		return fmt.Errorf("failed to connect to remote agent: %w", err)
 	}
 
 	// Fetch metadata if agent name or description is not set
@@ -1692,7 +1355,10 @@ func (a *Agent) initializeRemoteAgent() error {
 		metadata, err := a.remoteClient.GetMetadata(context.Background())
 		if err != nil {
 			// Don't fail if metadata fetch fails, just log and continue
-			fmt.Printf("Warning: failed to fetch metadata from remote agent %s: %v\n", a.remoteURL, err)
+			a.logger.Warn(context.Background(), "Failed to fetch metadata from remote agent", map[string]interface{}{
+				"remote_url": a.remoteURL,
+				"error":      err.Error(),
+			})
 		} else {
 			if a.name == "" {
 				a.name = metadata.Name
@@ -1747,153 +1413,4 @@ func (a *Agent) GetRemoteMetadata() (map[string]string, error) {
 	}
 
 	return result, nil
-}
-
-// initializeMCPTools eagerly initializes MCP tools during agent creation
-func (a *Agent) initializeMCPTools() error {
-	ctx := context.Background()
-
-	// Initialize regular MCP tools if available
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to collect MCP server tools: %w", err)
-		}
-		// Add MCP tools to the main tools slice
-		a.tools = append(a.tools, mcpTools...)
-		fmt.Printf("Initialized %d MCP server tools\n", len(mcpTools))
-	}
-
-	// Initialize lazy MCP tools if available
-	if len(a.lazyMCPConfigs) > 0 {
-		lazyMCPTools := a.createLazyMCPTools()
-		// Add lazy MCP tools to the main tools slice
-		a.tools = append(a.tools, lazyMCPTools...)
-		fmt.Printf("Initialized %d lazy MCP tools\n", len(lazyMCPTools))
-	}
-
-	return nil
-}
-
-// getAllToolsSync returns all tools (manual + MCP) synchronously for use during initialization
-func (a *Agent) getAllToolsSync() []interfaces.Tool {
-	// At this point, a.tools already contains manual tools + initialized MCP tools
-	return a.tools
-}
-
-// createSubAgentsFromConfig recursively creates sub-agents from YAML configuration
-func createSubAgentsFromConfig(subAgentConfigs map[string]AgentConfig, variables map[string]string, llm interfaces.LLM, memory interfaces.Memory, tracer interfaces.Tracer, logger logging.Logger) ([]*Agent, error) {
-	if len(subAgentConfigs) == 0 {
-		return nil, nil
-	}
-
-	var subAgents []*Agent
-	var errors []string
-
-	for name, config := range subAgentConfigs {
-		// Create agent options for this sub-agent
-		agentOptions := []Option{
-			WithAgentConfig(config, variables), // This will recursively process sub-agents of sub-agents
-			WithName(name),
-		}
-
-		// Inherit infrastructure dependencies (LLM, memory, tracer, logger) but NOT tools
-		if llm != nil {
-			agentOptions = append(agentOptions, WithLLM(llm))
-		}
-		if memory != nil {
-			agentOptions = append(agentOptions, WithMemory(memory))
-		}
-		if tracer != nil {
-			agentOptions = append(agentOptions, WithTracer(tracer))
-		}
-		if logger != nil {
-			agentOptions = append(agentOptions, WithLogger(logger))
-		}
-		// NOTE: Tools are NOT inherited - each sub-agent defines its own tools through MCP/YAML config
-
-		// Create the sub-agent (this will recursively create its own sub-agents)
-		subAgent, err := NewAgent(agentOptions...)
-		if err != nil {
-			errors = append(errors, fmt.Sprintf("failed to create sub-agent '%s': %v", name, err))
-			if logger != nil {
-				logger.Error(context.Background(), "Failed to create sub-agent", map[string]interface{}{
-					"sub_agent_name": name,
-					"error":          err.Error(),
-				})
-			}
-			continue
-		}
-
-		// Set the agent name if not already set
-		if subAgent.name == "" {
-			subAgent.name = name
-		}
-
-		subAgents = append(subAgents, subAgent)
-
-		if logger != nil {
-			logger.Info(context.Background(), "Successfully created sub-agent from YAML config", map[string]interface{}{
-				"sub_agent_name":        name,
-				"require_plan_approval": config.RequirePlanApproval,
-				"has_sub_agents":        len(config.SubAgents) > 0,
-			})
-		}
-	}
-
-	// Return error if any sub-agents failed to create
-	if len(errors) > 0 {
-		return subAgents, fmt.Errorf("some sub-agents failed to create: %s", strings.Join(errors, "; "))
-	}
-
-	return subAgents, nil
-}
-
-// CreateMemoryFromConfig creates a memory instance from YAML configuration
-// This function is intended to be used by agent-blueprint applications that need
-// to instantiate memory from YAML config stored in the agent
-func CreateMemoryFromConfig(memoryConfig map[string]interface{}, llmClient interfaces.LLM) (interfaces.Memory, error) {
-	if memoryConfig == nil {
-		return nil, fmt.Errorf("memory config is nil")
-	}
-
-	factory := memory.NewMemoryFactory()
-	return factory.CreateMemory(memoryConfig, llmClient)
-}
-
-// GetMemoryConfig returns the stored memory configuration from YAML
-// This allows agent-blueprint to access the memory config for instantiation
-func (a *Agent) GetMemoryConfig() map[string]interface{} {
-	return a.memoryConfig
-}
-
-// GetConfig returns the agent's configuration for inspection
-func (a *Agent) GetConfig() *AgentConfig {
-	if a.generatedAgentConfig == nil {
-		return &AgentConfig{}
-	}
-	return a.generatedAgentConfig
-}
-
-// NewAgentFromConfigObject creates an agent from a pre-loaded AgentConfig object
-// This is useful when you already have a loaded configuration from any source
-func NewAgentFromConfigObject(ctx context.Context, config *AgentConfig, variables map[string]string, options ...Option) (*Agent, error) {
-	if config == nil {
-		return nil, fmt.Errorf("config cannot be nil")
-	}
-
-	// Create options from config
-	configOption := WithAgentConfig(*config, variables)
-
-	// Extract agent name from config source or use a default
-	agentName := "agent"
-	if config.ConfigSource != nil && config.ConfigSource.AgentName != "" {
-		agentName = config.ConfigSource.AgentName
-	}
-	nameOption := WithName(agentName)
-
-	// Combine all options
-	allOptions := append([]Option{configOption, nameOption}, options...)
-
-	return NewAgent(allOptions...)
 }
