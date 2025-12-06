@@ -8,6 +8,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/azureopenai"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/deepseek"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/ollama"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
@@ -30,6 +31,8 @@ func createLLMFromConfig(config *LLMProviderYAML) (interfaces.LLM, error) {
 		return createOpenAIClient(config)
 	case "azureopenai", "azure_openai":
 		return createAzureOpenAIClient(config)
+	case "deepseek":
+		return createDeepSeekClient(config)
 	case "gemini":
 		return createGeminiClient(config)
 	case "ollama":
@@ -37,7 +40,7 @@ func createLLMFromConfig(config *LLMProviderYAML) (interfaces.LLM, error) {
 	case "vllm":
 		return createVllmClient(config)
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: anthropic, openai, azureopenai, gemini, ollama, vllm)", provider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: anthropic, openai, azureopenai, deepseek, gemini, ollama, vllm)", provider)
 	}
 }
 
@@ -130,6 +133,40 @@ func createOpenAIClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 	}
 
 	return openai.NewClient(apiKey, options...), nil
+}
+
+// createDeepSeekClient creates a DeepSeek LLM client
+func createDeepSeekClient(config *LLMProviderYAML) (interfaces.LLM, error) {
+	var options []deepseek.Option
+
+	// Get API key from config or environment
+	apiKey := getConfigString(config.Config, "api_key")
+	if apiKey == "" {
+		// Fallback to DEEPSEEK_API_KEY environment variable
+		apiKey = GetEnvValue("DEEPSEEK_API_KEY")
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("api_key is required for DeepSeek provider (set DEEPSEEK_API_KEY or provide in config)")
+	}
+
+	// Set model - use config model or fallback to DEEPSEEK_MODEL env var
+	model := ExpandEnv(config.Model)
+	if model == "" {
+		model = getConfigString(config.Config, "model")
+	}
+	if model == "" {
+		model = GetEnvValue("DEEPSEEK_MODEL")
+	}
+	if model != "" {
+		options = append(options, deepseek.WithModel(model))
+	}
+
+	// Set base URL if provided (for custom endpoints)
+	if baseURL := getConfigString(config.Config, "base_url"); baseURL != "" {
+		options = append(options, deepseek.WithBaseURL(baseURL))
+	}
+
+	return deepseek.NewClient(apiKey, options...), nil
 }
 
 // createAzureOpenAIClient creates an Azure OpenAI LLM client

@@ -845,6 +845,12 @@ The SDK follows a modular architecture with these key components:
 
 - **OpenAI**: GPT-4, GPT-3.5, and other OpenAI models
 - **Anthropic**: Claude 3.5 Sonnet, Claude 3 Haiku, and other Claude models
+- **DeepSeek**: DeepSeek-V3.2 chat and reasoning models
+  - Native tool/function calling support
+  - Cost-effective pricing with cache optimization
+  - 128K token context window
+  - Reasoning mode with up to 64K output tokens
+  - Full feature parity with OpenAI/Anthropic
 - **Google Vertex AI**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash, and Gemini Pro Vision
   - Advanced reasoning modes (none, minimal, comprehensive)
   - Multimodal capabilities with vision models
@@ -868,7 +874,7 @@ The Agent SDK includes a powerful command-line interface for headless usage:
 
 ### CLI Features
 
-- 🤖 **Multiple LLM Providers**: OpenAI, Anthropic, Google Vertex AI, Ollama, vLLM
+- 🤖 **Multiple LLM Providers**: OpenAI, Anthropic, DeepSeek, Google Vertex AI, Ollama, vLLM
 - 💬 **Interactive Chat Mode**: Real-time conversations with persistent memory
 - 📝 **Task Execution**: Run predefined tasks from YAML configurations
 - 🎨 **Auto-Configuration**: Generate agent configs from simple prompts
