@@ -160,7 +160,8 @@ func main() {
 		&CalculatorTool{},
 	}
 
-	fmt.Println("=== DeepSeek Tool Calling Example ===\n")
+	fmt.Println("=== DeepSeek Tool Calling Example ===")
+	fmt.Println()
 
 	// Example 1: Weather query
 	fmt.Println("--- Example 1: Weather Query ---")

@@ -69,7 +69,8 @@ func main() {
 
 	ctx := context.Background()
 
-	fmt.Println("=== DeepSeek with Memory and Tools Example ===\n")
+	fmt.Println("=== DeepSeek with Memory and Tools Example ===")
+	fmt.Println()
 
 	// Create DeepSeek client
 	client := deepseek.NewClient(

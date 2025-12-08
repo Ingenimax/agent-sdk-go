@@ -540,6 +540,7 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 				}
 			}
 
+		// #nosec G104 -- Body close error in iteration loop is not critical to handle
 			resp.Body.Close()
 
 			// Check for scanner error

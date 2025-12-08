@@ -25,9 +25,11 @@ func main() {
 
 	ctx := context.Background()
 
-	fmt.Println("=== DeepSeek Reasoning Mode Example ===\n")
+	fmt.Println("=== DeepSeek Reasoning Mode Example ===")
+	fmt.Println()
 	fmt.Println("Using model: deepseek-reasoner (DeepSeek-R1)")
-	fmt.Println("This model provides enhanced reasoning capabilities for complex problems.\n")
+	fmt.Println("This model provides enhanced reasoning capabilities for complex problems.")
+	fmt.Println()
 
 	// Example 1: Mathematical reasoning
 	fmt.Println("--- Example 1: Mathematical Reasoning ---")
