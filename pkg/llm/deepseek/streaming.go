@@ -139,7 +139,13 @@ func (c *DeepSeekClient) GenerateStream(
 			}
 			return
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				c.logger.Error(ctx, "Failed to close response body", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+		}()
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{
@@ -540,8 +546,11 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 				}
 			}
 
-		// #nosec G104 -- Body close error in iteration loop is not critical to handle
-			resp.Body.Close()
+			if err := resp.Body.Close(); err != nil {
+				c.logger.Error(ctx, "Failed to close response body in iteration", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
 
 			// Check for scanner error
 			if err := scanner.Err(); err != nil {
@@ -704,7 +713,13 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 			}
 			return
 		}
-		defer finalResp.Body.Close()
+		defer func() {
+			if err := finalResp.Body.Close(); err != nil {
+				c.logger.Error(ctx, "Failed to close final response body", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+		}()
 
 		// Process final stream
 		finalScanner := bufio.NewScanner(finalResp.Body)
@@ -822,8 +837,10 @@ func (c *DeepSeekClient) doStreamRequest(ctx context.Context, req ChatCompletion
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		if err := resp.Body.Close(); err != nil {
+			return nil, fmt.Errorf("deepseek API error (status %d): %s (close error: %w)", resp.StatusCode, string(body), err)
+		}
 		return nil, fmt.Errorf("deepseek API error (status %d): %s", resp.StatusCode, string(body))
 	}
 

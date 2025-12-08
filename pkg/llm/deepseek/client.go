@@ -346,7 +346,13 @@ func (c *DeepSeekClient) doRequest(ctx context.Context, req ChatCompletionReques
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() {
+		if err := httpResp.Body.Close(); err != nil {
+			c.logger.Error(ctx, "Failed to close response body", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+	}()
 
 	// Read response body
 	body, err := io.ReadAll(httpResp.Body)
