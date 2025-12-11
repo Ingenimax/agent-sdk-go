@@ -50,6 +50,7 @@ type CustomRunStreamFunction func(ctx context.Context, input string, agent *Agen
 type Agent struct {
 	llm                  interfaces.LLM
 	memory               interfaces.Memory
+	datastore            interfaces.DataStore // DataStore for persistent data storage (PostgreSQL, Supabase, etc.)
 	tools                []interfaces.Tool
 	subAgents            []*Agent // Sub-agents that can be called as tools
 	orgID                string
@@ -103,6 +104,13 @@ func WithLLM(llm interfaces.LLM) Option {
 func WithMemory(memory interfaces.Memory) Option {
 	return func(a *Agent) {
 		a.memory = memory
+	}
+}
+
+// WithDataStore sets the datastore for the agent
+func WithDataStore(datastore interfaces.DataStore) Option {
+	return func(a *Agent) {
+		a.datastore = datastore
 	}
 }
 
@@ -1583,6 +1591,16 @@ func (a *Agent) GetLLM() interfaces.LLM {
 // GetMemory returns the memory instance (for use in custom functions)
 func (a *Agent) GetMemory() interfaces.Memory {
 	return a.memory
+}
+
+// GetDataStore returns the datastore instance
+func (a *Agent) GetDataStore() interfaces.DataStore {
+	return a.datastore
+}
+
+// SetDataStore sets the datastore for the agent
+func (a *Agent) SetDataStore(datastore interfaces.DataStore) {
+	a.datastore = datastore
 }
 
 // GetAllConversations returns all conversation IDs from memory

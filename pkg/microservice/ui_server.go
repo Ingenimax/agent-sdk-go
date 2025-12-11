@@ -70,6 +70,7 @@ type AgentConfigResponse struct {
 	SystemPrompt string                 `json:"system_prompt"`
 	Tools        []string               `json:"tools"`
 	Memory       MemoryInfo             `json:"memory"`
+	DataStore    DataStoreInfo          `json:"datastore"`
 	SubAgents    []SubAgentInfo         `json:"sub_agents,omitempty"`
 	Features     UIFeatures             `json:"features"`
 	UITheme      string                 `json:"ui_theme,omitempty"`
@@ -82,6 +83,12 @@ type MemoryInfo struct {
 	Status      string `json:"status"`
 	EntryCount  int    `json:"entry_count,omitempty"`
 	MaxCapacity int    `json:"max_capacity,omitempty"`
+}
+
+// DataStoreInfo represents datastore/database connection information
+type DataStoreInfo struct {
+	Type   string `json:"type"`   // "postgres", "supabase", "none"
+	Status string `json:"status"` // "active", "inactive"
 }
 
 // MemoryEntry represents a memory entry for the browser
@@ -352,6 +359,9 @@ func (h *HTTPServerWithUI) handleConfig(w http.ResponseWriter, r *http.Request) 
 	// Get memory info - directly from agent interface
 	memInfo := h.getMemoryInfo()
 
+	// Get datastore info
+	datastoreInfo := h.getDataStoreInfo()
+
 	response := AgentConfigResponse{
 		Name:         h.agent.GetName(),
 		Description:  h.agent.GetDescription(),
@@ -359,6 +369,7 @@ func (h *HTTPServerWithUI) handleConfig(w http.ResponseWriter, r *http.Request) 
 		SystemPrompt: systemPrompt,
 		Tools:        tools,
 		Memory:       memInfo,
+		DataStore:    datastoreInfo,
 		Features:     h.uiConfig.Features,
 		UITheme:      h.uiConfig.Theme,
 		SubAgents:    h.getSubAgentsList(),
@@ -1035,27 +1046,112 @@ func (h *HTTPServerWithUI) getMemoryInfo() MemoryInfo {
 	}
 
 	// For local agents, check memory directly
-	memory := h.agent.GetMemory()
-	if memory == nil {
+	mem := h.agent.GetMemory()
+	if mem == nil {
 		return MemoryInfo{
 			Type:   "none",
 			Status: "inactive",
 		}
 	}
 
-	// Memory is present, try to get more details
+	// Determine memory type by checking the concrete type
+	memType := h.detectMemoryType(mem)
+
 	memInfo := MemoryInfo{
-		Type:   "conversation",
+		Type:   memType,
 		Status: "active",
 	}
 
 	// Try to get entry count if the memory supports it
 	ctx := context.Background()
-	if messages, err := memory.GetMessages(ctx); err == nil {
+	if messages, err := mem.GetMessages(ctx); err == nil {
 		memInfo.EntryCount = len(messages)
 	}
 
 	return memInfo
+}
+
+// detectMemoryType determines the actual type of memory implementation
+func (h *HTTPServerWithUI) detectMemoryType(mem interfaces.Memory) string {
+	// Check for specific memory types using type assertions
+	// We use a type switch approach with interface checks
+
+	// Check for RedisMemory by looking for Close method (specific to Redis)
+	if _, ok := mem.(interface{ Close() error }); ok {
+		return "redis"
+	}
+
+	// Check for ConversationSummary by looking for specific behavior
+	// ConversationSummary wraps a buffer and has summarization
+	memType := fmt.Sprintf("%T", mem)
+
+	switch {
+	case strings.Contains(memType, "RedisMemory"):
+		return "redis"
+	case strings.Contains(memType, "ConversationSummary"):
+		return "buffer_summary"
+	case strings.Contains(memType, "ConversationBuffer"):
+		return "buffer"
+	case strings.Contains(memType, "TracedMemory"):
+		return "traced"
+	default:
+		// Fallback: if it implements AdminConversationMemory, it's likely redis or buffer
+		if _, ok := mem.(interfaces.AdminConversationMemory); ok {
+			return "conversation"
+		}
+		return "memory"
+	}
+}
+
+// getDataStoreInfo extracts datastore information from the agent
+func (h *HTTPServerWithUI) getDataStoreInfo() DataStoreInfo {
+	// For remote agents, try to get datastore info from metadata
+	if h.agent.IsRemote() {
+		if metadata, err := h.agent.GetRemoteMetadata(); err == nil && metadata != nil {
+			if dsType, ok := metadata["datastore"]; ok && dsType != "" && dsType != "none" {
+				return DataStoreInfo{
+					Type:   dsType,
+					Status: "active",
+				}
+			}
+		}
+		return DataStoreInfo{
+			Type:   "none",
+			Status: "inactive",
+		}
+	}
+
+	// For local agents, check datastore directly
+	ds := h.agent.GetDataStore()
+	if ds == nil {
+		return DataStoreInfo{
+			Type:   "none",
+			Status: "inactive",
+		}
+	}
+
+	// Determine datastore type by checking the concrete type
+	dsType := h.detectDataStoreType(ds)
+
+	return DataStoreInfo{
+		Type:   dsType,
+		Status: "active",
+	}
+}
+
+// detectDataStoreType determines the actual type of datastore implementation
+func (h *HTTPServerWithUI) detectDataStoreType(ds interfaces.DataStore) string {
+	// Use type name to determine the datastore type
+	dsType := fmt.Sprintf("%T", ds)
+
+	switch {
+	case strings.Contains(dsType, "postgres.Client"):
+		return "postgres"
+	case strings.Contains(dsType, "supabase.Client"):
+		return "supabase"
+	default:
+		return "database"
+	}
 }
 
 // getSystemPrompt gets system prompt, handling remote agents
