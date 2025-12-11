@@ -1048,6 +1048,16 @@ func (h *HTTPServerWithUI) getMemoryInfo() MemoryInfo {
 	// For local agents, check memory directly
 	mem := h.agent.GetMemory()
 	if mem == nil {
+		// Check if there's a memory config that indicates the type
+		// even if the instance hasn't been created yet
+		if memConfig := h.agent.GetMemoryConfig(); memConfig != nil {
+			if memType, ok := memConfig["type"].(string); ok && memType != "" {
+				return MemoryInfo{
+					Type:   memType,
+					Status: "configured", // Memory is configured but not instantiated
+				}
+			}
+		}
 		return MemoryInfo{
 			Type:   "none",
 			Status: "inactive",
