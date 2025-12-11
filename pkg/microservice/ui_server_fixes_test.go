@@ -231,7 +231,7 @@ func TestHTTPServerWithUI_getMemoryInfo(t *testing.T) {
 			setupMemory: func() interfaces.Memory {
 				return memory.NewConversationBuffer()
 			},
-			expectedType:   "conversation",
+			expectedType:   "buffer", // ConversationBuffer now correctly detected as "buffer"
 			expectedStatus: "active",
 			hasEntryCount:  false, // Memory starts empty until messages are added
 		},
