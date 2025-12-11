@@ -29,6 +29,7 @@ type LazyMCPConfig struct {
 	Args    []string
 	Env     []string
 	URL     string
+	Token   string // Bearer token for HTTP authentication
 	Tools   []LazyMCPToolConfig
 }
 
@@ -1020,6 +1021,7 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			Args:    config.Args,
 			Env:     config.Env,
 			URL:     config.URL,
+			Token:   config.Token,
 		}
 
 		// If no specific tools are defined, discover all tools from the server

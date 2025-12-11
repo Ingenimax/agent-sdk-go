@@ -270,6 +270,7 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration) {
 				Name:  serverName,
 				Type:  "http",
 				URL:   serverConfig.URL,
+				Token: serverConfig.Token,    // Preserve token for lazy initialization
 				Tools: []LazyMCPToolConfig{}, // Will discover dynamically
 			}
 			lazyConfigs = append(lazyConfigs, lazyConfig)
