@@ -27,9 +27,9 @@ type StreamChunk struct {
 
 // StreamChoice represents a choice in a streaming response
 type StreamChoice struct {
-	Index        int           `json:"index"`
-	Delta        StreamDelta   `json:"delta"`
-	FinishReason string        `json:"finish_reason,omitempty"`
+	Index        int         `json:"index"`
+	Delta        StreamDelta `json:"delta"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 // StreamDelta represents the delta content in a streaming chunk
@@ -360,6 +360,9 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 		// Track captured content for final iteration replay if filtering is enabled
 		var capturedContentEvents []interfaces.StreamEvent
 
+		// Track if we got a complete response (no tool calls)
+		gotCompleteResponse := false
+
 		// Iterative tool calling loop
 		for iteration := 0; iteration < maxIterations; iteration++ {
 			iterationHasContent := false
@@ -578,6 +581,7 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 						},
 					}
 				}
+				gotCompleteResponse = true
 				break // Exit the iteration loop
 			}
 
@@ -661,6 +665,18 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 			for _, contentEvent := range capturedContentEvents {
 				eventChan <- contentEvent
 			}
+		}
+
+		// If we got a complete response (no tool calls), skip the final synthesis call
+		if gotCompleteResponse {
+			c.logger.Debug(ctx, "Skipping final synthesis call - already got complete response", map[string]interface{}{
+				"maxIterations": maxIterations,
+			})
+			eventChan <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventMessageStop,
+				Timestamp: time.Now(),
+			}
+			return
 		}
 
 		// Final call without tools to get synthesis
