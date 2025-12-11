@@ -76,6 +76,7 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 	case "http":
 		server, err = NewHTTPServer(ctx, HTTPServerConfig{
 			BaseURL: config.URL,
+			Token:   config.Token,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s", config.Type)
@@ -151,6 +152,7 @@ type LazyMCPServerConfig struct {
 	Args    []string
 	Env     []string
 	URL     string
+	Token   string // Bearer token for HTTP authentication
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
