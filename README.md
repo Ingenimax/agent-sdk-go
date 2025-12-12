@@ -1,6 +1,8 @@
 <div align="center">
-<img src="/docs/img/logo-header.png#gh-light-mode-only" alt="Ingenimax" width="600">
-<img src="/docs/img/logo-header-inverted.png#gh-dark-mode-only" alt="Ingenimax" width="600">
+<img src="/docs/img/logo-header.png#gh-light-mode-only" alt="Ingenimax" width="400">
+<img src="/docs/img/logo-header-inverted.png#gh-dark-mode-only" alt="Ingenimax" width="400">
+
+<a href="https://www.producthunt.com/products/agent-gogo?embed=true&utm_source=badge-featured&utm_medium=badge&utm_source=badge-agent&#0045;gogo" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1049356&theme=light&t=1765568756912" alt="Agent&#0032;GoGo - Build&#0032;cloud&#0045;native&#0032;AI&#0032;Agents | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 </div>
 
 # Agent Go SDK
@@ -104,6 +106,57 @@ The SDK uses environment variables for configuration. Key variables include:
 - `REDIS_ADDRESS`: Redis server address (if using Redis for memory)
 
 See `.env.example` for a complete list of configuration options.
+
+### Get Help with Nina (AI Assistant)
+
+Nina is an AI assistant that knows the agent-sdk-go codebase inside and out. Connect to Nina via MCP (Model Context Protocol) to get help directly in your IDE.
+
+#### Cursor IDE
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "agent-sdk-go": {
+      "url": "https://nina.agentgogo.app/mcp",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+Restart Cursor IDE and Nina's tools will be available in your AI assistant.
+
+#### Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+| Platform | Config Location |
+|----------|-----------------|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+
+```json
+{
+  "mcpServers": {
+    "agent-sdk-go": {
+      "url": "https://nina.agentgogo.app/mcp",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+Restart Claude Desktop and Nina's tools will be available via the 🔌 icon.
+
+#### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `ask_nina` | Ask questions about agent-sdk-go, Go programming, or development |
+| `search_sdk` | Search the SDK documentation and source code |
+| `get_sdk_status` | Get status of Nina's SDK knowledge base |
 
 ## Usage Examples
 
