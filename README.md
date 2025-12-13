@@ -9,6 +9,10 @@
 
 A powerful Go framework for building production-ready AI agents that seamlessly integrates memory management, tool execution, multi-LLM support, and enterprise features into a flexible, extensible architecture.
 
+## Documentation
+
+📖 **[docs.goagents.dev](https://docs.goagents.dev/)** — Full documentation, guides, and reference.
+
 ## Community
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/MjJbDG2nQZ)
@@ -1043,7 +1047,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Documentation
 
-For more detailed information, refer to the following documents:
+📖 **Full documentation available at [docs.goagents.dev](https://docs.goagents.dev/)**
+
+For more detailed information, you can also refer to the following documents:
 
 - [Environment Variables](docs/environment_variables.md)
 - [Memory](docs/memory.md)
