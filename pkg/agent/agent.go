@@ -114,10 +114,10 @@ func WithDataStore(datastore interfaces.DataStore) Option {
 	}
 }
 
-// WithTools sets the tools for the agent
+// WithTools appends tools to the agent's tool list
 func WithTools(tools ...interfaces.Tool) Option {
 	return func(a *Agent) {
-		a.tools = tools
+		a.tools = append(a.tools, tools...)
 	}
 }
 
