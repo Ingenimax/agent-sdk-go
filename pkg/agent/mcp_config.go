@@ -244,7 +244,16 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration) {
 			var envSlice []string
 			for key, value := range serverConfig.Env {
 				// Expand environment variables in the value
-				resolvedValue := os.ExpandEnv(value)
+				// Use SDK's ExpandEnv which checks OS env vars, .env files, AND config service values
+				resolvedValue := ExpandEnv(value)
+
+				// Debug logging to track env var expansion
+				if resolvedValue == "" && value != "" {
+					fmt.Printf("[MCP Config] WARNING: Failed to expand %s='%s' (resulted in empty string)\n", key, value)
+				} else {
+					fmt.Printf("[MCP Config] DEBUG: Expanded %s='%s' -> '%s'\n", key, value, resolvedValue)
+				}
+
 				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, resolvedValue))
 
 			}
