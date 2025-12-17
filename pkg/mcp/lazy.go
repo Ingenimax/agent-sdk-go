@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,12 +56,31 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 		return server, nil
 	}
 
+	// Log environment variables being passed (masking sensitive values)
+	envDebug := make(map[string]string)
+	for _, envVar := range config.Env {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := parts[1]
+			// Mask sensitive values (show first 10 chars for debugging)
+			if len(value) > 10 {
+				envDebug[key] = value[:10] + "..."
+			} else if value == "" {
+				envDebug[key] = "<EMPTY>"
+			} else {
+				envDebug[key] = value
+			}
+		}
+	}
+
 	cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
 		"server_name": config.Name,
 		"server_type": config.Type,
 		"command":     config.Command,
 		"args":        config.Args,
 		"env_count":   len(config.Env),
+		"env_vars":    envDebug,
 	})
 
 	var server interfaces.MCPServer
