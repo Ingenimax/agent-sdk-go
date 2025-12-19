@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -44,21 +47,104 @@ func createLLMFromConfig(config *LLMProviderYAML) (interfaces.LLM, error) {
 	}
 }
 
+// parseGoogleCredentials parses Google Application Credentials from multiple formats:
+// - File path: reads the file content
+// - Base64 encoded: decodes the base64 string
+// - Raw JSON: uses the content directly
+func parseGoogleCredentials(input string) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("empty credentials input")
+	}
+
+	// 1. Check if it's a file path
+	if _, err := os.Stat(input); err == nil {
+		data, err := os.ReadFile(input)
+		if err != nil {
+			return "", fmt.Errorf("failed to read credentials file: %w", err)
+		}
+		// Validate it's valid JSON
+		if !json.Valid(data) {
+			return "", fmt.Errorf("credentials file does not contain valid JSON")
+		}
+		return string(data), nil
+	}
+
+	// 2. Check if it's base64 encoded
+	if decoded, err := base64.StdEncoding.DecodeString(input); err == nil {
+		// Validate it's valid JSON
+		if json.Valid(decoded) {
+			return string(decoded), nil
+		}
+	}
+
+	// 3. Treat as raw JSON content
+	if json.Valid([]byte(input)) {
+		return input, nil
+	}
+
+	return "", fmt.Errorf("invalid credentials format: not a valid file path, base64-encoded JSON, or raw JSON content")
+}
+
 // createAnthropicClient creates an Anthropic LLM client
 func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 	var options []anthropic.Option
+	var apiKey string
 
-	// Get API key from config or environment
-	apiKey := getConfigString(config.Config, "api_key")
-	if apiKey == "" {
-		// Fallback to ANTHROPIC_API_KEY environment variable
-		apiKey = GetEnvValue("ANTHROPIC_API_KEY")
+	// Check for Vertex AI configuration first (preferred method)
+	vertexProject := getConfigString(config.Config, "vertex_ai_project")
+	if vertexProject == "" {
+		vertexProject = GetEnvValue("VERTEX_AI_PROJECT")
 	}
-	if apiKey == "" {
-		fmt.Printf("DEBUG: No API key found in config or environment\n")
-		return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or provide in config)")
+
+	// Use Vertex AI if configured
+	if vertexProject != "" {
+		// Using Vertex AI as primary authentication method
+		fmt.Printf("DEBUG: Using Vertex AI - Project: %s\n", vertexProject)
+
+		// Check for both vertex_ai_region and vertex_ai_location for backward compatibility
+		location := getConfigString(config.Config, "vertex_ai_region")
+		if location == "" {
+			location = getConfigString(config.Config, "vertex_ai_location")
+		}
+		if location == "" {
+			location = GetEnvValue("VERTEX_AI_REGION")
+		}
+		if location == "" {
+			location = GetEnvValue("VERTEX_AI_LOCATION")
+		}
+		if location == "" {
+			location = "us-central1" // Default location
+		}
+		fmt.Printf("DEBUG: Vertex AI Location: %s\n", location)
+
+		// Check if explicit credentials are provided
+		if creds := getConfigString(config.Config, "google_application_credentials"); creds != "" {
+			// Parse credentials - could be file path, base64, or raw JSON
+			credContent, err := parseGoogleCredentials(creds)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse google_application_credentials: %w", err)
+			}
+			options = append(options, anthropic.WithGoogleApplicationCredentials(location, vertexProject, credContent))
+			fmt.Printf("DEBUG: Using explicit Google Application Credentials\n")
+		} else {
+			// Use default ADC
+			options = append(options, anthropic.WithVertexAI(location, vertexProject))
+			fmt.Printf("DEBUG: Using default Application Default Credentials (ADC)\n")
+		}
+
+		// Use placeholder API key for Vertex AI
+		apiKey = "vertex-ai"
+	} else {
+		// Fallback to Anthropic API with API key
+		apiKey = getConfigString(config.Config, "api_key")
+		if apiKey == "" {
+			apiKey = GetEnvValue("ANTHROPIC_API_KEY")
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY) or configure Vertex AI (set VERTEX_AI_PROJECT and VERTEX_AI_REGION)")
+		}
+		fmt.Printf("DEBUG: Using Anthropic API with key: %s...\n", apiKey[:min(10, len(apiKey))])
 	}
-	fmt.Printf("DEBUG: Found API key: %s...\n", apiKey[:10])
 
 	// Set model - use config model or fallback to ANTHROPIC_MODEL env var
 	model := ExpandEnv(config.Model)
@@ -75,27 +161,6 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 	// Set base URL if provided (for custom endpoints)
 	if baseURL := getConfigString(config.Config, "base_url"); baseURL != "" {
 		options = append(options, anthropic.WithBaseURL(baseURL))
-	}
-
-	// Vertex AI configuration
-	if vertexProject := getConfigString(config.Config, "vertex_ai_project"); vertexProject != "" {
-		// Check for both vertex_ai_region and vertex_ai_location for backward compatibility
-		location := getConfigString(config.Config, "vertex_ai_region")
-		if location == "" {
-			location = getConfigString(config.Config, "vertex_ai_location")
-		}
-		if location == "" {
-			location = "us-central1" // Default location
-		}
-
-		// Check if explicit credentials are provided
-		if creds := getConfigString(config.Config, "google_application_credentials"); creds != "" {
-			// Use credentials content directly
-			options = append(options, anthropic.WithGoogleApplicationCredentials(location, vertexProject, creds))
-		} else {
-			// Use default ADC
-			options = append(options, anthropic.WithVertexAI(location, vertexProject))
-		}
 	}
 
 	return anthropic.NewClient(apiKey, options...), nil

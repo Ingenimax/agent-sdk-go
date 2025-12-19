@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -611,20 +612,27 @@ func (s *MCPServerImpl) CallTool(ctx context.Context, name string, args interfac
 		return nil, mcpErr
 	}
 
-	s.logger.Debug(ctx, "Received response from session.CallTool", map[string]interface{}{
-		"tool_name": name,
-		"is_error":  resp.IsError,
-		"content":   resp.Content,
-		"meta":      resp.Meta,
+	s.logger.Info(ctx, "[MCP SERVER] Received response from session.CallTool", map[string]interface{}{
+		"tool_name":    name,
+		"is_error":     resp.IsError,
+		"content":      resp.Content,
+		"content_type": fmt.Sprintf("%T", resp.Content),
+		"meta":         resp.Meta,
 	})
 
 	if resp.IsError {
-		s.logger.Warn(ctx, "MCP tool returned error", map[string]interface{}{
-			"tool_name": name,
-			"content":   resp.Content,
+		// Parse the error content to understand what the MCP server is returning
+		contentJSON, _ := json.Marshal(resp.Content)
+		s.logger.Error(ctx, "[MCP SERVER ERROR] MCP tool returned error", map[string]interface{}{
+			"tool_name":      name,
+			"content":        resp.Content,
+			"content_type":   fmt.Sprintf("%T", resp.Content),
+			"content_json":   string(contentJSON),
+			"is_error":       resp.IsError,
+			"meta":           resp.Meta,
 		})
 	} else {
-		s.logger.Debug(ctx, "MCP tool executed successfully", map[string]interface{}{
+		s.logger.Info(ctx, "[MCP SERVER SUCCESS] MCP tool executed successfully", map[string]interface{}{
 			"tool_name": name,
 		})
 	}
@@ -724,7 +732,31 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
+
+		// Log the full command being executed for debugging
+		logger.Info(ctx, "[STDIO SERVER] Creating subprocess with command", map[string]interface{}{
+			"command": commandPath,
+			"args":    config.Args,
+			"env_count": len(config.Env),
+		})
+
+		// Log environment variables (sanitized)
+		for i, envVar := range config.Env {
+			if len(envVar) > 60 {
+				logger.Debug(ctx, fmt.Sprintf("[STDIO SERVER ENV %d]", i), map[string]interface{}{
+					"env": envVar[:60] + "...",
+				})
+			} else {
+				logger.Debug(ctx, fmt.Sprintf("[STDIO SERVER ENV %d]", i), map[string]interface{}{
+					"env": envVar,
+				})
+			}
+		}
 	}
+
+	// Capture stderr for debugging
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	// Create the command transport using the official SDK
 	transport := &mcp.CommandTransport{Command: cmd}
@@ -742,14 +774,22 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 	if err != nil {
 		mcpErr := ClassifyError(err, "Connect", "stdio-server", "stdio")
 		// govulncheck:ignore GO-2025-4155 - err.Error() used for logging only, not exploitable
-		logger.Error(ctx, "Failed to connect to MCP server", map[string]interface{}{
+		logger.Error(ctx, "[STDIO SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
 			"error":      err.Error(),
 			"error_type": mcpErr.ErrorType,
 			"retryable":  mcpErr.Retryable,
 			"command":    config.Command,
+			"args":       config.Args,
+			"stderr":     stderrBuf.String(),
 		})
 		return nil, mcpErr
 	}
+
+	// Log successful connection
+	logger.Info(ctx, "[STDIO SERVER] Successfully connected to MCP server", map[string]interface{}{
+		"command": config.Command,
+		"stderr":  stderrBuf.String(), // May contain startup logs
+	})
 
 	// Get initialization result immediately after connection
 	initResult := session.InitializeResult()

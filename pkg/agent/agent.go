@@ -114,11 +114,27 @@ func WithDataStore(datastore interfaces.DataStore) Option {
 	}
 }
 
-// WithTools appends tools to the agent's tool list
+// WithTools appends tools to the agent's tool list, deduplicating by name
 func WithTools(tools ...interfaces.Tool) Option {
 	return func(a *Agent) {
-		a.tools = append(a.tools, tools...)
+		a.tools = deduplicateTools(append(a.tools, tools...))
 	}
+}
+
+// deduplicateTools removes duplicate tools based on their Name()
+func deduplicateTools(tools []interfaces.Tool) []interfaces.Tool {
+	seen := make(map[string]bool)
+	result := make([]interfaces.Tool, 0, len(tools))
+
+	for _, tool := range tools {
+		name := tool.Name()
+		if !seen[name] {
+			seen[name] = true
+			result = append(result, tool)
+		}
+	}
+
+	return result
 }
 
 // WithOrgID sets the organization ID for multi-tenancy
@@ -195,8 +211,16 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			}
 		}
 
+		// Extract configVars for MCP configuration expansion
+		var configVars map[string]string
+		if expandedConfig.ConfigSource != nil && expandedConfig.ConfigSource.Variables != nil {
+			configVars = expandedConfig.ConfigSource.Variables
+		} else {
+			configVars = make(map[string]string)
+		}
+
 		if expandedConfig.MCP != nil {
-			applyMCPConfig(a, expandedConfig.MCP)
+			applyMCPConfig(a, expandedConfig.MCP, configVars)
 		}
 
 		// Apply behavioral settings
@@ -262,6 +286,7 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		// Process tools
 		if expandedConfig.Tools != nil {
 			factory := NewToolFactory()
+			toolsToAdd := make([]interfaces.Tool, 0)
 			for _, toolConfig := range expandedConfig.Tools {
 				if toolConfig.Enabled != nil && !*toolConfig.Enabled {
 					continue // Skip disabled tools
@@ -278,8 +303,10 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 					}
 					continue
 				}
-				a.tools = append(a.tools, tool)
+				toolsToAdd = append(toolsToAdd, tool)
 			}
+			// Deduplicate before adding to agent
+			a.tools = deduplicateTools(append(a.tools, toolsToAdd...))
 		}
 
 		// Store memory config for later instantiation (after LLM is set)
@@ -308,7 +335,21 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 
 		// Process sub-agents recursively
 		if expandedConfig.SubAgents != nil {
-			subAgents, err := createSubAgentsFromConfig(expandedConfig.SubAgents, variables, a.llm, a.memory, a.tracer, a.logger)
+			// Merge ConfigSource variables with OS env variables for sub-agents
+			// ConfigSource variables take priority (they're from the config service)
+			mergedVariables := make(map[string]string)
+			// Start with OS env variables
+			for k, v := range variables {
+				mergedVariables[k] = v
+			}
+			// Override with ConfigSource variables if available
+			if expandedConfig.ConfigSource != nil && expandedConfig.ConfigSource.Variables != nil {
+				for k, v := range expandedConfig.ConfigSource.Variables {
+					mergedVariables[k] = v
+				}
+			}
+
+			subAgents, err := createSubAgentsFromConfig(expandedConfig.SubAgents, mergedVariables, a.llm, a.memory, a.tracer, a.logger)
 			if err != nil {
 				// Log error but don't fail agent creation
 				if a.logger != nil {
@@ -320,6 +361,7 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 				// Add sub-agents using WithAgents
 				a.subAgents = subAgents
 				// Convert sub-agents to tools
+				agentTools := make([]interfaces.Tool, 0, len(subAgents))
 				for _, subAgent := range subAgents {
 					agentTool := tools.NewAgentTool(subAgent)
 					// Pass logger and tracer if available on parent agent
@@ -329,8 +371,10 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 					if a.tracer != nil {
 						agentTool = agentTool.WithTracer(a.tracer)
 					}
-					a.tools = append(a.tools, agentTool)
+					agentTools = append(agentTools, agentTool)
 				}
+				// Deduplicate before adding to agent
+				a.tools = deduplicateTools(append(a.tools, agentTools...))
 			}
 		}
 
@@ -1779,16 +1823,16 @@ func (a *Agent) initializeMCPTools() error {
 		if err != nil {
 			return fmt.Errorf("failed to collect MCP server tools: %w", err)
 		}
-		// Add MCP tools to the main tools slice
-		a.tools = append(a.tools, mcpTools...)
+		// Add MCP tools to the main tools slice with deduplication
+		a.tools = deduplicateTools(append(a.tools, mcpTools...))
 		fmt.Printf("Initialized %d MCP server tools\n", len(mcpTools))
 	}
 
 	// Initialize lazy MCP tools if available
 	if len(a.lazyMCPConfigs) > 0 {
 		lazyMCPTools := a.createLazyMCPTools()
-		// Add lazy MCP tools to the main tools slice
-		a.tools = append(a.tools, lazyMCPTools...)
+		// Add lazy MCP tools to the main tools slice with deduplication
+		a.tools = deduplicateTools(append(a.tools, lazyMCPTools...))
 		fmt.Printf("Initialized %d lazy MCP tools\n", len(lazyMCPTools))
 	}
 

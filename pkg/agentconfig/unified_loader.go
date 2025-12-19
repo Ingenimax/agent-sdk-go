@@ -40,32 +40,32 @@ const (
 // LoadOptions configures how agent configurations are loaded
 type LoadOptions struct {
 	// Source preferences
-	PreferRemote       bool   // Try remote first
-	AllowFallback      bool   // Fall back to local if remote fails
-	LocalPath          string // Specific local file path
+	PreferRemote  bool   // Try remote first
+	AllowFallback bool   // Fall back to local if remote fails
+	LocalPath     string // Specific local file path
 
 	// Merging
-	MergeStrategy      MergeStrategy // How to merge remote and local configs
+	MergeStrategy MergeStrategy // How to merge remote and local configs
 
 	// Caching
-	EnableCache        bool
-	CacheTimeout       time.Duration
+	EnableCache  bool
+	CacheTimeout time.Duration
 
 	// Behavior
 	EnableEnvOverrides bool
-	Verbose           bool  // Log loading steps
+	Verbose            bool // Log loading steps
 }
 
 // DefaultLoadOptions returns sensible defaults
 func DefaultLoadOptions() *LoadOptions {
 	return &LoadOptions{
-		PreferRemote:       true,  // Try remote first
-		AllowFallback:      true,  // Fall back to local if remote fails
+		PreferRemote:       true,              // Try remote first
+		AllowFallback:      true,              // Fall back to local if remote fails
 		MergeStrategy:      MergeStrategyNone, // No merging by default (backwards compatible)
 		EnableCache:        true,
 		CacheTimeout:       5 * time.Minute,
 		EnableEnvOverrides: true,
-		Verbose:           false,
+		Verbose:            false,
 	}
 }
 
@@ -324,6 +324,16 @@ func loadFromRemoteByID(ctx context.Context, agentID, environment string, opts *
 		return nil, fmt.Errorf("failed to fetch remote config: %w", err)
 	}
 
+	// DEBUG: Log what the config server returned
+	fmt.Printf("[DEBUG] Config server response - ResolvedVariables count: %d\n", len(response.ResolvedVariables))
+	for key, value := range response.ResolvedVariables {
+		displayValue := value
+		if len(value) > 10 {
+			displayValue = value[:10] + "..."
+		}
+		fmt.Printf("[DEBUG] ResolvedVariable: %s = '%s'\n", key, displayValue)
+	}
+
 	// Parse the resolved YAML - it has the agent name as top-level key
 	// Format: agent_name: { role: "...", goal: "...", ... }
 	var wrappedConfig map[string]agent.AgentConfig
@@ -417,19 +427,296 @@ func loadFromLocal(agentName, environment string, opts *LoadOptions) (*agent.Age
 	return &config, nil
 }
 
+// deepCopyAgentConfig creates a deep copy of an AgentConfig to prevent shared state
+func deepCopyAgentConfig(src *agent.AgentConfig) *agent.AgentConfig {
+	if src == nil {
+		return nil
+	}
+
+	// Create new config with basic fields (strings are immutable, safe to copy)
+	dst := &agent.AgentConfig{
+		Role:      src.Role,
+		Goal:      src.Goal,
+		Backstory: src.Backstory,
+	}
+
+	// Deep copy pointer fields
+	if src.MaxIterations != nil {
+		val := *src.MaxIterations
+		dst.MaxIterations = &val
+	}
+
+	if src.RequirePlanApproval != nil {
+		val := *src.RequirePlanApproval
+		dst.RequirePlanApproval = &val
+	}
+
+	// Deep copy ResponseFormat
+	if src.ResponseFormat != nil {
+		dst.ResponseFormat = &agent.ResponseFormatConfig{
+			Type:       src.ResponseFormat.Type,
+			SchemaName: src.ResponseFormat.SchemaName,
+		}
+		// Deep copy schema definition map
+		if src.ResponseFormat.SchemaDefinition != nil {
+			dst.ResponseFormat.SchemaDefinition = deepCopyMap(src.ResponseFormat.SchemaDefinition)
+		}
+	}
+
+	// Deep copy MCP
+	if src.MCP != nil {
+		dst.MCP = &agent.MCPConfiguration{
+			Global: src.MCP.Global,
+		}
+		// Deep copy MCPServers map
+		if src.MCP.MCPServers != nil {
+			dst.MCP.MCPServers = make(map[string]agent.MCPServerConfig)
+			for k, v := range src.MCP.MCPServers {
+				dst.MCP.MCPServers[k] = agent.MCPServerConfig{
+					Command: v.Command,
+					Args:    deepCopyStringSlice(v.Args),
+					Env:     deepCopyStringMap(v.Env),
+					URL:     v.URL,
+					Token:   v.Token,
+				}
+			}
+		}
+	}
+
+	// Deep copy StreamConfig
+	if src.StreamConfig != nil {
+		dst.StreamConfig = &agent.StreamConfigYAML{}
+		if src.StreamConfig.BufferSize != nil {
+			val := *src.StreamConfig.BufferSize
+			dst.StreamConfig.BufferSize = &val
+		}
+		if src.StreamConfig.IncludeToolProgress != nil {
+			val := *src.StreamConfig.IncludeToolProgress
+			dst.StreamConfig.IncludeToolProgress = &val
+		}
+		if src.StreamConfig.IncludeIntermediateMessages != nil {
+			val := *src.StreamConfig.IncludeIntermediateMessages
+			dst.StreamConfig.IncludeIntermediateMessages = &val
+		}
+	}
+
+	// Deep copy LLMConfig
+	if src.LLMConfig != nil {
+		dst.LLMConfig = &agent.LLMConfigYAML{}
+		if src.LLMConfig.Temperature != nil {
+			val := *src.LLMConfig.Temperature
+			dst.LLMConfig.Temperature = &val
+		}
+		if src.LLMConfig.TopP != nil {
+			val := *src.LLMConfig.TopP
+			dst.LLMConfig.TopP = &val
+		}
+		if src.LLMConfig.FrequencyPenalty != nil {
+			val := *src.LLMConfig.FrequencyPenalty
+			dst.LLMConfig.FrequencyPenalty = &val
+		}
+		if src.LLMConfig.PresencePenalty != nil {
+			val := *src.LLMConfig.PresencePenalty
+			dst.LLMConfig.PresencePenalty = &val
+		}
+		if src.LLMConfig.EnableReasoning != nil {
+			val := *src.LLMConfig.EnableReasoning
+			dst.LLMConfig.EnableReasoning = &val
+		}
+		if src.LLMConfig.ReasoningBudget != nil {
+			val := *src.LLMConfig.ReasoningBudget
+			dst.LLMConfig.ReasoningBudget = &val
+		}
+		if src.LLMConfig.Reasoning != nil {
+			val := *src.LLMConfig.Reasoning
+			dst.LLMConfig.Reasoning = &val
+		}
+		dst.LLMConfig.StopSequences = deepCopyStringSlice(src.LLMConfig.StopSequences)
+	}
+
+	// Deep copy LLMProvider
+	if src.LLMProvider != nil {
+		dst.LLMProvider = &agent.LLMProviderYAML{
+			Provider: src.LLMProvider.Provider,
+			Model:    src.LLMProvider.Model,
+			Config:   deepCopyMap(src.LLMProvider.Config),
+		}
+	}
+
+	// Deep copy Tools slice
+	if src.Tools != nil {
+		dst.Tools = make([]agent.ToolConfigYAML, len(src.Tools))
+		for i, tool := range src.Tools {
+			dst.Tools[i] = agent.ToolConfigYAML{
+				Type:        tool.Type,
+				Name:        tool.Name,
+				Description: tool.Description,
+				Config:      deepCopyMap(tool.Config),
+				URL:         tool.URL,
+				Timeout:     tool.Timeout,
+			}
+			if tool.Enabled != nil {
+				val := *tool.Enabled
+				dst.Tools[i].Enabled = &val
+			}
+		}
+	}
+
+	// Deep copy Memory
+	if src.Memory != nil {
+		dst.Memory = &agent.MemoryConfigYAML{
+			Type:   src.Memory.Type,
+			Config: deepCopyMap(src.Memory.Config),
+		}
+	}
+
+	// Deep copy Runtime
+	if src.Runtime != nil {
+		dst.Runtime = &agent.RuntimeConfigYAML{
+			LogLevel:        src.Runtime.LogLevel,
+			TimeoutDuration: src.Runtime.TimeoutDuration,
+		}
+		if src.Runtime.EnableTracing != nil {
+			val := *src.Runtime.EnableTracing
+			dst.Runtime.EnableTracing = &val
+		}
+		if src.Runtime.EnableMetrics != nil {
+			val := *src.Runtime.EnableMetrics
+			dst.Runtime.EnableMetrics = &val
+		}
+	}
+
+	// Deep copy SubAgents map (recursive)
+	if src.SubAgents != nil {
+		dst.SubAgents = make(map[string]agent.AgentConfig)
+		for name, subAgent := range src.SubAgents {
+			// Recursive deep copy
+			if copied := deepCopyAgentConfig(&subAgent); copied != nil {
+				// Expand environment variables in sub-agent config
+				expanded := agent.ExpandAgentConfig(*copied)
+				dst.SubAgents[name] = expanded
+			}
+		}
+	}
+
+	// Deep copy ConfigSource
+	if src.ConfigSource != nil {
+		dst.ConfigSource = &agent.ConfigSourceMetadata{
+			Type:        src.ConfigSource.Type,
+			Source:      src.ConfigSource.Source,
+			AgentID:     src.ConfigSource.AgentID,
+			AgentName:   src.ConfigSource.AgentName,
+			Environment: src.ConfigSource.Environment,
+			LoadedAt:    src.ConfigSource.LoadedAt,
+			Variables:   deepCopyStringMap(src.ConfigSource.Variables),
+		}
+	}
+
+	return dst
+}
+
+// deepCopyStringSlice creates a deep copy of a string slice
+func deepCopyStringSlice(src []string) []string {
+	if src == nil {
+		return nil
+	}
+	dst := make([]string, len(src))
+	copy(dst, src)
+	return dst
+}
+
+// deepCopyStringMap creates a deep copy of a map[string]string
+func deepCopyStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+// deepCopyMap creates a deep copy of a map[string]interface{}
+func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = deepCopyValue(v)
+	}
+	return dst
+}
+
+// deepCopyValue creates a deep copy of an interface{} value
+func deepCopyValue(src interface{}) interface{} {
+	if src == nil {
+		return nil
+	}
+
+	switch v := src.(type) {
+	case map[string]interface{}:
+		return deepCopyMap(v)
+	case []interface{}:
+		dst := make([]interface{}, len(v))
+		for i, item := range v {
+			dst[i] = deepCopyValue(item)
+		}
+		return dst
+	case []string:
+		return deepCopyStringSlice(v)
+	case map[string]string:
+		return deepCopyStringMap(v)
+	default:
+		// Primitive types (string, int, bool, float64, etc.) are safe to copy by value
+		return v
+	}
+}
+
+// debugPrintConfig prints the agent config as YAML for debugging
+func debugPrintConfig(config *agent.AgentConfig, label string) {
+	if config == nil {
+		fmt.Printf("\n=== DEBUG: %s ===\nnil\n", label)
+		return
+	}
+
+	yamlBytes, err := yaml.Marshal(config)
+	if err != nil {
+		fmt.Printf("\n=== DEBUG: %s (YAML marshal error: %v) ===\n", label, err)
+		return
+	}
+
+	fmt.Printf("\n=== DEBUG: %s ===\n%s\n", label, string(yamlBytes))
+}
+
 // MergeAgentConfig merges two AgentConfig structs based on the specified strategy
 // For RemotePriority: primary values override base values (remote overrides local)
 // For LocalPriority: base values override primary values (local overrides remote)
 func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) *agent.AgentConfig {
-	if primary == nil {
-		return base
-	}
-	if base == nil {
-		return primary
+	// Debug: Print input configs
+	if os.Getenv("DEBUG_CONFIG_MERGE") == "true" {
+		debugPrintConfig(primary, "MERGE INPUT - Primary")
+		debugPrintConfig(base, "MERGE INPUT - Base")
 	}
 
-	// Create result starting with primary
-	result := *primary
+	if primary == nil {
+		result := deepCopyAgentConfig(base)
+		if os.Getenv("DEBUG_CONFIG_MERGE") == "true" {
+			debugPrintConfig(result, "MERGE OUTPUT (primary nil, returned base)")
+		}
+		return result
+	}
+	if base == nil {
+		result := deepCopyAgentConfig(primary)
+		if os.Getenv("DEBUG_CONFIG_MERGE") == "true" {
+			debugPrintConfig(result, "MERGE OUTPUT (base nil, returned primary)")
+		}
+		return result
+	}
+
+	// Create result starting with deep copy of primary to prevent mutation
+	result := deepCopyAgentConfig(primary)
 
 	// Helper to choose between primary and base for string fields
 	mergeString := func(primaryVal, baseVal string) string {
@@ -445,73 +732,179 @@ func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) 
 	result.Goal = mergeString(primary.Goal, base.Goal)
 	result.Backstory = mergeString(primary.Backstory, base.Backstory)
 
-	// Merge pointer fields (use base if primary is nil)
+	// Merge pointer fields (use deep copied base if primary is nil)
 	if result.MaxIterations == nil && base.MaxIterations != nil {
-		result.MaxIterations = base.MaxIterations
+		val := *base.MaxIterations
+		result.MaxIterations = &val
 	}
 	if result.RequirePlanApproval == nil && base.RequirePlanApproval != nil {
-		result.RequirePlanApproval = base.RequirePlanApproval
+		val := *base.RequirePlanApproval
+		result.RequirePlanApproval = &val
 	}
 
-	// Merge ResponseFormat
+	// Merge ResponseFormat (deep copy from base if needed)
 	if result.ResponseFormat == nil && base.ResponseFormat != nil {
-		result.ResponseFormat = base.ResponseFormat
+		result.ResponseFormat = &agent.ResponseFormatConfig{
+			Type:             base.ResponseFormat.Type,
+			SchemaName:       base.ResponseFormat.SchemaName,
+			SchemaDefinition: deepCopyMap(base.ResponseFormat.SchemaDefinition),
+		}
 	}
 
-	// Merge MCP
+	// Merge MCP (deep copy from base if needed)
 	if result.MCP == nil && base.MCP != nil {
-		result.MCP = base.MCP
+		result.MCP = &agent.MCPConfiguration{
+			Global: base.MCP.Global,
+		}
+		if base.MCP.MCPServers != nil {
+			result.MCP.MCPServers = make(map[string]agent.MCPServerConfig)
+			for k, v := range base.MCP.MCPServers {
+				result.MCP.MCPServers[k] = agent.MCPServerConfig{
+					Command: v.Command,
+					Args:    deepCopyStringSlice(v.Args),
+					Env:     deepCopyStringMap(v.Env),
+					URL:     v.URL,
+					Token:   v.Token,
+				}
+			}
+		}
 	}
 
-	// Merge StreamConfig
+	// Merge StreamConfig (deep copy from base if needed)
 	if result.StreamConfig == nil && base.StreamConfig != nil {
-		result.StreamConfig = base.StreamConfig
+		result.StreamConfig = &agent.StreamConfigYAML{}
+		if base.StreamConfig.BufferSize != nil {
+			val := *base.StreamConfig.BufferSize
+			result.StreamConfig.BufferSize = &val
+		}
+		if base.StreamConfig.IncludeToolProgress != nil {
+			val := *base.StreamConfig.IncludeToolProgress
+			result.StreamConfig.IncludeToolProgress = &val
+		}
+		if base.StreamConfig.IncludeIntermediateMessages != nil {
+			val := *base.StreamConfig.IncludeIntermediateMessages
+			result.StreamConfig.IncludeIntermediateMessages = &val
+		}
 	}
 
-	// Merge LLMConfig
+	// Merge LLMConfig (deep copy from base if needed)
 	if result.LLMConfig == nil && base.LLMConfig != nil {
-		result.LLMConfig = base.LLMConfig
+		result.LLMConfig = &agent.LLMConfigYAML{}
+		if base.LLMConfig.Temperature != nil {
+			val := *base.LLMConfig.Temperature
+			result.LLMConfig.Temperature = &val
+		}
+		if base.LLMConfig.TopP != nil {
+			val := *base.LLMConfig.TopP
+			result.LLMConfig.TopP = &val
+		}
+		if base.LLMConfig.FrequencyPenalty != nil {
+			val := *base.LLMConfig.FrequencyPenalty
+			result.LLMConfig.FrequencyPenalty = &val
+		}
+		if base.LLMConfig.PresencePenalty != nil {
+			val := *base.LLMConfig.PresencePenalty
+			result.LLMConfig.PresencePenalty = &val
+		}
+		if base.LLMConfig.EnableReasoning != nil {
+			val := *base.LLMConfig.EnableReasoning
+			result.LLMConfig.EnableReasoning = &val
+		}
+		if base.LLMConfig.ReasoningBudget != nil {
+			val := *base.LLMConfig.ReasoningBudget
+			result.LLMConfig.ReasoningBudget = &val
+		}
+		if base.LLMConfig.Reasoning != nil {
+			val := *base.LLMConfig.Reasoning
+			result.LLMConfig.Reasoning = &val
+		}
+		result.LLMConfig.StopSequences = deepCopyStringSlice(base.LLMConfig.StopSequences)
 	}
 
-	// Merge LLMProvider
+	// Merge LLMProvider (deep copy from base if needed)
 	if result.LLMProvider == nil && base.LLMProvider != nil {
-		result.LLMProvider = base.LLMProvider
+		result.LLMProvider = &agent.LLMProviderYAML{
+			Provider: base.LLMProvider.Provider,
+			Model:    base.LLMProvider.Model,
+			Config:   deepCopyMap(base.LLMProvider.Config),
+		}
 	} else if result.LLMProvider != nil && base.LLMProvider != nil {
 		// Deep merge LLMProvider fields
 		merged := *result.LLMProvider
 		merged.Provider = mergeString(result.LLMProvider.Provider, base.LLMProvider.Provider)
 		merged.Model = mergeString(result.LLMProvider.Model, base.LLMProvider.Model)
 		if merged.Config == nil && base.LLMProvider.Config != nil {
-			merged.Config = base.LLMProvider.Config
+			merged.Config = deepCopyMap(base.LLMProvider.Config)
 		}
 		result.LLMProvider = &merged
 	}
 
-	// Merge Tools - use primary tools, append missing tools from base
+	// Merge Tools - use primary tools, append deep copied missing tools from base
 	if result.Tools == nil && base.Tools != nil {
-		result.Tools = base.Tools
+		// Deep copy base tools
+		result.Tools = make([]agent.ToolConfigYAML, len(base.Tools))
+		for i, tool := range base.Tools {
+			result.Tools[i] = agent.ToolConfigYAML{
+				Type:        tool.Type,
+				Name:        tool.Name,
+				Description: tool.Description,
+				Config:      deepCopyMap(tool.Config),
+				URL:         tool.URL,
+				Timeout:     tool.Timeout,
+			}
+			if tool.Enabled != nil {
+				val := *tool.Enabled
+				result.Tools[i].Enabled = &val
+			}
+		}
 	} else if result.Tools != nil && base.Tools != nil {
 		// Create a map of existing tool names from primary
 		existingTools := make(map[string]bool)
 		for _, tool := range result.Tools {
 			existingTools[tool.Name] = true
 		}
-		// Add base tools that don't exist in primary
+		// Add deep copied base tools that don't exist in primary
 		for _, baseTool := range base.Tools {
 			if !existingTools[baseTool.Name] {
-				result.Tools = append(result.Tools, baseTool)
+				newTool := agent.ToolConfigYAML{
+					Type:        baseTool.Type,
+					Name:        baseTool.Name,
+					Description: baseTool.Description,
+					Config:      deepCopyMap(baseTool.Config),
+					URL:         baseTool.URL,
+					Timeout:     baseTool.Timeout,
+				}
+				if baseTool.Enabled != nil {
+					val := *baseTool.Enabled
+					newTool.Enabled = &val
+				}
+				result.Tools = append(result.Tools, newTool)
 			}
 		}
 	}
 
-	// Merge Memory
+	// Merge Memory (deep copy from base if needed)
 	if result.Memory == nil && base.Memory != nil {
-		result.Memory = base.Memory
+		result.Memory = &agent.MemoryConfigYAML{
+			Type:   base.Memory.Type,
+			Config: deepCopyMap(base.Memory.Config),
+		}
 	}
 
-	// Merge Runtime
+	// Merge Runtime (deep copy from base if needed)
 	if result.Runtime == nil && base.Runtime != nil {
-		result.Runtime = base.Runtime
+		result.Runtime = &agent.RuntimeConfigYAML{
+			LogLevel:        base.Runtime.LogLevel,
+			TimeoutDuration: base.Runtime.TimeoutDuration,
+		}
+		if base.Runtime.EnableTracing != nil {
+			val := *base.Runtime.EnableTracing
+			result.Runtime.EnableTracing = &val
+		}
+		if base.Runtime.EnableMetrics != nil {
+			val := *base.Runtime.EnableMetrics
+			result.Runtime.EnableMetrics = &val
+		}
 	} else if result.Runtime != nil && base.Runtime != nil {
 		// Deep merge Runtime fields
 		merged := *result.Runtime
@@ -520,9 +913,15 @@ func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) 
 		result.Runtime = &merged
 	}
 
-	// Merge SubAgents recursively
+	// Merge SubAgents recursively (deep copy from base if needed)
 	if result.SubAgents == nil && base.SubAgents != nil {
-		result.SubAgents = base.SubAgents
+		// Deep copy all base sub-agents
+		result.SubAgents = make(map[string]agent.AgentConfig)
+		for name, subAgent := range base.SubAgents {
+			if copied := deepCopyAgentConfig(&subAgent); copied != nil {
+				result.SubAgents[name] = *copied
+			}
+		}
 	} else if result.SubAgents != nil && base.SubAgents != nil {
 		// Merge sub-agents recursively
 		for name, baseSubAgent := range base.SubAgents {
@@ -537,15 +936,26 @@ func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) 
 		}
 	}
 
-	// Merge ConfigSource metadata
-	if result.ConfigSource != nil && base.ConfigSource != nil {
+	// Merge ConfigSource metadata (deep copy to prevent shared state)
+	if result.ConfigSource == nil && base.ConfigSource != nil {
+		// Deep copy base ConfigSource if result has none
+		result.ConfigSource = &agent.ConfigSourceMetadata{
+			Type:        base.ConfigSource.Type,
+			Source:      base.ConfigSource.Source,
+			AgentID:     base.ConfigSource.AgentID,
+			AgentName:   base.ConfigSource.AgentName,
+			Environment: base.ConfigSource.Environment,
+			LoadedAt:    base.ConfigSource.LoadedAt,
+			Variables:   deepCopyStringMap(base.ConfigSource.Variables),
+		}
+	} else if result.ConfigSource != nil && base.ConfigSource != nil {
 		result.ConfigSource.Type = string(ConfigSourceMerged)
 		// Combine sources
 		result.ConfigSource.Source = fmt.Sprintf("merged(%s + %s)",
 			result.ConfigSource.Source, base.ConfigSource.Source)
-		// Merge variables maps
+		// Merge variables maps (deep copy)
 		if result.ConfigSource.Variables == nil && base.ConfigSource.Variables != nil {
-			result.ConfigSource.Variables = base.ConfigSource.Variables
+			result.ConfigSource.Variables = deepCopyStringMap(base.ConfigSource.Variables)
 		} else if result.ConfigSource.Variables != nil && base.ConfigSource.Variables != nil {
 			merged := make(map[string]string)
 			// Add base variables first
@@ -560,5 +970,10 @@ func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) 
 		}
 	}
 
-	return &result
+	// Debug: Print final merged config
+	if os.Getenv("DEBUG_CONFIG_MERGE") == "true" {
+		debugPrintConfig(result, "MERGE OUTPUT (final merged config)")
+	}
+
+	return result
 }

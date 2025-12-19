@@ -107,7 +107,8 @@ func WithMCPConfigFromJSON(filePath string) Option {
 		}
 
 		fmt.Printf("MCP Config loaded from JSON: %s\n", filePath)
-		applyMCPConfig(a, config)
+		// No configVars available from file loading, pass empty map
+		applyMCPConfig(a, config, make(map[string]string))
 	}
 }
 
@@ -119,19 +120,22 @@ func WithMCPConfigFromYAML(filePath string) Option {
 			return
 		}
 
-		applyMCPConfig(a, config)
+		// No configVars available from file loading, pass empty map
+		applyMCPConfig(a, config, make(map[string]string))
 	}
 }
 
 // WithMCPConfig adds MCP servers from configuration object
 func WithMCPConfig(config *MCPConfiguration) Option {
 	return func(a *Agent) {
-		applyMCPConfig(a, config)
+		// No configVars available from direct config, pass empty map
+		applyMCPConfig(a, config, make(map[string]string))
 	}
 }
 
 // applyMCPConfig applies MCP configuration to an agent
-func applyMCPConfig(a *Agent, config *MCPConfiguration) {
+// configVars contains variables from ConfigSource (config service) for expansion
+func applyMCPConfig(a *Agent, config *MCPConfiguration, configVars map[string]string) {
 	if config == nil {
 		return
 	}
@@ -240,13 +244,15 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration) {
 			builder.AddStdioServer(serverName, serverConfig.Command, serverConfig.Args...)
 
 			// Convert environment map to string slice format
-			// Resolve environment variable placeholders (e.g., ${VAR_NAME})
+			// Resolve environment variable placeholders using configVars first, then OS env
 			var envSlice []string
 			for key, value := range serverConfig.Env {
-				// Expand environment variables in the value
-				resolvedValue := os.ExpandEnv(value)
+				// Use expandWithConfigVars to check ConfigSource variables first, then OS env
+				resolvedValue := expandWithConfigVars(value, configVars)
 				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, resolvedValue))
 
+				// Debug log to see what's being set
+				fmt.Printf("[applyMCPConfig] DEBUG: MCP server '%s' env %s='%s' -> '%s'\n", serverName, key, value, resolvedValue)
 			}
 
 			lazyConfig := LazyMCPConfig{
