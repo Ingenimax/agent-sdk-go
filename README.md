@@ -2,9 +2,6 @@
 <img src="/docs/img/logo-header.png#gh-light-mode-only" alt="Ingenimax" width="400">
 <img src="/docs/img/logo-header-inverted.png#gh-dark-mode-only" alt="Ingenimax" width="400">
 
-<a href="https://www.producthunt.com/products/agent-gogo?embed=true&utm_source=badge-featured&utm_medium=badge&utm_source=badge-agent&#0045;gogo" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1049356&theme=light&t=1765568756912" alt="Agent&#0032;GoGo - Build&#0032;cloud&#0045;native&#0032;AI&#0032;Agents | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
-</div>
-
 # Agent Go SDK
 
 A powerful Go framework for building production-ready AI agents that seamlessly integrates memory management, tool execution, multi-LLM support, and enterprise features into a flexible, extensible architecture.
