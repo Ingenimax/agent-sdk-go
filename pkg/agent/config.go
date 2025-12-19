@@ -464,17 +464,44 @@ func ConvertYAMLSchemaToResponseFormat(config *ResponseFormatConfig) (*interface
 	}, nil
 }
 
+// expandWithConfigVars expands environment variables with priority:
+// 1. ConfigSource.Variables (from config server - highest priority)
+// 2. OS environment variables
+// 3. .env file cache
+func expandWithConfigVars(s string, configVars map[string]string) string {
+	if len(configVars) > 0 {
+		// Use custom expansion that checks config vars first
+		return os.Expand(s, func(key string) string {
+			// Priority 1: Config server resolved variables
+			if value, exists := configVars[key]; exists {
+				return value
+			}
+			// Priority 2: OS environment variables
+			if value, exists := os.LookupEnv(key); exists {
+				return value
+			}
+			// Priority 3: .env cache
+			if value, exists := envVarCache[key]; exists {
+				return value
+			}
+			return ""
+		})
+	}
+	// Fallback to standard ExpandEnv if no config source variables
+	return ExpandEnv(s)
+}
+
 // expandEnvironmentVariables expands environment variables in various types
-func expandEnvironmentVariables(value interface{}) interface{} {
+func expandEnvironmentVariables(value interface{}, configVars map[string]string) interface{} {
 	switch v := value.(type) {
 	case string:
-		return ExpandEnv(v)
+		return expandWithConfigVars(v, configVars)
 	case map[string]interface{}:
-		return expandConfigMap(v)
+		return expandConfigMap(v, configVars)
 	case []interface{}:
 		expanded := make([]interface{}, len(v))
 		for i, item := range v {
-			expanded[i] = expandEnvironmentVariables(item)
+			expanded[i] = expandEnvironmentVariables(item, configVars)
 		}
 		return expanded
 	default:
@@ -483,26 +510,36 @@ func expandEnvironmentVariables(value interface{}) interface{} {
 }
 
 // expandConfigMap expands environment variables in a configuration map
-func expandConfigMap(config map[string]interface{}) map[string]interface{} {
+func expandConfigMap(config map[string]interface{}, configVars map[string]string) map[string]interface{} {
 	expanded := make(map[string]interface{})
 	for key, value := range config {
-		expanded[key] = expandEnvironmentVariables(value)
+		expanded[key] = expandEnvironmentVariables(value, configVars)
 	}
 	return expanded
 }
 
-// ExpandAgentConfig expands environment variables in agent configuration
+// ExpandAgentConfig expands environment variables in agent configuration.
+// Environment variables in the config are expanded with the following priority:
+//  1. ConfigSource.Variables (from config service - highest priority)
+//  2. OS environment variables
+//  3. .env file cache (lowest priority)
 func ExpandAgentConfig(config AgentConfig) AgentConfig {
+	// Extract config variables from ConfigSource if available
+	var configVars map[string]string
+	if config.ConfigSource != nil && config.ConfigSource.Variables != nil {
+		configVars = config.ConfigSource.Variables
+	}
+
 	expanded := config
-	expanded.Role = ExpandEnv(config.Role)
-	expanded.Goal = ExpandEnv(config.Goal)
-	expanded.Backstory = ExpandEnv(config.Backstory)
+	expanded.Role = expandWithConfigVars(config.Role, configVars)
+	expanded.Goal = expandWithConfigVars(config.Goal, configVars)
+	expanded.Backstory = expandWithConfigVars(config.Backstory, configVars)
 
 	// Expand memory configuration
 	if config.Memory != nil && config.Memory.Config != nil {
 		expanded.Memory = &MemoryConfigYAML{
 			Type:   config.Memory.Type,
-			Config: expandConfigMap(config.Memory.Config),
+			Config: expandConfigMap(config.Memory.Config, configVars),
 		}
 	}
 
@@ -513,11 +550,11 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 			expandedTools[i] = ToolConfigYAML{
 				Type:        tool.Type,
 				Name:        tool.Name,
-				Description: ExpandEnv(tool.Description),
-				Config:      expandConfigMap(tool.Config),
+				Description: expandWithConfigVars(tool.Description, configVars),
+				Config:      expandConfigMap(tool.Config, configVars),
 				Enabled:     tool.Enabled,
-				URL:         ExpandEnv(tool.URL),
-				Timeout:     ExpandEnv(tool.Timeout),
+				URL:         expandWithConfigVars(tool.URL, configVars),
+				Timeout:     expandWithConfigVars(tool.Timeout, configVars),
 			}
 		}
 		expanded.Tools = expandedTools
@@ -526,10 +563,10 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 	// Expand runtime configuration
 	if config.Runtime != nil {
 		expanded.Runtime = &RuntimeConfigYAML{
-			LogLevel:        ExpandEnv(config.Runtime.LogLevel),
+			LogLevel:        expandWithConfigVars(config.Runtime.LogLevel, configVars),
 			EnableTracing:   config.Runtime.EnableTracing,
 			EnableMetrics:   config.Runtime.EnableMetrics,
-			TimeoutDuration: ExpandEnv(config.Runtime.TimeoutDuration),
+			TimeoutDuration: expandWithConfigVars(config.Runtime.TimeoutDuration, configVars),
 		}
 	}
 
@@ -537,6 +574,13 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 	if config.SubAgents != nil {
 		expandedSubAgents := make(map[string]AgentConfig)
 		for name, subAgentConfig := range config.SubAgents {
+			// Preserve parent's config variables for sub-agents
+			if subAgentConfig.ConfigSource == nil {
+				subAgentConfig.ConfigSource = &ConfigSourceMetadata{}
+			}
+			if subAgentConfig.ConfigSource.Variables == nil && configVars != nil {
+				subAgentConfig.ConfigSource.Variables = configVars
+			}
 			expandedSubAgents[name] = ExpandAgentConfig(subAgentConfig) // Recursive expansion
 		}
 		expanded.SubAgents = expandedSubAgents
@@ -545,9 +589,9 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 	// Expand LLM provider configuration
 	if config.LLMProvider != nil {
 		expanded.LLMProvider = &LLMProviderYAML{
-			Provider: ExpandEnv(config.LLMProvider.Provider),
-			Model:    ExpandEnv(config.LLMProvider.Model),
-			Config:   expandConfigMap(config.LLMProvider.Config),
+			Provider: expandWithConfigVars(config.LLMProvider.Provider, configVars),
+			Model:    expandWithConfigVars(config.LLMProvider.Model, configVars),
+			Config:   expandConfigMap(config.LLMProvider.Config, configVars),
 		}
 	}
 
@@ -560,21 +604,21 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 
 		for serverName, serverConfig := range config.MCP.MCPServers {
 			expandedServerConfig := MCPServerConfig{
-				Command: ExpandEnv(serverConfig.Command),
+				Command: expandWithConfigVars(serverConfig.Command, configVars),
 				Args:    make([]string, len(serverConfig.Args)),
 				Env:     make(map[string]string),
-				URL:     ExpandEnv(serverConfig.URL),
-				Token:   ExpandEnv(serverConfig.Token),
+				URL:     expandWithConfigVars(serverConfig.URL, configVars),
+				Token:   expandWithConfigVars(serverConfig.Token, configVars),
 			}
 
 			// Expand args
 			for i, arg := range serverConfig.Args {
-				expandedServerConfig.Args[i] = ExpandEnv(arg)
+				expandedServerConfig.Args[i] = expandWithConfigVars(arg, configVars)
 			}
 
 			// Expand environment variables
 			for key, value := range serverConfig.Env {
-				expandedServerConfig.Env[key] = ExpandEnv(value)
+				expandedServerConfig.Env[key] = expandWithConfigVars(value, configVars)
 			}
 
 			expandedMCP.MCPServers[serverName] = expandedServerConfig

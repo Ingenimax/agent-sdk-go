@@ -33,9 +33,8 @@ func getFromCache(key string) *agent.AgentConfig {
 		return nil
 	}
 
-	// Return a copy to prevent modification
-	configCopy := *entry.config
-	return &configCopy
+	// Return a deep copy to prevent modification and shared state
+	return deepCopyAgentConfig(entry.config)
 }
 
 // cacheConfig stores a config in the cache
@@ -43,8 +42,9 @@ func cacheConfig(key string, config *agent.AgentConfig, ttl time.Duration) {
 	configCacheMutex.Lock()
 	defer configCacheMutex.Unlock()
 
+	// Store a deep copy to prevent external modifications from affecting cache
 	configCache[key] = &cacheEntry{
-		config:    config,
+		config:    deepCopyAgentConfig(config),
 		expiresAt: time.Now().Add(ttl),
 	}
 }
