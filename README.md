@@ -1,6 +1,8 @@
 <div align="center">
 <img src="/docs/img/logo-header.png#gh-light-mode-only" alt="Ingenimax" width="400">
 <img src="/docs/img/logo-header-inverted.png#gh-dark-mode-only" alt="Ingenimax" width="400">
+	
+</div>
 
 # Agent Go SDK
 
