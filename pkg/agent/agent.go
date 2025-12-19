@@ -121,13 +121,25 @@ func WithTools(tools ...interfaces.Tool) Option {
 	}
 }
 
-// deduplicateTools removes duplicate tools based on their Name()
+// deduplicateTools removes duplicate tools based on their Name().
+// When duplicates are found, the first occurrence is kept and subsequent duplicates are discarded.
+// This ensures tools are added in order of priority (earlier = higher priority).
 func deduplicateTools(tools []interfaces.Tool) []interfaces.Tool {
-	seen := make(map[string]bool)
+	if len(tools) == 0 {
+		return tools
+	}
+
+	seen := make(map[string]bool, len(tools))
 	result := make([]interfaces.Tool, 0, len(tools))
 
 	for _, tool := range tools {
+		if tool == nil {
+			continue // Skip nil tools
+		}
 		name := tool.Name()
+		if name == "" {
+			continue // Skip tools with empty names
+		}
 		if !seen[name] {
 			seen[name] = true
 			result = append(result, tool)

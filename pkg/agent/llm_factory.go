@@ -25,7 +25,6 @@ func createLLMFromConfig(config *LLMProviderYAML) (interfaces.LLM, error) {
 	}
 
 	provider := strings.ToLower(config.Provider)
-	fmt.Printf("DEBUG: Creating LLM from config - Provider: %s, Model: %s\n", provider, config.Model)
 
 	switch provider {
 	case "anthropic":
@@ -47,10 +46,14 @@ func createLLMFromConfig(config *LLMProviderYAML) (interfaces.LLM, error) {
 	}
 }
 
-// parseGoogleCredentials parses Google Application Credentials from multiple formats:
-// - File path: reads the file content
-// - Base64 encoded: decodes the base64 string
-// - Raw JSON: uses the content directly
+// parseGoogleCredentials parses Google Application Credentials from multiple formats.
+// It supports three input formats with automatic detection:
+//  1. File path: Reads and validates the JSON content from the specified file
+//  2. Base64-encoded JSON: Decodes the base64 string and validates the JSON
+//  3. Raw JSON string: Uses the content directly after validation
+//
+// The function validates that the final output is valid JSON before returning.
+// Returns the JSON credential content as a string, or an error if parsing fails.
 func parseGoogleCredentials(input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("empty credentials input")
@@ -98,9 +101,10 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 
 	// Use Vertex AI if configured
 	if vertexProject != "" {
-		// Using Vertex AI as primary authentication method
-		fmt.Printf("DEBUG: Using Vertex AI - Project: %s\n", vertexProject)
-
+		// Validate project ID format (basic validation)
+		if strings.TrimSpace(vertexProject) == "" {
+			return nil, fmt.Errorf("vertex_ai_project cannot be empty or whitespace-only")
+		}
 		// Check for both vertex_ai_region and vertex_ai_location for backward compatibility
 		location := getConfigString(config.Config, "vertex_ai_region")
 		if location == "" {
@@ -115,21 +119,18 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 		if location == "" {
 			location = "us-central1" // Default location
 		}
-		fmt.Printf("DEBUG: Vertex AI Location: %s\n", location)
 
 		// Check if explicit credentials are provided
 		if creds := getConfigString(config.Config, "google_application_credentials"); creds != "" {
 			// Parse credentials - could be file path, base64, or raw JSON
 			credContent, err := parseGoogleCredentials(creds)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse google_application_credentials: %w", err)
+				return nil, fmt.Errorf("failed to parse google_application_credentials for Vertex AI project %s: %w", vertexProject, err)
 			}
 			options = append(options, anthropic.WithGoogleApplicationCredentials(location, vertexProject, credContent))
-			fmt.Printf("DEBUG: Using explicit Google Application Credentials\n")
 		} else {
 			// Use default ADC
 			options = append(options, anthropic.WithVertexAI(location, vertexProject))
-			fmt.Printf("DEBUG: Using default Application Default Credentials (ADC)\n")
 		}
 
 		// Use placeholder API key for Vertex AI
@@ -141,9 +142,8 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 			apiKey = GetEnvValue("ANTHROPIC_API_KEY")
 		}
 		if apiKey == "" {
-			return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY) or configure Vertex AI (set VERTEX_AI_PROJECT and VERTEX_AI_REGION)")
+			return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or config.api_key) or configure Vertex AI (set VERTEX_AI_PROJECT and optionally VERTEX_AI_REGION)")
 		}
-		fmt.Printf("DEBUG: Using Anthropic API with key: %s...\n", apiKey[:min(10, len(apiKey))])
 	}
 
 	// Set model - use config model or fallback to ANTHROPIC_MODEL env var

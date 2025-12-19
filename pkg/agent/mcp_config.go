@@ -250,9 +250,6 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration, configVars map[string]st
 				// Use expandWithConfigVars to check ConfigSource variables first, then OS env
 				resolvedValue := expandWithConfigVars(value, configVars)
 				envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, resolvedValue))
-
-				// Debug log to see what's being set
-				fmt.Printf("[applyMCPConfig] DEBUG: MCP server '%s' env %s='%s' -> '%s'\n", serverName, key, value, resolvedValue)
 			}
 
 			lazyConfig := LazyMCPConfig{

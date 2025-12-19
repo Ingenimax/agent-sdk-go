@@ -518,23 +518,16 @@ func expandConfigMap(config map[string]interface{}, configVars map[string]string
 	return expanded
 }
 
-// ExpandAgentConfig expands environment variables in agent configuration
+// ExpandAgentConfig expands environment variables in agent configuration.
+// Environment variables in the config are expanded with the following priority:
+//  1. ConfigSource.Variables (from config service - highest priority)
+//  2. OS environment variables
+//  3. .env file cache (lowest priority)
 func ExpandAgentConfig(config AgentConfig) AgentConfig {
 	// Extract config variables from ConfigSource if available
 	var configVars map[string]string
 	if config.ConfigSource != nil && config.ConfigSource.Variables != nil {
 		configVars = config.ConfigSource.Variables
-		fmt.Printf("[ExpandAgentConfig] DEBUG: Found %d config variables from ConfigSource\n", len(configVars))
-		for key, value := range configVars {
-			// Mask sensitive values in logs
-			displayValue := value
-			if len(value) > 10 {
-				displayValue = value[:10] + "..."
-			}
-			fmt.Printf("[ExpandAgentConfig] DEBUG: ConfigVar: %s = '%s'\n", key, displayValue)
-		}
-	} else {
-		fmt.Printf("[ExpandAgentConfig] DEBUG: No config variables found in ConfigSource\n")
 	}
 
 	expanded := config
@@ -625,10 +618,7 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 
 			// Expand environment variables
 			for key, value := range serverConfig.Env {
-				expanded := expandWithConfigVars(value, configVars)
-				expandedServerConfig.Env[key] = expanded
-				// Debug log to see what's happening with MCP env var expansion
-				fmt.Printf("[MCP Config] DEBUG: Expanded %s='%s' -> '%s'\n", key, value, expanded)
+				expandedServerConfig.Env[key] = expandWithConfigVars(value, configVars)
 			}
 
 			expandedMCP.MCPServers[serverName] = expandedServerConfig
