@@ -334,7 +334,7 @@ func TestShowMemory_SearchError(t *testing.T) {
 
 	showMemory(ctx, store)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer

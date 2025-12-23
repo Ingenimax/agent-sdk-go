@@ -153,7 +153,7 @@ func TestStoreEntities(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -240,7 +240,7 @@ func TestGetEntity(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -280,7 +280,7 @@ func TestUpdateEntity(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -327,7 +327,7 @@ func TestDeleteEntity(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -364,7 +364,7 @@ func TestStoreRelationships(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -418,7 +418,7 @@ func TestGetRelationships(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -466,7 +466,7 @@ func TestSearch(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -503,7 +503,7 @@ func TestTraverseFrom(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
@@ -561,7 +561,7 @@ func TestSetGetTenant(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	t.Run("sets and gets tenant", func(t *testing.T) {
 		store.SetTenant("org-123")
@@ -577,7 +577,7 @@ func TestDiscoverSchema(t *testing.T) {
 	if store == nil {
 		return
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	defer func() { _ = store.DeleteSchema(context.Background()) }()
 
 	ctx := context.Background()
