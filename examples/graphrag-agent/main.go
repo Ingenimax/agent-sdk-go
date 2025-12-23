@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create GraphRAG store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	fmt.Println("=== GraphRAG Agent Demo (Complex Knowledge Graph) ===")
 	fmt.Println("\n1. Populating knowledge graph with sample data...")

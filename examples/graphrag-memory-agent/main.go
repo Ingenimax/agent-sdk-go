@@ -100,7 +100,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create GraphRAG store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Create conversation memory for session context
 	// This maintains chat history within the session

@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	fmt.Println("=== GraphRAG Test ===")
 
