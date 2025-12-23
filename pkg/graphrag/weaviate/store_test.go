@@ -41,15 +41,32 @@ func (m *MockEmbedder) CalculateSimilarity(vec1, vec2 []float32, metric string) 
 	return 0.9, nil
 }
 
-// skipIfNoWeaviate skips the test if Weaviate is not available.
-func skipIfNoWeaviate(t *testing.T) *Store {
+// getTestHost returns the Weaviate host for testing.
+func getTestHost() string {
 	host := os.Getenv("WEAVIATE_HOST")
 	if host == "" {
 		host = "localhost:8080"
 	}
+	return host
+}
 
+// checkWeaviateAvailable checks if Weaviate is reachable and skips the test if not.
+func checkWeaviateAvailable(t *testing.T, store *Store) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := store.client.Schema().Getter().Do(ctx)
+	if err != nil {
+		t.Skipf("Weaviate not reachable: %v", err)
+		return false
+	}
+	return true
+}
+
+// skipIfNoWeaviate skips the test if Weaviate is not available.
+func skipIfNoWeaviate(t *testing.T) *Store {
 	store, err := New(&Config{
-		Host:        host,
+		Host:        getTestHost(),
 		Scheme:      "http",
 		ClassPrefix: "TestGraphRAG",
 	}, WithEmbedder(&MockEmbedder{}))
@@ -59,13 +76,17 @@ func skipIfNoWeaviate(t *testing.T) *Store {
 		return nil
 	}
 
+	if !checkWeaviateAvailable(t, store) {
+		return nil
+	}
+
 	return store
 }
 
 func TestNew(t *testing.T) {
 	t.Run("creates store with default config", func(t *testing.T) {
 		store, err := New(&Config{
-			Host:   "localhost:8080",
+			Host:   getTestHost(),
 			Scheme: "http",
 		})
 		if err != nil {
@@ -74,13 +95,17 @@ func TestNew(t *testing.T) {
 		}
 		defer store.Close()
 
+		if !checkWeaviateAvailable(t, store) {
+			return
+		}
+
 		assert.NotNil(t, store)
 		assert.Equal(t, "Graph", store.classPrefix)
 	})
 
 	t.Run("creates store with custom class prefix", func(t *testing.T) {
 		store, err := New(&Config{
-			Host:        "localhost:8080",
+			Host:        getTestHost(),
 			Scheme:      "http",
 			ClassPrefix: "Custom",
 		})
@@ -90,13 +115,17 @@ func TestNew(t *testing.T) {
 		}
 		defer store.Close()
 
+		if !checkWeaviateAvailable(t, store) {
+			return
+		}
+
 		assert.Equal(t, "Custom", store.classPrefix)
 	})
 
 	t.Run("applies options", func(t *testing.T) {
 		embedder := &MockEmbedder{}
 		store, err := New(&Config{
-			Host:   "localhost:8080",
+			Host:   getTestHost(),
 			Scheme: "http",
 		},
 			WithClassPrefix("OptionsTest"),
@@ -108,6 +137,10 @@ func TestNew(t *testing.T) {
 			return
 		}
 		defer store.Close()
+
+		if !checkWeaviateAvailable(t, store) {
+			return
+		}
 
 		assert.Equal(t, "OptionsTest", store.classPrefix)
 		assert.Equal(t, "test-tenant", store.tenant)
