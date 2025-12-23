@@ -93,7 +93,7 @@ func TestNew(t *testing.T) {
 			t.Skipf("Weaviate not available: %v", err)
 			return
 		}
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 
 		if !checkWeaviateAvailable(t, store) {
 			return
@@ -113,7 +113,7 @@ func TestNew(t *testing.T) {
 			t.Skipf("Weaviate not available: %v", err)
 			return
 		}
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 
 		if !checkWeaviateAvailable(t, store) {
 			return
@@ -136,7 +136,7 @@ func TestNew(t *testing.T) {
 			t.Skipf("Weaviate not available: %v", err)
 			return
 		}
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 
 		if !checkWeaviateAvailable(t, store) {
 			return

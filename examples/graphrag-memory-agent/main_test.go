@@ -226,7 +226,7 @@ func TestShowMemory_EmptyStore(t *testing.T) {
 
 	showMemory(ctx, store)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -258,7 +258,7 @@ func TestShowMemory_WithEntities(t *testing.T) {
 
 	showMemory(ctx, store)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -310,7 +310,7 @@ func TestShowMemory_WithRelationships(t *testing.T) {
 
 	showMemory(ctx, store)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
