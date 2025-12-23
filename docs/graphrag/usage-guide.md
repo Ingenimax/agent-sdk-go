@@ -581,6 +581,102 @@ Sample questions the agent can answer:
 - "What organizations are located in San Francisco?"
 - "Which cities in the USA have tech companies?"
 
+## GraphRAG as Agent Memory
+
+One powerful use case is using GraphRAG as **persistent structured memory** for agents. Unlike simple chat history or key-value storage, graph memory lets agents:
+
+- **Learn**: Store facts as entities and relationships
+- **Recall**: Search and traverse to answer questions
+- **Connect**: Build knowledge incrementally across conversations
+- **Reason**: Follow relationship paths to derive insights
+
+### Memory Agent Pattern
+
+```go
+// Create store with user-specific tenant for memory isolation
+ctx := multitenancy.WithOrgID(ctx, userID)
+
+store, _ := weaviate.New(&weaviate.Config{
+    Host:        "localhost:8080",
+    Scheme:      "http",
+    ClassPrefix: "Memory",
+}, weaviate.WithStoreTenant(userID))
+
+// Create memory-enabled agent
+ag, _ := agent.NewAgent(
+    agent.WithLLM(llm),
+    agent.WithGraphRAG(store),
+    agent.WithSystemPrompt(memoryAgentPrompt),
+)
+```
+
+### Memory Agent System Prompt
+
+Guide the agent on how to use its memory:
+
+```
+You are an assistant with persistent memory. When users tell you things:
+1. Extract key entities (people, projects, skills, locations)
+2. Store them with graphrag_add_entity
+3. Create relationships with graphrag_add_relationship
+
+When users ask questions:
+1. Search memory with graphrag_search
+2. Explore context with graphrag_get_context
+3. Synthesize information naturally
+
+Entity types: Person, Organization, Project, Skill, Location, Topic
+Relationship types: WORKS_AT, WORKS_ON, KNOWS, USES, INTERESTED_IN
+```
+
+### Example Conversation
+
+```
+User: "I'm Alex, I work at TechCorp as a senior engineer"
+
+Agent: [Internally calls:]
+  - graphrag_add_entity: {id: "person-alex", name: "Alex", type: "Person"}
+  - graphrag_add_entity: {id: "org-techcorp", name: "TechCorp", type: "Organization"}
+  - graphrag_add_relationship: {source: "person-alex", target: "org-techcorp", type: "WORKS_AT"}
+
+"Nice to meet you, Alex! I've noted that you're a senior engineer at TechCorp."
+
+User: "What do you know about me?"
+
+Agent: [Calls graphrag_search with query="Alex"]
+
+"You're Alex, a senior engineer at TechCorp. Is there anything else you'd like to tell me?"
+```
+
+### Memory Isolation with Multi-Tenancy
+
+Each user can have isolated memory space:
+
+```go
+// User A's memory
+ctxA := multitenancy.WithOrgID(ctx, "user-alice")
+
+// User B's memory (completely separate)
+ctxB := multitenancy.WithOrgID(ctx, "user-bob")
+```
+
+### Complete Memory Agent Example
+
+See `examples/graphrag-memory-agent/main.go` for an interactive demo:
+
+```bash
+export ANTHROPIC_API_KEY=your-key
+export OPENAI_API_KEY=your-key  # Optional: for semantic search
+cd examples/graphrag-memory-agent
+go run main.go
+```
+
+Features:
+- Interactive conversation with memory
+- `memory` command to inspect stored knowledge
+- `clear` command to reset memory
+- Per-user memory isolation via `USER_ID` environment variable
+
 ## Best Practices
 
 ### 1. Use Meaningful Entity IDs
