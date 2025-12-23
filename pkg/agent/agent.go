@@ -50,7 +50,8 @@ type CustomRunStreamFunction func(ctx context.Context, input string, agent *Agen
 type Agent struct {
 	llm                  interfaces.LLM
 	memory               interfaces.Memory
-	datastore            interfaces.DataStore // DataStore for persistent data storage (PostgreSQL, Supabase, etc.)
+	datastore            interfaces.DataStore     // DataStore for persistent data storage (PostgreSQL, Supabase, etc.)
+	graphRAGStore        interfaces.GraphRAGStore // GraphRAG store for knowledge graph operations
 	tools                []interfaces.Tool
 	subAgents            []*Agent // Sub-agents that can be called as tools
 	orgID                string
