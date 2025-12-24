@@ -95,8 +95,9 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 		})
 	case "http":
 		server, err = NewHTTPServer(ctx, HTTPServerConfig{
-			BaseURL: config.URL,
-			Token:   config.Token,
+			BaseURL:      config.URL,
+			Token:        config.Token,
+			ProtocolType: ServerProtocolType(config.HttpTransportMode),
 		})
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s", config.Type)
@@ -166,13 +167,14 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 
 // LazyMCPServerConfig holds configuration for creating an MCP server on demand
 type LazyMCPServerConfig struct {
-	Name    string
-	Type    string // "stdio" or "http"
-	Command string
-	Args    []string
-	Env     []string
-	URL     string
-	Token   string // Bearer token for HTTP authentication
+	Name              string
+	Type              string // "stdio" or "http"
+	Command           string
+	Args              []string
+	Env               []string
+	URL               string
+	Token             string // Bearer token for HTTP authentication
+	HttpTransportMode string // "sse" or "streamable"
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
@@ -406,11 +408,11 @@ func (t *LazyMCPTool) Run(ctx context.Context, input string) (string, error) {
 				errorMsg = fmt.Sprintf("%v", content)
 			}
 			t.logger.Error(ctx, "[MCP TOOL ERROR] MCP server returned error (unknown type)", map[string]interface{}{
-				"tool_name":    t.name,
-				"server_name":  t.serverConfig.Name,
-				"error_type":   fmt.Sprintf("%T", content),
-				"error":        errorMsg,
-				"raw_content":  content,
+				"tool_name":   t.name,
+				"server_name": t.serverConfig.Name,
+				"error_type":  fmt.Sprintf("%T", content),
+				"error":       errorMsg,
+				"raw_content": content,
 			})
 		}
 		return "", fmt.Errorf("MCP tool error from server '%s': %s", t.serverConfig.Name, errorMsg)
