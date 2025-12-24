@@ -23,14 +23,15 @@ import (
 
 // LazyMCPConfig holds configuration for lazy MCP server initialization
 type LazyMCPConfig struct {
-	Name    string
-	Type    string // "stdio" or "http"
-	Command string
-	Args    []string
-	Env     []string
-	URL     string
-	Token   string // Bearer token for HTTP authentication
-	Tools   []LazyMCPToolConfig
+	Name              string
+	Type              string // "stdio" or "http"
+	Command           string
+	Args              []string
+	Env               []string
+	URL               string
+	Token             string // Bearer token for HTTP authentication
+	Tools             []LazyMCPToolConfig
+	HttpTransportMode string // "sse" or "streamable"
 }
 
 // LazyMCPToolConfig holds configuration for a lazy MCP tool
@@ -1080,13 +1081,14 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 
 		// Create lazy server config
 		lazyServerConfig := mcp.LazyMCPServerConfig{
-			Name:    config.Name,
-			Type:    config.Type,
-			Command: config.Command,
-			Args:    config.Args,
-			Env:     config.Env,
-			URL:     config.URL,
-			Token:   config.Token,
+			Name:              config.Name,
+			Type:              config.Type,
+			Command:           config.Command,
+			Args:              config.Args,
+			Env:               config.Env,
+			URL:               config.URL,
+			Token:             config.Token,
+			HttpTransportMode: config.HttpTransportMode,
 		}
 
 		// If no specific tools are defined, discover all tools from the server

@@ -15,11 +15,12 @@ import (
 
 // MCPServerConfig represents a single MCP server configuration
 type MCPServerConfig struct {
-	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Token   string            `json:"token,omitempty" yaml:"token,omitempty"`
+	Command           string            `json:"command,omitempty" yaml:"command,omitempty"`
+	Args              []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Env               map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	URL               string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Token             string            `json:"token,omitempty" yaml:"token,omitempty"`
+	HttpTransportMode string            `json:"httpTransportMode,omitempty" yaml:"httpTransportMode,omitempty"` // "sse" or "streamable"
 }
 
 // MCPDiscoveredServerInfo represents metadata discovered from the server at runtime
@@ -276,6 +277,12 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration, configVars map[string]st
 				Token: serverConfig.Token,    // Preserve token for lazy initialization
 				Tools: []LazyMCPToolConfig{}, // Will discover dynamically
 			}
+			if serverConfig.HttpTransportMode != "" {
+				// handle case-insensitivity
+				lazyConfig.HttpTransportMode = strings.ToLower(serverConfig.HttpTransportMode)
+			} else {
+				lazyConfig.HttpTransportMode = "sse" // Default to sse
+			}
 			lazyConfigs = append(lazyConfigs, lazyConfig)
 
 		default:
@@ -394,6 +401,12 @@ func ValidateMCPConfig(config *MCPConfiguration) error {
 		case "http":
 			if server.URL == "" {
 				return fmt.Errorf("server %s: url is required for http type", serverName)
+			}
+		}
+
+		if server.URL != "" && server.HttpTransportMode != "" {
+			if !strings.EqualFold(server.HttpTransportMode, "sse") || !strings.EqualFold(server.HttpTransportMode, "streamable") {
+				return fmt.Errorf("server %s: invalid httpTransportMode '%s', must be 'sse' or 'streamable'", serverName, server.HttpTransportMode)
 			}
 		}
 	}
