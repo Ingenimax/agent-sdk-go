@@ -560,8 +560,7 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 
 		// Bedrock uses AWS SDK, not HTTP requests
 		if c.BedrockConfig != nil && c.BedrockConfig.Enabled {
-			modelID := c.BedrockConfig.GetModelID(c.Model)
-			bedrockResp, err := c.BedrockConfig.InvokeModel(ctx, modelID, &req)
+			bedrockResp, err := c.BedrockConfig.InvokeModel(ctx, c.Model, &req)
 			if err != nil {
 				return fmt.Errorf("failed to invoke Bedrock model: %w", err)
 			}

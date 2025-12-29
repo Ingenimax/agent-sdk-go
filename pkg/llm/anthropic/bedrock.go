@@ -209,34 +209,6 @@ func IsBedrockModel(model string) bool {
 	return strings.Contains(model, "anthropic.claude")
 }
 
-// ConvertToBedrockModel converts a standard Anthropic model name to Bedrock format
-func ConvertToBedrockModel(model string) string {
-	// Map common model names to Bedrock model IDs
-	switch model {
-	case Claude35Haiku:
-		return "anthropic.claude-3-5-haiku-20241022-v1:0"
-	case Claude35Sonnet:
-		return "anthropic.claude-3-5-sonnet-20241022-v2:0"
-	case Claude3Opus:
-		return "anthropic.claude-3-opus-20240229-v1:0"
-	case Claude37Sonnet:
-		return "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-	case ClaudeSonnet4:
-		return "us.anthropic.claude-sonnet-4-20250514-v1:0"
-	case ClaudeSonnet45:
-		return "anthropic.claude-sonnet-4-5-20250929-v1:0"
-	case ClaudeOpus4:
-		return "anthropic.claude-opus-4-20250514-v1:0"
-	case ClaudeOpus41:
-		return "anthropic.claude-opus-4-1-20250805-v1:0"
-	case ClaudeOpus45:
-		return "anthropic.claude-opus-4-5-20251101-v1:0"
-	default:
-		// Return as-is if already in Bedrock format or unknown
-		return model
-	}
-}
-
 // GetSupportedBedrockRegions returns a list of AWS regions that support Anthropic models on Bedrock
 func GetSupportedBedrockRegions() []string {
 	return []string{
@@ -266,18 +238,3 @@ func IsBedrockRegionSupported(region string) bool {
 	return false
 }
 
-// GetModelID returns the appropriate model ID for Bedrock
-// If the model is not in Bedrock format, converts it
-func (bc *BedrockConfig) GetModelID(model string) string {
-	if !bc.Enabled {
-		return model
-	}
-
-	// If already in Bedrock format, return as-is
-	if IsBedrockModel(model) {
-		return model
-	}
-
-	// Convert to Bedrock format
-	return ConvertToBedrockModel(model)
-}

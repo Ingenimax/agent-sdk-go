@@ -924,15 +924,13 @@ func (c *AnthropicClient) executeBedrockStreaming(
 	req *CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
 ) error {
-	modelID := c.BedrockConfig.GetModelID(c.Model)
-
 	c.logger.Debug(ctx, "Executing Bedrock streaming request", map[string]interface{}{
-		"modelID": modelID,
+		"modelID": c.Model,
 		"region":  c.BedrockConfig.Region,
 	})
 
 	// Invoke Bedrock streaming
-	output, err := c.BedrockConfig.InvokeModelStream(ctx, modelID, req)
+	output, err := c.BedrockConfig.InvokeModelStream(ctx, c.Model, req)
 	if err != nil {
 		return fmt.Errorf("failed to invoke Bedrock streaming: %w", err)
 	}
@@ -1028,7 +1026,7 @@ func (c *AnthropicClient) executeBedrockStreaming(
 	}
 
 	c.logger.Debug(ctx, "Successfully completed Bedrock streaming request", map[string]interface{}{
-		"modelID": modelID,
+		"modelID": c.Model,
 	})
 
 	return nil
