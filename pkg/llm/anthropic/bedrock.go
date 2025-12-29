@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -184,57 +183,5 @@ func (bc *BedrockConfig) InvokeModelStream(ctx context.Context, modelID string, 
 	}
 
 	return output, nil
-}
-
-// ValidateBedrockConfig validates the Bedrock configuration
-func (bc *BedrockConfig) ValidateBedrockConfig() error {
-	if !bc.Enabled {
-		return nil
-	}
-
-	if bc.Region == "" {
-		return fmt.Errorf("region is required for Bedrock")
-	}
-
-	if bc.client == nil {
-		return fmt.Errorf("bedrock client is not initialized")
-	}
-
-	return nil
-}
-
-// IsBedrockModel checks if a model name is in Bedrock format
-func IsBedrockModel(model string) bool {
-	// Bedrock model IDs start with "anthropic.claude" or "us.anthropic.claude" or "eu.anthropic.claude"
-	return strings.Contains(model, "anthropic.claude")
-}
-
-// GetSupportedBedrockRegions returns a list of AWS regions that support Anthropic models on Bedrock
-func GetSupportedBedrockRegions() []string {
-	return []string{
-		"us-east-1",
-		"us-west-2",
-		"ap-south-1",
-		"ap-southeast-1",
-		"ap-southeast-2",
-		"ap-northeast-1",
-		"eu-central-1",
-		"eu-west-1",
-		"eu-west-2",
-		"eu-west-3",
-		"ca-central-1",
-		"sa-east-1",
-	}
-}
-
-// IsBedrockRegionSupported checks if a region supports Anthropic models on Bedrock
-func IsBedrockRegionSupported(region string) bool {
-	supportedRegions := GetSupportedBedrockRegions()
-	for _, supported := range supportedRegions {
-		if region == supported {
-			return true
-		}
-	}
-	return false
 }
 
