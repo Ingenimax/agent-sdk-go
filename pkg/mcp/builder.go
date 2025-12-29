@@ -300,9 +300,10 @@ func (b *Builder) initializeServer(ctx context.Context, config LazyMCPServerConf
 		u.RawQuery = q.Encode()
 
 		server, err = NewHTTPServerWithRetry(ctx, HTTPServerConfig{
-			BaseURL: u.String(),
-			Token:   token,
-			Logger:  b.logger,
+			BaseURL:      u.String(),
+			Token:        token,
+			Logger:       b.logger,
+			ProtocolType: ServerProtocolType(config.HttpTransportMode),
 		}, &RetryConfig{
 			MaxAttempts:       b.retryOptions.MaxAttempts,
 			InitialDelay:      b.retryOptions.InitialDelay,
