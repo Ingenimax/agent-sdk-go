@@ -50,16 +50,17 @@ func NewBedrockConfigWithAWSConfig(ctx context.Context, awsConfig aws.Config) (*
 
 // BedrockRequest represents the request format for AWS Bedrock (uses standard Anthropic format)
 type BedrockRequest struct {
-	MaxTokens        int         `json:"max_tokens"`
-	Messages         []Message   `json:"messages"`
-	System           string      `json:"system,omitempty"`
-	Tools            []Tool      `json:"tools,omitempty"`
-	ToolChoice       interface{} `json:"tool_choice,omitempty"`
-	Temperature      float64     `json:"temperature,omitempty"`
-	TopP             float64     `json:"top_p,omitempty"`
-	TopK             int         `json:"top_k,omitempty"`
-	StopSequences    []string    `json:"stop_sequences,omitempty"`
-	AnthropicVersion string      `json:"anthropic_version"`
+	MaxTokens        int            `json:"max_tokens"`
+	Messages         []Message      `json:"messages"`
+	System           string         `json:"system,omitempty"`
+	Tools            []Tool         `json:"tools,omitempty"`
+	ToolChoice       interface{}    `json:"tool_choice,omitempty"`
+	Temperature      float64        `json:"temperature,omitempty"`
+	TopP             float64        `json:"top_p,omitempty"`
+	TopK             int            `json:"top_k,omitempty"`
+	StopSequences    []string       `json:"stop_sequences,omitempty"`
+	AnthropicVersion string         `json:"anthropic_version"`
+	Thinking         *ReasoningSpec `json:"thinking,omitempty"` // Extended thinking support for Claude models
 }
 
 // TransformRequest converts an Anthropic CompletionRequest to Bedrock format
@@ -79,6 +80,7 @@ func (bc *BedrockConfig) TransformRequest(req *CompletionRequest) (*BedrockReque
 		TopK:             req.TopK,
 		StopSequences:    req.StopSequences,
 		AnthropicVersion: "bedrock-2023-05-31", // Required for Bedrock
+		Thinking:         req.Thinking,         // Extended thinking support
 	}
 
 	return bedrockReq, nil
