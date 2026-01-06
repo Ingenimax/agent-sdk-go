@@ -413,8 +413,10 @@ type CompletionResponse struct {
 
 // Usage represents token usage information
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // WithReasoning creates a GenerateOption to set the reasoning mode
@@ -427,6 +429,52 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 		}
 		options.LLMConfig.Reasoning = reasoning
 		// No actual functionality since reasoning is not supported
+	}
+}
+
+// WithCacheSystemMessage creates a GenerateOption to cache the system message.
+// The system message will have cache_control added, caching it for subsequent requests.
+func WithCacheSystemMessage() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheSystemMessage = true
+	}
+}
+
+// WithCacheTools creates a GenerateOption to cache all tool definitions.
+// The cache_control is placed on the last tool, caching all tools as a prefix.
+func WithCacheTools() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheTools = true
+	}
+}
+
+// WithCacheConversation creates a GenerateOption to cache conversation history.
+// The cache_control is placed on the last message from memory, so the entire
+// conversation prefix is cached. Each new turn just appends to the cached prefix.
+func WithCacheConversation() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheConversation = true
+	}
+}
+
+// WithCacheTTL creates a GenerateOption to set the cache duration.
+// Valid values are "5m" (default, 5 minutes) or "1h" (1 hour).
+// The 1-hour cache has additional cost but is useful for longer sessions.
+func WithCacheTTL(ttl string) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheTTL = ttl
 	}
 }
 
@@ -577,10 +625,24 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 			}
 		} else {
 			// Standard Anthropic API mode
-			// Convert request to JSON
-			reqBody, err := json.Marshal(req)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request: %w", err)
+			// Convert request to JSON, using cache builder if caching is enabled
+			var reqBody []byte
+			cacheBuilder := newCacheRequestBuilder(params.CacheConfig)
+			if cacheBuilder.HasCacheOptions() {
+				cacheableReq, err := cacheBuilder.BuildCacheableRequest(&req)
+				if err != nil {
+					return fmt.Errorf("failed to build cacheable request: %w", err)
+				}
+				reqBody, err = json.Marshal(cacheableReq)
+				if err != nil {
+					return fmt.Errorf("failed to marshal cacheable request: %w", err)
+				}
+			} else {
+				var err error
+				reqBody, err = json.Marshal(req)
+				if err != nil {
+					return fmt.Errorf("failed to marshal request: %w", err)
+				}
 			}
 
 			httpReq, err = http.NewRequestWithContext(
@@ -668,9 +730,11 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 		Model:      resp.Model,
 		StopReason: resp.StopReason,
 		Usage: &interfaces.TokenUsage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			TotalTokens:              resp.Usage.InputTokens + resp.Usage.OutputTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		},
 		Metadata: map[string]interface{}{
 			"provider": "anthropic",
@@ -1069,8 +1133,8 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 		// Define operation for retry mechanism
 		operation := func() error {
-			// Create HTTP request (supports both Vertex AI and standard Anthropic API)
-			httpReq, err := c.createHTTPRequest(ctx, &req, "/v1/messages")
+			// Create HTTP request (supports both Vertex AI and standard Anthropic API, with caching)
+			httpReq, err := c.createHTTPRequestWithCache(ctx, &req, "/v1/messages", params.CacheConfig)
 			if err != nil {
 				return fmt.Errorf("failed to create request (iteration %d): %w", iteration+1, err)
 			}
@@ -1514,15 +1578,34 @@ func (c *AnthropicClient) GenerateWithToolsDetailed(ctx context.Context, prompt 
 
 // createHTTPRequest creates an HTTP request for either Vertex AI or standard Anthropic API
 func (c *AnthropicClient) createHTTPRequest(ctx context.Context, req *CompletionRequest, path string) (*http.Request, error) {
+	return c.createHTTPRequestWithCache(ctx, req, path, nil)
+}
+
+// createHTTPRequestWithCache creates an HTTP request with optional cache support
+func (c *AnthropicClient) createHTTPRequestWithCache(ctx context.Context, req *CompletionRequest, path string, cacheConfig *interfaces.CacheConfig) (*http.Request, error) {
 	if c.VertexConfig != nil && c.VertexConfig.Enabled {
-		// Vertex AI mode
+		// Vertex AI mode - TODO: Add cache support for Vertex AI
 		return c.VertexConfig.CreateVertexHTTPRequest(ctx, req, "POST", path)
 	} else {
 		// Standard Anthropic API mode
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		// Convert request to JSON, using cache builder if caching is enabled
+		var reqBody []byte
+		cacheBuilder := newCacheRequestBuilder(cacheConfig)
+		if cacheBuilder.HasCacheOptions() {
+			cacheableReq, err := cacheBuilder.BuildCacheableRequest(req)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build cacheable request: %w", err)
+			}
+			reqBody, err = json.Marshal(cacheableReq)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal cacheable request: %w", err)
+			}
+		} else {
+			var err error
+			reqBody, err = json.Marshal(req)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request: %w", err)
+			}
 		}
 
 		// Create HTTP request
@@ -1547,18 +1630,39 @@ func (c *AnthropicClient) createHTTPRequest(ctx context.Context, req *Completion
 
 // createStreamingHTTPRequest creates an HTTP request for streaming, supporting both Vertex AI and standard API
 func (c *AnthropicClient) createStreamingHTTPRequest(ctx context.Context, req *CompletionRequest, path string) (*http.Request, error) {
+	return c.createStreamingHTTPRequestWithCache(ctx, req, path, nil)
+}
+
+// createStreamingHTTPRequestWithCache creates an HTTP request for streaming with optional cache support
+func (c *AnthropicClient) createStreamingHTTPRequestWithCache(ctx context.Context, req *CompletionRequest, path string, cacheConfig *interfaces.CacheConfig) (*http.Request, error) {
 	if c.VertexConfig != nil && c.VertexConfig.Enabled {
-		// Vertex AI mode
+		// Vertex AI mode - TODO: Add cache support for Vertex AI streaming
 		return c.VertexConfig.CreateVertexStreamingHTTPRequest(ctx, req, "POST", path)
 	} else {
 		// Standard Anthropic API mode
 		// Ensure streaming is enabled
 		req.Stream = true
 
-		// Convert request to JSON
-		reqBody, err := json.Marshal(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		// Convert request to JSON, using cache builder if caching is enabled
+		var reqBody []byte
+		cacheBuilder := newCacheRequestBuilder(cacheConfig)
+		if cacheBuilder.HasCacheOptions() {
+			cacheableReq, err := cacheBuilder.BuildCacheableRequest(req)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build cacheable streaming request: %w", err)
+			}
+			// Ensure streaming is enabled in the cacheable request
+			cacheableReq.Stream = true
+			reqBody, err = json.Marshal(cacheableReq)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal cacheable streaming request: %w", err)
+			}
+		} else {
+			var err error
+			reqBody, err = json.Marshal(req)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request: %w", err)
+			}
 		}
 
 		// Create HTTP request
