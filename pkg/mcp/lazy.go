@@ -173,8 +173,9 @@ type LazyMCPServerConfig struct {
 	Args              []string
 	Env               []string
 	URL               string
-	Token             string // Bearer token for HTTP authentication
-	HttpTransportMode string // "sse" or "streamable"
+	Token             string   // Bearer token for HTTP authentication
+	HttpTransportMode string   // "sse" or "streamable"
+	AllowedTools      []string // List of allowed tool names for this MCP server
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
