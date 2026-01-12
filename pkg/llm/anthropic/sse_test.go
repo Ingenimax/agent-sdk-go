@@ -121,7 +121,7 @@ func TestConvertAnthropicEventToStreamEvent(t *testing.T) {
 			name: "Message start event",
 			anthropicEvent: &AnthropicSSEEvent{
 				Type: "message_start",
-				Data: json.RawMessage(`{"type": "message", "id": "msg_123", "role": "assistant", "content": [], "model": "claude-3-sonnet-20240229", "usage": {"input_tokens": 10, "output_tokens": 0}}`),
+				Data: json.RawMessage(`{"type": "message_start", "message": {"id": "msg_123", "role": "assistant", "content": [], "model": "claude-3-sonnet-20240229", "usage": {"input_tokens": 10, "output_tokens": 0}}}`),
 			},
 			expectedType: interfaces.StreamEventMessageStart,
 			expectError:  false,
@@ -217,21 +217,26 @@ func TestConvertAnthropicEventToStreamEvent(t *testing.T) {
 
 func TestMessageStartData(t *testing.T) {
 	var msgStart MessageStartData
-	err := json.Unmarshal([]byte(`{"type": "message", "id": "msg_123", "role": "assistant", "content": [], "model": "claude-3-sonnet-20240229", "usage": {"input_tokens": 10, "output_tokens": 0}}`), &msgStart)
+	// The actual Anthropic SSE format nests message data inside a "message" field
+	err := json.Unmarshal([]byte(`{"type": "message_start", "message": {"id": "msg_123", "role": "assistant", "content": [], "model": "claude-3-sonnet-20240229", "usage": {"input_tokens": 10, "output_tokens": 0}}}`), &msgStart)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal MessageStartData: %v", err)
 	}
 
-	if msgStart.ID != "msg_123" {
-		t.Errorf("Expected ID 'msg_123', got '%s'", msgStart.ID)
+	if msgStart.Message.ID != "msg_123" {
+		t.Errorf("Expected ID 'msg_123', got '%s'", msgStart.Message.ID)
 	}
 
-	if msgStart.Model != "claude-3-sonnet-20240229" {
-		t.Errorf("Expected model 'claude-3-sonnet-20240229', got '%s'", msgStart.Model)
+	if msgStart.Message.Model != "claude-3-sonnet-20240229" {
+		t.Errorf("Expected model 'claude-3-sonnet-20240229', got '%s'", msgStart.Message.Model)
 	}
 
-	if msgStart.Role != "assistant" {
-		t.Errorf("Expected role 'assistant', got '%s'", msgStart.Role)
+	if msgStart.Message.Role != "assistant" {
+		t.Errorf("Expected role 'assistant', got '%s'", msgStart.Message.Role)
+	}
+
+	if msgStart.Message.Usage.InputTokens != 10 {
+		t.Errorf("Expected input_tokens 10, got %d", msgStart.Message.Usage.InputTokens)
 	}
 }
 
