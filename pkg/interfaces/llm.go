@@ -175,3 +175,19 @@ func WithResponseFormat(format ResponseFormat) GenerateOption {
 		options.ResponseFormat = &format
 	}
 }
+
+// CacheConfig contains configuration for prompt caching (Anthropic)
+type CacheConfig struct {
+	// CacheSystemMessage enables caching of the system message
+	CacheSystemMessage bool
+
+	// CacheTools enables caching of tool definitions
+	CacheTools bool
+
+	// CacheConversation enables caching of conversation messages
+	CacheConversation bool
+
+	// CacheTTL specifies the cache time-to-live (e.g., "5m", "1h")
+	// If empty, uses provider default
+	CacheTTL string
+}
