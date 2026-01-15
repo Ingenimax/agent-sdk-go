@@ -10,16 +10,24 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/genai"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/executionplan"
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/client"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tools/imagegen"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
+
+	// Import storage backends for side-effect registration
+	_ "github.com/Ingenimax/agent-sdk-go/pkg/storage/local"
 )
 
 // LazyMCPConfig holds configuration for lazy MCP server initialization
@@ -328,6 +336,26 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		// Store memory config for later instantiation (after LLM is set)
 		if expandedConfig.Memory != nil {
 			a.memoryConfig = convertMemoryConfigYAMLToInterface(expandedConfig.Memory)
+		}
+
+		// Process image generation configuration
+		if expandedConfig.ImageGeneration != nil {
+			imgGenEnabled := expandedConfig.ImageGeneration.Enabled == nil || *expandedConfig.ImageGeneration.Enabled
+			if imgGenEnabled {
+				imgTool, err := createImageGenerationToolFromConfig(expandedConfig.ImageGeneration, a.logger)
+				if err != nil {
+					if a.logger != nil {
+						a.logger.Warn(context.Background(), "Failed to create image generation tool from config", map[string]interface{}{
+							"error": err.Error(),
+						})
+					}
+				} else if imgTool != nil {
+					a.tools = deduplicateTools(append(a.tools, imgTool))
+					if a.logger != nil {
+						a.logger.Info(context.Background(), "Successfully created image generation tool from YAML config", nil)
+					}
+				}
+			}
 		}
 
 		// Apply runtime settings
@@ -1974,4 +2002,203 @@ func NewAgentFromConfigObject(ctx context.Context, config *AgentConfig, variable
 	allOptions := append([]Option{configOption, nameOption}, options...)
 
 	return NewAgent(allOptions...)
+}
+
+// createImageGenerationToolFromConfig creates an image generation tool from YAML configuration
+func createImageGenerationToolFromConfig(config *ImageGenerationYAML, logger logging.Logger) (interfaces.Tool, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	ctx := context.Background()
+
+	// Determine provider (default to gemini)
+	provider := config.Provider
+	if provider == "" {
+		provider = "gemini"
+	}
+
+	// Currently only Gemini is supported
+	if provider != "gemini" {
+		return nil, fmt.Errorf("unsupported image generation provider: %s (only 'gemini' is supported)", provider)
+	}
+
+	// Determine model (default to gemini-2.5-flash-image)
+	model := config.Model
+	if model == "" {
+		model = gemini.ModelGemini25FlashImage
+	}
+
+	// Build Gemini client options
+	var geminiOptions []gemini.Option
+	geminiOptions = append(geminiOptions, gemini.WithModel(model))
+
+	// Check for Vertex AI credentials first
+	googleCreds := ""
+	projectID := ""
+	location := ""
+
+	if config.Config != nil {
+		if creds, ok := config.Config["google_application_credentials"].(string); ok {
+			googleCreds = creds
+		}
+		if proj, ok := config.Config["project_id"].(string); ok {
+			projectID = proj
+		}
+		if loc, ok := config.Config["location"].(string); ok {
+			location = loc
+		}
+	}
+
+	// Fall back to environment variables
+	if googleCreds == "" {
+		googleCreds = os.Getenv("VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
+	}
+	if projectID == "" {
+		projectID = os.Getenv("VERTEX_AI_PROJECT")
+	}
+	if location == "" {
+		location = os.Getenv("VERTEX_AI_REGION")
+	}
+	if location == "" {
+		location = "us-central1"
+	}
+
+	// Use Vertex AI if credentials and project are available
+	if googleCreds != "" && projectID != "" {
+		// Parse credentials (supports base64 encoded, file path, or raw JSON)
+		credentialsJSON, err := parseGoogleCredentials(googleCreds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse Google credentials for image generation: %w", err)
+		}
+
+		geminiOptions = append(geminiOptions,
+			gemini.WithBackend(genai.BackendVertexAI),
+			gemini.WithCredentialsJSON([]byte(credentialsJSON)),
+			gemini.WithProjectID(projectID),
+			gemini.WithLocation(location),
+		)
+	} else {
+		// Fall back to API key authentication
+		apiKey := ""
+		if config.Config != nil {
+			if key, ok := config.Config["api_key"].(string); ok {
+				apiKey = key
+			}
+		}
+		if apiKey == "" {
+			apiKey = os.Getenv("GEMINI_API_KEY")
+		}
+		if apiKey == "" {
+			apiKey = os.Getenv("GOOGLE_API_KEY")
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("credentials required for image generation: set GEMINI_API_KEY or Vertex AI credentials (VERTEX_AI_PROJECT + VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT)")
+		}
+		geminiOptions = append(geminiOptions, gemini.WithAPIKey(apiKey))
+	}
+
+	// Create Gemini client for image generation
+	geminiClient, err := gemini.NewClient(ctx, geminiOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Gemini client for image generation: %w", err)
+	}
+
+	// Verify the model supports image generation
+	if !geminiClient.SupportsImageGeneration() {
+		return nil, fmt.Errorf("model %s does not support image generation", model)
+	}
+
+	// Create storage backend
+	var imageStorage storage.ImageStorage
+	if config.Storage != nil {
+		imageStorage, err = createImageStorageFromConfig(config.Storage)
+		if err != nil {
+			if logger != nil {
+				logger.Warn(ctx, "Failed to create image storage, images will be returned as base64", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+			// Continue without storage - tool will return base64 data
+		}
+	}
+
+	// Build tool options
+	var toolOptions []imagegen.Option
+
+	// Apply config options
+	if config.Config != nil {
+		if maxLen, ok := config.Config["max_prompt_length"].(int); ok {
+			toolOptions = append(toolOptions, imagegen.WithMaxPromptLength(maxLen))
+		}
+		if ratio, ok := config.Config["default_aspect_ratio"].(string); ok {
+			toolOptions = append(toolOptions, imagegen.WithDefaultAspectRatio(ratio))
+		}
+		if format, ok := config.Config["default_format"].(string); ok {
+			toolOptions = append(toolOptions, imagegen.WithDefaultFormat(format))
+		}
+	}
+
+	// Create the image generation tool
+	imgTool := imagegen.New(geminiClient, imageStorage, toolOptions...)
+
+	return imgTool, nil
+}
+
+// createImageStorageFromConfig creates an image storage backend from YAML configuration
+func createImageStorageFromConfig(config *ImageStorageYAML) (storage.ImageStorage, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	storageType := config.Type
+	if storageType == "" {
+		// Infer from which config is provided
+		if config.Local != nil {
+			storageType = "local"
+		} else if config.GCS != nil {
+			storageType = "gcs"
+		} else {
+			storageType = "local" // Default to local
+		}
+	}
+
+	switch storageType {
+	case "local":
+		localCfg := storage.LocalConfig{}
+		if config.Local != nil {
+			localCfg.Path = config.Local.Path
+			localCfg.BaseURL = config.Local.BaseURL
+		}
+		if storage.NewLocalStorage == nil {
+			return nil, fmt.Errorf("local storage backend not registered")
+		}
+		return storage.NewLocalStorage(localCfg)
+
+	case "gcs":
+		if config.GCS == nil {
+			return nil, fmt.Errorf("GCS storage configuration is required when type is 'gcs'")
+		}
+		gcsCfg := storage.GCSConfig{
+			Bucket:          config.GCS.Bucket,
+			Prefix:          config.GCS.Prefix,
+			CredentialsFile: config.GCS.CredentialsFile,
+		}
+		// Parse signed URL expiration duration
+		if config.GCS.SignedURLExpiration != "" {
+			duration, err := time.ParseDuration(config.GCS.SignedURLExpiration)
+			if err != nil {
+				return nil, fmt.Errorf("invalid signed_url_expiration format: %w", err)
+			}
+			gcsCfg.SignedURLExpiration = duration
+			gcsCfg.UseSignedURLs = true
+		}
+		if storage.NewGCSStorage == nil {
+			return nil, fmt.Errorf("GCS storage backend not registered (import github.com/Ingenimax/agent-sdk-go/pkg/storage/gcs)")
+		}
+		return storage.NewGCSStorage(gcsCfg)
+
+	default:
+		return nil, fmt.Errorf("unsupported storage type: %s (only 'local' and 'gcs' are supported)", storageType)
+	}
 }

@@ -58,6 +58,9 @@ type AgentConfig struct {
 	// NEW: Runtime settings
 	Runtime *RuntimeConfigYAML `yaml:"runtime,omitempty"`
 
+	// NEW: Image generation configuration
+	ImageGeneration *ImageGenerationYAML `yaml:"image_generation,omitempty"`
+
 	// NEW: Sub-agents configuration (recursive)
 	SubAgents map[string]AgentConfig `yaml:"sub_agents,omitempty"`
 
@@ -125,6 +128,36 @@ type RuntimeConfigYAML struct {
 	EnableTracing   *bool  `yaml:"enable_tracing,omitempty"`
 	EnableMetrics   *bool  `yaml:"enable_metrics,omitempty"`
 	TimeoutDuration string `yaml:"timeout_duration,omitempty"` // "30s", "5m"
+}
+
+// ImageGenerationYAML represents image generation configuration in YAML
+type ImageGenerationYAML struct {
+	Enabled  *bool                  `yaml:"enabled,omitempty"`
+	Provider string                 `yaml:"provider,omitempty"` // "gemini"
+	Model    string                 `yaml:"model,omitempty"`    // e.g., "gemini-2.5-flash-image"
+	Config   map[string]interface{} `yaml:"config,omitempty"`
+	Storage  *ImageStorageYAML      `yaml:"storage,omitempty"`
+}
+
+// ImageStorageYAML represents image storage configuration in YAML
+type ImageStorageYAML struct {
+	Type  string                 `yaml:"type,omitempty"` // "local", "gcs"
+	Local *LocalStorageYAML      `yaml:"local,omitempty"`
+	GCS   *GCSStorageYAML        `yaml:"gcs,omitempty"`
+}
+
+// LocalStorageYAML represents local storage configuration in YAML
+type LocalStorageYAML struct {
+	Path    string `yaml:"path,omitempty"`
+	BaseURL string `yaml:"base_url,omitempty"`
+}
+
+// GCSStorageYAML represents GCS storage configuration in YAML
+type GCSStorageYAML struct {
+	Bucket              string `yaml:"bucket,omitempty"`
+	Prefix              string `yaml:"prefix,omitempty"`
+	CredentialsFile     string `yaml:"credentials_file,omitempty"`
+	SignedURLExpiration string `yaml:"signed_url_expiration,omitempty"`
 }
 
 // AgentConfigs represents a map of agent configurations
@@ -592,6 +625,35 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 			Provider: expandWithConfigVars(config.LLMProvider.Provider, configVars),
 			Model:    expandWithConfigVars(config.LLMProvider.Model, configVars),
 			Config:   expandConfigMap(config.LLMProvider.Config, configVars),
+		}
+	}
+
+	// Expand image generation configuration
+	if config.ImageGeneration != nil {
+		expanded.ImageGeneration = &ImageGenerationYAML{
+			Enabled:  config.ImageGeneration.Enabled,
+			Provider: expandWithConfigVars(config.ImageGeneration.Provider, configVars),
+			Model:    expandWithConfigVars(config.ImageGeneration.Model, configVars),
+			Config:   expandConfigMap(config.ImageGeneration.Config, configVars),
+		}
+		if config.ImageGeneration.Storage != nil {
+			expanded.ImageGeneration.Storage = &ImageStorageYAML{
+				Type: expandWithConfigVars(config.ImageGeneration.Storage.Type, configVars),
+			}
+			if config.ImageGeneration.Storage.Local != nil {
+				expanded.ImageGeneration.Storage.Local = &LocalStorageYAML{
+					Path:    expandWithConfigVars(config.ImageGeneration.Storage.Local.Path, configVars),
+					BaseURL: expandWithConfigVars(config.ImageGeneration.Storage.Local.BaseURL, configVars),
+				}
+			}
+			if config.ImageGeneration.Storage.GCS != nil {
+				expanded.ImageGeneration.Storage.GCS = &GCSStorageYAML{
+					Bucket:              expandWithConfigVars(config.ImageGeneration.Storage.GCS.Bucket, configVars),
+					Prefix:              expandWithConfigVars(config.ImageGeneration.Storage.GCS.Prefix, configVars),
+					CredentialsFile:     expandWithConfigVars(config.ImageGeneration.Storage.GCS.CredentialsFile, configVars),
+					SignedURLExpiration: expandWithConfigVars(config.ImageGeneration.Storage.GCS.SignedURLExpiration, configVars),
+				}
+			}
 		}
 	}
 

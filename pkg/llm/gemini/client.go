@@ -39,6 +39,9 @@ const (
 	ModelGemini20FlashPreviewImageGen        = "gemini-2.0-flash-preview-image-generation"
 	ModelGemini20FlashLive001                = "gemini-2.0-flash-live-001"
 
+	// Image generation models
+	ModelGemini25FlashImage = "gemini-2.5-flash-image"
+
 	// Default model
 	DefaultModel = ModelGemini15Flash
 )
