@@ -35,6 +35,7 @@ type GenerateOptions struct {
 	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
 	Memory         Memory          // Optional memory for storing tool calls and results
 	StreamConfig   *StreamConfig   // Optional streaming configuration
+	CacheConfig    *CacheConfig    // Optional cache configuration (Anthropic)
 }
 
 type LLMConfig struct {

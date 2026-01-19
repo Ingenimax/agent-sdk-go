@@ -413,8 +413,10 @@ type CompletionResponse struct {
 
 // Usage represents token usage information
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // WithReasoning creates a GenerateOption to set the reasoning mode
@@ -1644,6 +1646,46 @@ func WithSystemMessage(systemMessage string) interfaces.GenerateOption {
 func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOption {
 	return func(options *interfaces.GenerateOptions) {
 		options.ResponseFormat = &format
+	}
+}
+
+// WithCacheSystemMessage creates a GenerateOption to enable caching of the system message
+func WithCacheSystemMessage() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheSystemMessage = true
+	}
+}
+
+// WithCacheTools creates a GenerateOption to enable caching of tool definitions
+func WithCacheTools() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheTools = true
+	}
+}
+
+// WithCacheConversation creates a GenerateOption to enable caching of conversation messages
+func WithCacheConversation() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheConversation = true
+	}
+}
+
+// WithCacheTTL creates a GenerateOption to set the cache time-to-live
+func WithCacheTTL(ttl string) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if options.CacheConfig == nil {
+			options.CacheConfig = &interfaces.CacheConfig{}
+		}
+		options.CacheConfig.CacheTTL = ttl
 	}
 }
 
