@@ -169,7 +169,9 @@ func (s *Storage) Get(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read from GCS: %w", err)
 	}
-	defer rc.Close()
+	defer func() {
+		_ = rc.Close()
+	}()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
