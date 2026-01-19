@@ -55,7 +55,7 @@ func New(cfg storage.LocalConfig) (storage.ImageStorage, error) {
 	}
 
 	// Ensure base directory exists
-	if err := os.MkdirAll(s.basePath, 0755); err != nil {
+	if err := os.MkdirAll(s.basePath, 0750); err != nil { // #nosec G301 - directory needs to be accessible
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
@@ -73,7 +73,7 @@ func NewWithOptions(options ...Option) (*Storage, error) {
 	}
 
 	// Ensure base directory exists
-	if err := os.MkdirAll(s.basePath, 0755); err != nil {
+	if err := os.MkdirAll(s.basePath, 0750); err != nil { // #nosec G301 - directory needs to be accessible
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
@@ -101,7 +101,7 @@ func (s *Storage) Store(ctx context.Context, image *interfaces.GeneratedImage, m
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, 0750); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -115,7 +115,7 @@ func (s *Storage) Store(ctx context.Context, image *interfaces.GeneratedImage, m
 	filePath := filepath.Join(dirPath, filename)
 
 	// Write file
-	if err := os.WriteFile(filePath, image.Data, 0644); err != nil {
+	if err := os.WriteFile(filePath, image.Data, 0600); err != nil {
 		return "", fmt.Errorf("failed to write image file: %w", err)
 	}
 
@@ -156,6 +156,7 @@ func (s *Storage) Get(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid URL or file path")
 	}
 
+	// #nosec G304 - filePath is validated through urlToFilePath which uses sanitizePath
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read image file: %w", err)
