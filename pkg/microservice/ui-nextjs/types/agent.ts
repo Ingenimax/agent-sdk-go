@@ -148,6 +148,11 @@ export interface MemoryResponse {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /**
+   * UI-only content to render in chat bubbles (optional).
+   * When present, UI should render this instead of `content`.
+   */
+  display_content?: string;
   timestamp: number;
   id?: string;
 }

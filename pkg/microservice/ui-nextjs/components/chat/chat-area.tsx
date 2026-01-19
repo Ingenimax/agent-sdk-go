@@ -30,6 +30,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollToBottom();
@@ -115,7 +116,7 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
           continue;
         }
         newItems.push({ name: file.name, url, size: file.size });
-      } catch (err) {
+      } catch {
         addMessage({
           role: 'assistant',
           content: `Error: Failed to read image: ${file.name}`,
@@ -326,36 +327,6 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  <Label htmlFor="image-upload" className="text-xs">Image:</Label>
-                  <input
-                    id="image-upload"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    disabled={isLoading}
-                    className="text-xs"
-                    onChange={(e) => {
-                      void handleImageFiles(e.target.files);
-                      // allow selecting the same file again
-                      e.currentTarget.value = '';
-                    }}
-                  />
-                  {pendingImages.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={isLoading}
-                      onClick={() => setPendingImages([])}
-                      title="Clear attached images"
-                    >
-                      Clear ({pendingImages.length})
-                    </Button>
-                  )}
-                </div>
-
-                <div className="flex items-center space-x-2">
                   <Building2 className="h-3 w-3 text-muted-foreground" />
                   <Label htmlFor="org-id" className="text-xs">Org:</Label>
                   <Input
@@ -416,6 +387,62 @@ export function ChatArea({ agentConfig }: ChatAreaProps) {
                     <Send className="h-4 w-4" />
                   )}
                 </Button>
+              </div>
+            </div>
+            {/* Attachments (images) */}
+            <div className="flex items-start justify-between mt-3 gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">Attachments</span>
+                {pendingImages.length > 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    {pendingImages.length} image(s) selected
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">No images selected</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Hidden image input: avoids native file input layout issues */}
+                <input
+                  ref={imageInputRef}
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={isLoading}
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleImageFiles(e.target.files);
+                    // allow selecting the same file again
+                    e.currentTarget.value = '';
+                  }}
+                />
+
+                <Label htmlFor="image-upload" className="text-xs">Image:</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  disabled={isLoading}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  Select images
+                </Button>
+                {pendingImages.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    disabled={isLoading}
+                    onClick={() => setPendingImages([])}
+                    title="Clear attached images"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </div>
           </div>
