@@ -161,7 +161,6 @@ func (t *Tool) Execute(ctx context.Context, args string) (string, error) {
 	}
 
 	// Store image if storage is configured
-	var imageURL string
 	if t.storage != nil {
 		metadata := storage.StorageMetadata{
 			Prompt:    params.Prompt,
@@ -171,22 +170,28 @@ func (t *Tool) Execute(ctx context.Context, args string) (string, error) {
 		url, err := t.storage.Store(ctx, &response.Images[0], metadata)
 		if err != nil {
 			// Log warning but don't fail - return base64 instead
+			fmt.Printf("[imagegen] Storage failed, using base64: %v\n", err)
 			return t.formatResultWithBase64(response, params.Prompt), nil
 		}
-		imageURL = url
 		response.Images[0].URL = url
+		fmt.Printf("[imagegen] Image stored at: %s\n", url)
+		// Format result with URL
+		return t.formatResult(response, params.Prompt, url), nil
 	}
 
-	// Format result
-	return t.formatResult(response, params.Prompt, imageURL), nil
+	// No storage configured - return base64 embedded image
+	fmt.Printf("[imagegen] No storage configured, using base64\n")
+	return t.formatResultWithBase64(response, params.Prompt), nil
 }
 
 // formatResult creates a human-readable result string with URL
+// The image is formatted using markdown syntax so UIs can render it
 func (t *Tool) formatResult(response *interfaces.ImageGenerationResponse, prompt, imageURL string) string {
 	result := fmt.Sprintf("Successfully generated image for prompt: \"%s\"\n\n", truncateString(prompt, 100))
 
 	if imageURL != "" {
-		result += fmt.Sprintf("Image URL: %s\n", imageURL)
+		// Use markdown image syntax for UI rendering
+		result += fmt.Sprintf("![Generated image](%s)\n\n", imageURL)
 	}
 
 	result += fmt.Sprintf("Format: %s\n", response.Images[0].MimeType)
@@ -201,12 +206,16 @@ func (t *Tool) formatResult(response *interfaces.ImageGenerationResponse, prompt
 }
 
 // formatResultWithBase64 creates a result string with base64 data (fallback when storage fails)
+// The image is embedded as a data URI using markdown syntax for UI rendering
 func (t *Tool) formatResultWithBase64(response *interfaces.ImageGenerationResponse, prompt string) string {
 	result := fmt.Sprintf("Successfully generated image for prompt: \"%s\"\n\n", truncateString(prompt, 100))
+
+	// Create data URI for direct embedding in markdown
+	dataURI := fmt.Sprintf("data:%s;base64,%s", response.Images[0].MimeType, response.Images[0].Base64)
+	result += fmt.Sprintf("![Generated image](%s)\n\n", dataURI)
+
 	result += fmt.Sprintf("Format: %s\n", response.Images[0].MimeType)
 	result += fmt.Sprintf("Size: %d bytes\n", len(response.Images[0].Data))
-	result += fmt.Sprintf("\nBase64 data (first 100 chars): %s...\n", truncateString(response.Images[0].Base64, 100))
-	result += "\nNote: Image storage unavailable. Base64 data can be used directly."
 
 	return result
 }
