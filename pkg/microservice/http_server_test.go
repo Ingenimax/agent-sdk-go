@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -307,6 +310,108 @@ func TestHTTPServer_Run(t *testing.T) {
 	if response["output"] != "Hello, world!" {
 		t.Errorf("Expected output 'Hello, world!', got %v", response["output"])
 	}
+}
+
+func TestHTTPServer_Run_MultipartDataURL(t *testing.T) {
+	// Create test agent
+	testAgent := createTestAgent("Hello, multipart!", nil)
+	server := NewHTTPServer(testAgent.(*MockStreamingAgent).Agent, 8080)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("conversation_id", "test-conversation")
+	_ = writer.WriteField("org_id", "test-org")
+	_ = writer.WriteField("upload_mode", "data_url")
+	_ = writer.WriteField("detail", "auto")
+
+	img := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a} // PNG signature prefix
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="images"; filename="test.png"`)
+	h.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write(img); err != nil {
+		t.Fatalf("Write img: %v", err)
+	}
+	_ = writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/agent/run", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+
+	server.handleRun(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHTTPServer_MultipartStoreMode_SavesAndServes(t *testing.T) {
+	testAgent := createTestAgent("ok", nil)
+	server := NewHTTPServer(testAgent.(*MockStreamingAgent).Agent, 8080)
+	server.uploadDir = t.TempDir()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("conversation_id", "test-conversation")
+	_ = writer.WriteField("org_id", "test-org")
+	_ = writer.WriteField("upload_mode", "store")
+
+	img := []byte("fake image bytes")
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="images"; filename="x.jpg"`)
+	h.Set("Content-Type", "image/jpeg")
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write(img); err != nil {
+		t.Fatalf("Write img: %v", err)
+	}
+	_ = writer.Close()
+
+	req := httptest.NewRequest("POST", "/api/v1/agent/run", body)
+	req.Host = "example.com"
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	_, parts, err := server.parseMultipartAgentRequest(req)
+	if err != nil {
+		t.Fatalf("parseMultipartAgentRequest: %v", err)
+	}
+
+	var fileURL string
+	for _, p := range parts {
+		if p.Type == "image_url" && p.ImageURL != nil {
+			fileURL = p.ImageURL.URL
+			break
+		}
+	}
+	if fileURL == "" {
+		t.Fatalf("expected image_url part, got %+v", parts)
+	}
+	prefix := "http://example.com/api/v1/files/"
+	if !strings.HasPrefix(fileURL, prefix) {
+		t.Fatalf("expected file url prefix %q, got %q", prefix, fileURL)
+	}
+	name := strings.TrimPrefix(fileURL, prefix)
+	if name == "" {
+		t.Fatalf("expected non-empty file name in url: %q", fileURL)
+	}
+
+	// Verify the file can be served back.
+	getReq := httptest.NewRequest("GET", "/api/v1/files/"+name, nil)
+	getW := httptest.NewRecorder()
+	server.handleFileDownload(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("expected 200 from file download, got %d: %s", getW.Code, getW.Body.String())
+	}
+	if !bytes.Equal(getW.Body.Bytes(), img) {
+		t.Fatalf("served bytes mismatch: got %q want %q", string(getW.Body.Bytes()), string(img))
+	}
+
+	// Cleanup saved file.
+	_ = os.RemoveAll(server.uploadDir)
 }
 
 func TestHTTPServer_Stream(t *testing.T) {

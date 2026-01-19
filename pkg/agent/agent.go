@@ -847,9 +847,14 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if a.memory != nil {
+		var parts []interfaces.ContentPart
+		if p, ok := interfaces.GetContextContentParts(ctx); ok && len(p) > 0 {
+			parts = p
+		}
 		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
+			Role:         interfaces.MessageRoleUser,
+			Content:      input,
+			ContentParts: parts,
 		}); err != nil {
 			return "", fmt.Errorf("failed to add user message to memory: %w", err)
 		}
@@ -1203,6 +1208,11 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
+	}
+
+	// If multimodal content parts are provided via context, forward them to the LLM.
+	if parts, ok := interfaces.GetContextContentParts(ctx); ok && len(parts) > 0 {
+		generateOptions = append(generateOptions, interfaces.WithContentParts(parts...))
 	}
 
 	tracker := getUsageTracker(ctx)

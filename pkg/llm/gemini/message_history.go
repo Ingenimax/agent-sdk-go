@@ -47,7 +47,12 @@ func (b *messageHistoryBuilder) buildContents(ctx context.Context, prompt string
 		// Only append current user message when memory is nil
 		contents = append(contents, &genai.Content{
 			Role:  "user",
-			Parts: []*genai.Part{{Text: prompt}},
+			Parts: func() []*genai.Part {
+				if len(params.ContentParts) > 0 {
+					return buildGeminiPartsFromContentParts(prompt, params.ContentParts)
+				}
+				return []*genai.Part{{Text: prompt}}
+			}(),
 		})
 	}
 
@@ -58,6 +63,12 @@ func (b *messageHistoryBuilder) buildContents(ctx context.Context, prompt string
 func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *genai.Content {
 	switch msg.Role {
 	case interfaces.MessageRoleUser:
+		if len(msg.ContentParts) > 0 {
+			return &genai.Content{
+				Role:  "user",
+				Parts: buildGeminiPartsFromContentParts(msg.Content, msg.ContentParts),
+			}
+		}
 		return &genai.Content{
 			Role:  "user",
 			Parts: []*genai.Part{{Text: msg.Content}},

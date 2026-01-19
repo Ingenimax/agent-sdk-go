@@ -165,7 +165,7 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 
 	// Build messages using unified builder
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.ContentParts)...)
 
 	// Create request
 	req := openai.ChatCompletionNewParams{
@@ -473,7 +473,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Build messages with memory and current prompt
 	builder := newMessageHistoryBuilder(c.logger)
-	messages := builder.buildMessages(ctx, prompt, params.Memory)
+	messages := builder.buildMessages(ctx, prompt, params.Memory, params.ContentParts)
 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)

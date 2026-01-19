@@ -2,11 +2,19 @@ package microservice
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
@@ -15,20 +23,36 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
+const (
+	// memory used by ParseMultipartForm; larger parts may spill to disk automatically.
+	maxMultipartMemoryBytes = 32 << 20 // 32MB
+	// maximum bytes read per uploaded image file.
+	maxImageBytes = 20 << 20 // 20MB
+)
+
+type uploadMode string
+
+const (
+	uploadModeDataURL uploadMode = "data_url"
+	uploadModeStore   uploadMode = "store"
+)
+
 // HTTPServer provides HTTP/SSE endpoints for agent streaming
 type HTTPServer struct {
-	agent  *agent.Agent
-	port   int
-	server *http.Server
+	agent     *agent.Agent
+	port      int
+	server    *http.Server
+	uploadDir string
 }
 
 // StreamRequest represents the JSON request for streaming
 type StreamRequest struct {
-	Input          string            `json:"input"`
-	OrgID          string            `json:"org_id,omitempty"`
-	ConversationID string            `json:"conversation_id,omitempty"`
-	Context        map[string]string `json:"context,omitempty"`
-	MaxIterations  int               `json:"max_iterations,omitempty"`
+	Input          string                   `json:"input"`
+	ContentParts   []interfaces.ContentPart `json:"content_parts,omitempty"`
+	OrgID          string                   `json:"org_id,omitempty"`
+	ConversationID string                   `json:"conversation_id,omitempty"`
+	Context        map[string]string        `json:"context,omitempty"`
+	MaxIterations  int                      `json:"max_iterations,omitempty"`
 }
 
 // SSEEvent represents a Server-Sent Event
@@ -63,9 +87,14 @@ type ToolCallData struct {
 
 // NewHTTPServer creates a new HTTP server for agent streaming
 func NewHTTPServer(agent *agent.Agent, port int) *HTTPServer {
+	// Security default: disable store mode unless explicitly enabled.
+	// When set, uploaded files will be stored on disk and served via /api/v1/files/*.
+	uploadDir := strings.TrimSpace(os.Getenv("AGENT_SDK_UPLOAD_DIR"))
+
 	return &HTTPServer{
-		agent: agent,
-		port:  port,
+		agent:     agent,
+		port:      port,
+		uploadDir: uploadDir,
 	}
 }
 
@@ -81,6 +110,9 @@ func (h *HTTPServer) Start() error {
 	mux.HandleFunc("/api/v1/agent/run", h.handleRun)
 	mux.HandleFunc("/api/v1/agent/stream", h.handleStream)
 	mux.HandleFunc("/api/v1/agent/metadata", h.handleMetadata)
+	if h.uploadDir != "" {
+		mux.HandleFunc("/api/v1/files/", h.handleFileDownload)
+	}
 
 	// Serve static files for browser example (if they exist)
 	mux.Handle("/", http.FileServer(http.Dir("./web/")))
@@ -154,14 +186,9 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	req, contentParts, err := h.parseAgentRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -172,6 +199,11 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ConversationID != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
+	}
+
+	// Attach multimodal content parts (if provided)
+	if len(contentParts) > 0 {
+		ctx = interfaces.WithContextContentParts(ctx, contentParts...)
 	}
 
 	// Execute agent with detailed tracking
@@ -230,15 +262,9 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	req, contentParts, err := h.parseAgentRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -262,6 +288,11 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ConversationID != "" {
 		ctx = memory.WithConversationID(ctx, req.ConversationID)
+	}
+
+	// Attach multimodal content parts (if provided)
+	if len(contentParts) > 0 {
+		ctx = interfaces.WithContextContentParts(ctx, contentParts...)
 	}
 
 	// Check if agent supports streaming
@@ -372,6 +403,255 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 		Type:    "done",
 		IsFinal: true,
 	})
+}
+
+func hasAnyTextPart(parts []interfaces.ContentPart) bool {
+	for _, p := range parts {
+		if p.Type == "text" {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *HTTPServer) parseAgentRequest(r *http.Request) (StreamRequest, []interfaces.ContentPart, error) {
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		return h.parseMultipartAgentRequest(r)
+	}
+	return h.parseJSONAgentRequest(r)
+}
+
+func (h *HTTPServer) parseJSONAgentRequest(r *http.Request) (StreamRequest, []interfaces.ContentPart, error) {
+	var req StreamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return StreamRequest{}, nil, fmt.Errorf("Invalid JSON: %w", err)
+	}
+
+	if req.Input == "" && len(req.ContentParts) == 0 {
+		return StreamRequest{}, nil, errors.New("Either 'input' or 'content_parts' is required")
+	}
+
+	contentParts := req.ContentParts
+	if err := validateContentParts(contentParts); err != nil {
+		return StreamRequest{}, nil, err
+	}
+	if len(contentParts) > 0 && req.Input != "" && !hasAnyTextPart(contentParts) {
+		contentParts = append([]interfaces.ContentPart{interfaces.TextPart(req.Input)}, contentParts...)
+	}
+
+	return req, contentParts, nil
+}
+
+func (h *HTTPServer) parseMultipartAgentRequest(r *http.Request) (StreamRequest, []interfaces.ContentPart, error) {
+	if err := r.ParseMultipartForm(maxMultipartMemoryBytes); err != nil {
+		return StreamRequest{}, nil, fmt.Errorf("Invalid multipart form: %w", err)
+	}
+
+	var req StreamRequest
+	req.Input = r.FormValue("input")
+	req.OrgID = r.FormValue("org_id")
+	req.ConversationID = r.FormValue("conversation_id")
+	if maxIterStr := r.FormValue("max_iterations"); maxIterStr != "" {
+		if v, err := strconv.Atoi(maxIterStr); err == nil {
+			req.MaxIterations = v
+		}
+	}
+
+	// Optional: allow passing JSON content_parts field in multipart.
+	var contentParts []interfaces.ContentPart
+	if rawParts := r.FormValue("content_parts"); strings.TrimSpace(rawParts) != "" {
+		if err := json.Unmarshal([]byte(rawParts), &contentParts); err != nil {
+			return StreamRequest{}, nil, fmt.Errorf("Invalid content_parts JSON: %w", err)
+		}
+		if err := validateContentParts(contentParts); err != nil {
+			return StreamRequest{}, nil, err
+		}
+	}
+
+	mode := uploadMode(strings.TrimSpace(r.FormValue("upload_mode")))
+	if mode == "" {
+		mode = uploadModeDataURL
+	}
+	detail := strings.TrimSpace(r.FormValue("detail")) // "low" | "high" | "auto" | ""
+
+	files := []*multipart.FileHeader{}
+	if r.MultipartForm != nil {
+		files = append(files, r.MultipartForm.File["images"]...)
+		files = append(files, r.MultipartForm.File["image"]...)
+	}
+
+	for _, fh := range files {
+		part, err := h.contentPartFromUploadedFile(r, fh, mode, detail)
+		if err != nil {
+			return StreamRequest{}, nil, err
+		}
+		if part.Type != "" {
+			contentParts = append(contentParts, part)
+		}
+	}
+
+	if req.Input == "" && len(contentParts) == 0 {
+		return StreamRequest{}, nil, errors.New("Either 'input' or 'content_parts' is required")
+	}
+
+	// Back-compat: if both input and content_parts are provided and no text part exists, prepend input.
+	if len(contentParts) > 0 && req.Input != "" && !hasAnyTextPart(contentParts) {
+		contentParts = append([]interfaces.ContentPart{interfaces.TextPart(req.Input)}, contentParts...)
+	}
+
+	return req, contentParts, nil
+}
+
+func (h *HTTPServer) contentPartFromUploadedFile(r *http.Request, fh *multipart.FileHeader, mode uploadMode, detail string) (interfaces.ContentPart, error) {
+	if fh == nil {
+		return interfaces.ContentPart{}, nil
+	}
+	if fh.Size > maxImageBytes {
+		return interfaces.ContentPart{}, fmt.Errorf("image too large: %d bytes (max %d)", fh.Size, maxImageBytes)
+	}
+
+	f, err := fh.Open()
+	if err != nil {
+		return interfaces.ContentPart{}, fmt.Errorf("failed to open uploaded file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxImageBytes+1))
+	if err != nil {
+		return interfaces.ContentPart{}, fmt.Errorf("failed to read uploaded file: %w", err)
+	}
+	if int64(len(data)) > maxImageBytes {
+		return interfaces.ContentPart{}, fmt.Errorf("image too large: %d bytes (max %d)", len(data), maxImageBytes)
+	}
+
+	mimeType := fh.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	if !isAllowedImageMIME(mimeType) {
+		return interfaces.ContentPart{}, fmt.Errorf("unsupported image content-type: %s", mimeType)
+	}
+
+	switch mode {
+	case uploadModeStore:
+		if h.uploadDir == "" {
+			return interfaces.ContentPart{}, errors.New("upload_mode=store is not enabled on this server")
+		}
+		if err := os.MkdirAll(h.uploadDir, 0o755); err != nil {
+			return interfaces.ContentPart{}, fmt.Errorf("failed to create upload dir: %w", err)
+		}
+		name, err := randomFilename(filepath.Base(fh.Filename))
+		if err != nil {
+			return interfaces.ContentPart{}, fmt.Errorf("failed to generate filename: %w", err)
+		}
+		destPath := filepath.Join(h.uploadDir, name)
+		if err := os.WriteFile(destPath, data, 0o644); err != nil {
+			return interfaces.ContentPart{}, fmt.Errorf("failed to save file: %w", err)
+		}
+		u := h.fileURL(r, name)
+		return interfaces.ImageURLPart(u, detail), nil
+
+	case uploadModeDataURL, "":
+		encoded := base64.StdEncoding.EncodeToString(data)
+		dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
+		return interfaces.ImageURLPart(dataURL, detail), nil
+
+	default:
+		return interfaces.ContentPart{}, fmt.Errorf("unsupported upload_mode: %s", mode)
+	}
+}
+
+func isAllowedImageMIME(mime string) bool {
+	switch strings.ToLower(strings.TrimSpace(mime)) {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateContentParts(parts []interfaces.ContentPart) error {
+	for _, p := range parts {
+		if p.Type != "image_url" {
+			continue
+		}
+		if p.ImageURL == nil || strings.TrimSpace(p.ImageURL.URL) == "" {
+			return errors.New("Invalid content_parts: image_url.url is required when type is 'image_url'")
+		}
+		u := strings.TrimSpace(p.ImageURL.URL)
+		if !isAllowedImageURLScheme(u) {
+			return fmt.Errorf("Invalid image_url: must start with http://, https://, or data:")
+		}
+		// Minimal additional hardening: if it's a data URL, require image/* prefix.
+		if strings.HasPrefix(u, "data:") && !strings.HasPrefix(strings.ToLower(u), "data:image/") {
+			return fmt.Errorf("Invalid image_url data URL: must be data:image/*")
+		}
+	}
+	return nil
+}
+
+func isAllowedImageURLScheme(u string) bool {
+	u = strings.ToLower(u)
+	return strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "data:")
+}
+
+func randomFilename(original string) (string, error) {
+	// Keep a stable extension if present.
+	ext := strings.ToLower(filepath.Ext(original))
+	if ext == "" || strings.Contains(ext, "/") {
+		ext = ""
+	}
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	hex := base64.RawURLEncoding.EncodeToString(b[:])
+	return hex + ext, nil
+}
+
+func (h *HTTPServer) fileURL(r *http.Request, name string) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if xf := r.Header.Get("X-Forwarded-Proto"); xf != "" {
+		// Prefer proxy-provided scheme when present.
+		scheme = strings.Split(xf, ",")[0]
+		scheme = strings.TrimSpace(scheme)
+	}
+	host := r.Host
+	return fmt.Sprintf("%s://%s/api/v1/files/%s", scheme, host, name)
+}
+
+// handleFileDownload serves a previously uploaded file by name.
+// This is used by upload_mode=store so that providers can fetch the image by URL.
+func (h *HTTPServer) handleFileDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.uploadDir == "" {
+		http.Error(w, "File serving not enabled", http.StatusNotFound)
+		return
+	}
+
+	name := strings.TrimPrefix(r.URL.Path, "/api/v1/files/")
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, string(os.PathSeparator)) {
+		http.Error(w, "Invalid file name", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure file path stays within uploadDir.
+	destPath := filepath.Join(h.uploadDir, name)
+	rel, err := filepath.Rel(h.uploadDir, destPath)
+	if err != nil || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	http.ServeFile(w, r, destPath)
 }
 
 // handleMetadata provides agent metadata
