@@ -1751,46 +1751,6 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 	}
 }
 
-// WithCacheSystemMessage creates a GenerateOption to enable caching of the system message
-func WithCacheSystemMessage() interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if options.CacheConfig == nil {
-			options.CacheConfig = &interfaces.CacheConfig{}
-		}
-		options.CacheConfig.CacheSystemMessage = true
-	}
-}
-
-// WithCacheTools creates a GenerateOption to enable caching of tool definitions
-func WithCacheTools() interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if options.CacheConfig == nil {
-			options.CacheConfig = &interfaces.CacheConfig{}
-		}
-		options.CacheConfig.CacheTools = true
-	}
-}
-
-// WithCacheConversation creates a GenerateOption to enable caching of conversation messages
-func WithCacheConversation() interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if options.CacheConfig == nil {
-			options.CacheConfig = &interfaces.CacheConfig{}
-		}
-		options.CacheConfig.CacheConversation = true
-	}
-}
-
-// WithCacheTTL creates a GenerateOption to set the cache time-to-live
-func WithCacheTTL(ttl string) interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if options.CacheConfig == nil {
-			options.CacheConfig = &interfaces.CacheConfig{}
-		}
-		options.CacheConfig.CacheTTL = ttl
-	}
-}
-
 // createExampleFromSchema creates an example JSON structure based on the schema
 func createExampleFromSchema(schema map[string]interface{}) map[string]interface{} {
 	example := make(map[string]interface{})
