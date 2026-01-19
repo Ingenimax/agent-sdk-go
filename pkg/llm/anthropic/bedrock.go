@@ -87,6 +87,9 @@ func (bc *BedrockConfig) TransformRequest(req *CompletionRequest) (*BedrockReque
 }
 
 // InvokeModel invokes a Bedrock model using the AWS SDK (non-streaming)
+// TODO: Add prompt caching support for Bedrock. Currently, caching options are ignored
+// when using Bedrock. The cache_control blocks would need to be added to BedrockRequest
+// and the request format verified against AWS Bedrock's Anthropic integration.
 func (bc *BedrockConfig) InvokeModel(ctx context.Context, modelID string, req *CompletionRequest) (*CompletionResponse, error) {
 	if !bc.Enabled {
 		return nil, fmt.Errorf("bedrock is not enabled")
@@ -186,4 +189,3 @@ func (bc *BedrockConfig) InvokeModelStream(ctx context.Context, modelID string, 
 
 	return output, nil
 }
-

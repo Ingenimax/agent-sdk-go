@@ -17,14 +17,16 @@ type AnthropicSSEEvent struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
-// MessageStart event data
+// MessageStartData represents the message_start event data.
 type MessageStartData struct {
 	Type    string `json:"type"`
-	ID      string `json:"id"`
-	Role    string `json:"role"`
-	Content []any  `json:"content"`
-	Model   string `json:"model"`
-	Usage   Usage  `json:"usage"`
+	Message struct {
+		ID      string `json:"id"`
+		Role    string `json:"role"`
+		Content []any  `json:"content"`
+		Model   string `json:"model"`
+		Usage   Usage  `json:"usage"`
+	} `json:"message"`
 }
 
 // ContentBlockStart event data
@@ -133,10 +135,10 @@ func (c *AnthropicClient) convertAnthropicEventToStreamEvent(event *AnthropicSSE
 		}
 
 		streamEvent.Type = interfaces.StreamEventMessageStart
-		streamEvent.Metadata["message_id"] = msgStart.ID
-		streamEvent.Metadata["model"] = msgStart.Model
-		streamEvent.Metadata["role"] = msgStart.Role
-		streamEvent.Metadata["usage"] = msgStart.Usage
+		streamEvent.Metadata["message_id"] = msgStart.Message.ID
+		streamEvent.Metadata["model"] = msgStart.Message.Model
+		streamEvent.Metadata["role"] = msgStart.Message.Role
+		streamEvent.Metadata["usage"] = msgStart.Message.Usage
 
 	case "content_block_start":
 		var blockStart ContentBlockStartData

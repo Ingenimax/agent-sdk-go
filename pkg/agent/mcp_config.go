@@ -21,6 +21,7 @@ type MCPServerConfig struct {
 	URL               string            `json:"url,omitempty" yaml:"url,omitempty"`
 	Token             string            `json:"token,omitempty" yaml:"token,omitempty"`
 	HttpTransportMode string            `json:"httpTransportMode,omitempty" yaml:"httpTransportMode,omitempty"` // "sse" or "streamable"
+	AllowedTools      []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
 }
 
 // MCPDiscoveredServerInfo represents metadata discovered from the server at runtime
@@ -254,12 +255,13 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration, configVars map[string]st
 			}
 
 			lazyConfig := LazyMCPConfig{
-				Name:    serverName,
-				Type:    "stdio",
-				Command: serverConfig.Command,
-				Args:    serverConfig.Args,
-				Env:     envSlice,
-				Tools:   []LazyMCPToolConfig{}, // Will discover dynamically
+				Name:         serverName,
+				Type:         "stdio",
+				Command:      serverConfig.Command,
+				Args:         serverConfig.Args,
+				Env:          envSlice,
+				Tools:        []LazyMCPToolConfig{}, // Will discover dynamically
+				AllowedTools: serverConfig.AllowedTools,
 			}
 			lazyConfigs = append(lazyConfigs, lazyConfig)
 
@@ -271,11 +273,12 @@ func applyMCPConfig(a *Agent, config *MCPConfiguration, configVars map[string]st
 			}
 
 			lazyConfig := LazyMCPConfig{
-				Name:  serverName,
-				Type:  "http",
-				URL:   serverConfig.URL,
-				Token: serverConfig.Token,    // Preserve token for lazy initialization
-				Tools: []LazyMCPToolConfig{}, // Will discover dynamically
+				Name:         serverName,
+				Type:         "http",
+				URL:          serverConfig.URL,
+				Token:        serverConfig.Token,    // Preserve token for lazy initialization
+				Tools:        []LazyMCPToolConfig{}, // Will discover dynamically
+				AllowedTools: serverConfig.AllowedTools,
 			}
 			if serverConfig.HttpTransportMode != "" {
 				// handle case-insensitivity

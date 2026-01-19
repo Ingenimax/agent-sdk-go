@@ -35,7 +35,22 @@ type GenerateOptions struct {
 	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
 	Memory         Memory          // Optional memory for storing tool calls and results
 	StreamConfig   *StreamConfig   // Optional streaming configuration
-	CacheConfig    *CacheConfig    // Optional cache configuration (Anthropic)
+	CacheConfig    *CacheConfig    // Optional prompt caching configuration (Anthropic only)
+}
+
+// CacheConfig contains configuration for prompt caching (Anthropic only)
+// Cache breakpoints cache everything UP TO AND INCLUDING the marked block.
+// Order: tools → system → messages
+type CacheConfig struct {
+	// CacheSystemMessage marks the system message for caching
+	CacheSystemMessage bool
+	// CacheTools marks all tool definitions for caching (cache_control on last tool)
+	CacheTools bool
+	// CacheConversation marks conversation history for caching (cache_control on last message)
+	// Each new turn just appends to the cached prefix
+	CacheConversation bool
+	// CacheTTL sets the cache duration: "5m" (default) or "1h"
+	CacheTTL string
 }
 
 type LLMConfig struct {
@@ -111,6 +126,12 @@ type TokenUsage struct {
 
 	// ReasoningTokens is the number of tokens used for reasoning (optional, for models that support it)
 	ReasoningTokens int
+
+	// CacheCreationInputTokens is the number of tokens written to cache (Anthropic only)
+	CacheCreationInputTokens int
+
+	// CacheReadInputTokens is the number of tokens read from cache (Anthropic only)
+	CacheReadInputTokens int
 }
 
 // WithSystemMessage creates a GenerateOption to set the system message
