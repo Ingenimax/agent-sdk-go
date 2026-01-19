@@ -152,6 +152,23 @@ export interface ChatMessage {
   id?: string;
 }
 
+// Multimodal content parts (compatible with server-side `content_parts`)
+export interface ContentPart {
+  type: 'text' | 'image_url' | 'image_file' | string;
+  text?: string;
+  image_url?: ImageURL;
+  image_file?: ImageFile;
+}
+
+export interface ImageURL {
+  url: string;
+  detail?: string; // "low" | "high" | "auto"
+}
+
+export interface ImageFile {
+  file_id: string;
+}
+
 export interface StreamEventData {
   type: string;
   content?: string;
@@ -177,6 +194,7 @@ export interface StreamResponse {
 
 export interface RunRequest {
   input: string;
+  content_parts?: ContentPart[];
   conversation_id?: string;
   org_id?: string;
   context?: Record<string, string>;
@@ -185,6 +203,7 @@ export interface RunRequest {
 
 export interface StreamRequest {
   input: string;
+  content_parts?: ContentPart[];
   conversation_id?: string;
   org_id?: string;
   context?: Record<string, string>;
