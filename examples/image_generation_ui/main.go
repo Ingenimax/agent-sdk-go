@@ -43,7 +43,6 @@ import (
 	_ "github.com/Ingenimax/agent-sdk-go/pkg/storage/gcs"   // Register GCS storage
 	_ "github.com/Ingenimax/agent-sdk-go/pkg/storage/local" // Register local storage
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/imagegen"
-	"google.golang.org/api/iterator"
 	"google.golang.org/genai"
 )
 
@@ -121,6 +120,7 @@ func main() {
 			fmt.Printf("Serving generated images at http://localhost:%d/\n", imagePort)
 
 			// Ensure directory exists
+			// #nosec G301 -- Example code uses 0755 for local development directory
 			if err := os.MkdirAll(localStoragePath, 0755); err != nil {
 				log.Printf("Warning: could not create image directory: %v", err)
 				return
@@ -139,6 +139,7 @@ func main() {
 				fs.ServeHTTP(w, r)
 			})
 
+			// #nosec G114 -- Example code for local development, timeouts not critical
 			if err := http.ListenAndServe(fmt.Sprintf(":%d", imagePort), nil); err != nil {
 				log.Printf("Image server error: %v", err)
 			}
@@ -186,6 +187,7 @@ func createLocalStorage(port int) (imgstorage.ImageStorage, string, error) {
 	baseURL := fmt.Sprintf("http://localhost:%d", imagePort)
 
 	// Ensure directory exists
+	// #nosec G301 -- Example code uses 0755 for local development directory
 	if err := os.MkdirAll(localStoragePath, 0755); err != nil {
 		return nil, "", fmt.Errorf("failed to create image directory: %w", err)
 	}
@@ -313,7 +315,11 @@ func ensureBucketExists(ctx context.Context, bucketName, projectID string) error
 	if err != nil {
 		return fmt.Errorf("failed to create GCS client: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if cerr := client.Close(); cerr != nil {
+			log.Printf("Warning: failed to close GCS client: %v", cerr)
+		}
+	}()
 
 	bucket := client.Bucket(bucketName)
 
@@ -364,30 +370,6 @@ func ensureBucketExists(ctx context.Context, bucketName, projectID string) error
 
 	fmt.Printf("Created GCS bucket: %s\n", bucketName)
 	return nil
-}
-
-// listBuckets lists all buckets in the project (for debugging)
-func listBuckets(ctx context.Context, projectID string) {
-	client, err := storage.NewClient(ctx)
-	if err != nil {
-		log.Printf("Failed to create client: %v", err)
-		return
-	}
-	defer client.Close()
-
-	it := client.Buckets(ctx, projectID)
-	fmt.Println("Available buckets:")
-	for {
-		battrs, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			log.Printf("Failed to list buckets: %v", err)
-			return
-		}
-		fmt.Printf("  - %s\n", battrs.Name)
-	}
 }
 
 // getGeminiOptions returns the appropriate Gemini client options based on environment.
