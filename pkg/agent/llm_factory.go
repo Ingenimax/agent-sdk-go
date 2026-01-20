@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"google.golang.org/genai"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/anthropic"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/azureopenai"
@@ -285,20 +287,9 @@ func createAzureOpenAIClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 }
 
 // createGeminiClient creates a Google Gemini LLM client
+// Supports both API key and Vertex AI authentication
 func createGeminiClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 	var options []gemini.Option
-
-	// Get API key from config or environment
-	apiKey := getConfigString(config.Config, "api_key")
-	if apiKey == "" {
-		apiKey = GetEnvValue("GEMINI_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("api_key is required for Gemini provider (set GEMINI_API_KEY or provide in config)")
-	}
-
-	// Set API key
-	options = append(options, gemini.WithAPIKey(apiKey))
 
 	// Set model - use config model or fallback to GEMINI_MODEL env var
 	model := ExpandEnv(config.Model)
@@ -312,14 +303,52 @@ func createGeminiClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 		options = append(options, gemini.WithModel(model))
 	}
 
-	// Set project for Vertex AI if provided
-	if project := getConfigString(config.Config, "project"); project != "" {
-		options = append(options, gemini.WithProjectID(project))
+	// Check for Vertex AI credentials first (preferred for production)
+	googleCreds := getConfigString(config.Config, "google_application_credentials")
+	if googleCreds == "" {
+		googleCreds = GetEnvValue("VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
 	}
 
-	// Set location for Vertex AI if provided
-	if location := getConfigString(config.Config, "location"); location != "" {
-		options = append(options, gemini.WithLocation(location))
+	projectID := getConfigString(config.Config, "project_id")
+	if projectID == "" {
+		projectID = getConfigString(config.Config, "project")
+	}
+	if projectID == "" {
+		projectID = GetEnvValue("VERTEX_AI_PROJECT")
+	}
+
+	// Use Vertex AI if credentials and project are available
+	if googleCreds != "" && projectID != "" {
+		location := getConfigString(config.Config, "location")
+		if location == "" {
+			location = GetEnvValue("VERTEX_AI_REGION")
+		}
+		if location == "" {
+			location = "us-central1"
+		}
+
+		// Parse credentials (supports base64 encoded, file path, or raw JSON)
+		credentialsJSON, err := parseGoogleCredentials(googleCreds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse Google credentials: %w", err)
+		}
+
+		options = append(options,
+			gemini.WithBackend(genai.BackendVertexAI),
+			gemini.WithCredentialsJSON([]byte(credentialsJSON)),
+			gemini.WithProjectID(projectID),
+			gemini.WithLocation(location),
+		)
+	} else {
+		// Fall back to API key authentication
+		apiKey := getConfigString(config.Config, "api_key")
+		if apiKey == "" {
+			apiKey = GetEnvValue("GEMINI_API_KEY")
+		}
+		if apiKey == "" {
+			return nil, fmt.Errorf("credentials required for Gemini provider: set GEMINI_API_KEY or Vertex AI credentials (VERTEX_AI_PROJECT + VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT)")
+		}
+		options = append(options, gemini.WithAPIKey(apiKey))
 	}
 
 	// Create context for client initialization

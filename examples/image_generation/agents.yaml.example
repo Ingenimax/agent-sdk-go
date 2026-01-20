@@ -1,0 +1,54 @@
+# Example YAML configuration for image generation
+# Copy to agents.yaml and set environment variables to use
+#
+# Authentication options:
+#   Option 1: GEMINI_API_KEY (standard API key)
+#   Option 2: Vertex AI credentials (VERTEX_AI_PROJECT, VERTEX_AI_REGION,
+#             VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT)
+
+creative_agent:
+  role: "Creative Assistant"
+  goal: "Help users create visual content"
+  backstory: "You are a creative assistant that can generate images on request"
+
+  # Primary LLM for text generation
+  llm_provider:
+    provider: "gemini"
+    model: "${GEMINI_MODEL:-gemini-2.5-flash}"
+    config:
+      # Option 1: API Key authentication
+      api_key: "${GEMINI_API_KEY}"
+      # Option 2: Vertex AI authentication (comment out api_key above)
+      # project_id: "${VERTEX_AI_PROJECT}"
+      # location: "${VERTEX_AI_REGION:-us-central1}"
+      # google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+
+  # Image generation configuration
+  image_generation:
+    enabled: true
+    provider: "gemini"
+    model: "${GEMINI_IMAGE_MODEL:-gemini-2.5-flash-image}"
+    config:
+      # Option 1: API Key authentication
+      api_key: "${GEMINI_API_KEY}"
+      # Option 2: Vertex AI authentication (comment out api_key above)
+      # project_id: "${VERTEX_AI_PROJECT}"
+      # location: "${VERTEX_AI_REGION:-us-central1}"
+      # google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+      default_aspect_ratio: "1:1"
+      default_output_format: "png"
+      max_prompt_length: 2000
+
+    # Storage backend (local for development)
+    storage:
+      type: "local"
+      local:
+        path: "/tmp/agent-sdk-images"
+        base_url: "file:///tmp/agent-sdk-images"
+
+  # Include the image generation tool
+  tools:
+    - generate_image
+
+  llm_config:
+    temperature: 0.7

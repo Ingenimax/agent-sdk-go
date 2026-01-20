@@ -1,0 +1,42 @@
+# YAML configuration for image generation example
+# Uses Vertex AI authentication from environment variables
+
+creative_agent:
+  role: "Creative Assistant"
+  goal: "Help users create visual content"
+  backstory: "You are a creative assistant that can generate images on request"
+
+  # Primary LLM for text generation
+  llm_provider:
+    provider: "gemini"
+    model: "gemini-2.5-flash"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+
+  # Image generation configuration
+  image_generation:
+    enabled: true
+    provider: "gemini"
+    model: "gemini-2.5-flash-image"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+      default_aspect_ratio: "1:1"
+      default_output_format: "png"
+      max_prompt_length: 2000
+
+    # Storage backend (local for development)
+    storage:
+      type: "local"
+      local:
+        path: "/tmp/agent-sdk-images"
+        base_url: "file:///tmp/agent-sdk-images"
+
+  # Disable plan approval for this example
+  require_plan_approval: false
+
+  llm_config:
+    temperature: 0.7

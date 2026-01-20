@@ -11,6 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
+import { ImageLightbox } from './image-lightbox';
 
 interface ChatMessageProps {
   message: ChatMessage;
@@ -119,6 +120,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
                       {children}
                     </td>
                   ),
+                  // Image support with lightbox for generated images
+                  img: ({ src, alt }) => {
+                    // Handle both string and Blob types from ReactMarkdown
+                    const imgSrc = typeof src === 'string' ? src : '';
+                    return <ImageLightbox src={imgSrc} alt={alt || 'Generated image'} />;
+                  },
                 }}
               >
                 {message.content}
