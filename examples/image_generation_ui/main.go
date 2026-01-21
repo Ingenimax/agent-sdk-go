@@ -348,12 +348,6 @@ func createGCSStorage(ctx context.Context) (imgstorage.ImageStorage, error) {
 	return imgstorage.NewGCSStorage(cfg)
 }
 
-// ensureBucketExists checks if the bucket exists and creates it if it doesn't.
-// Uses Application Default Credentials.
-func ensureBucketExists(ctx context.Context, bucketName, projectID string) error {
-	return ensureBucketExistsWithCreds(ctx, bucketName, projectID, "")
-}
-
 // ensureBucketExistsWithCreds checks if the bucket exists and creates it if it doesn't.
 // Supports explicit credentials JSON or falls back to ADC.
 func ensureBucketExistsWithCreds(ctx context.Context, bucketName, projectID, credentialsJSON string) error {
@@ -365,6 +359,7 @@ func ensureBucketExistsWithCreds(ctx context.Context, bucketName, projectID, cre
 	if credentialsJSON != "" {
 		// Use explicit credentials
 		fmt.Println("[GCS] Using explicit credentials JSON for bucket check")
+		//nolint:staticcheck // SA1019: WithCredentialsJSON is deprecated but needed for programmatic credentials
 		client, err = storage.NewClient(ctx, option.WithCredentialsJSON([]byte(credentialsJSON)))
 	} else {
 		// Use Application Default Credentials

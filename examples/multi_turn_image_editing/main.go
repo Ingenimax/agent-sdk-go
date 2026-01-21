@@ -219,7 +219,8 @@ func printResponse(label string, resp *interfaces.ImageEditResponse) {
 func saveImage(img interfaces.GeneratedImage, filename string) error {
 	// Create output directory
 	outputDir := "output"
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	// #nosec G301 -- Example code uses 0750 for local development directory
+	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -239,7 +240,8 @@ func saveImage(img interfaces.GeneratedImage, filename string) error {
 		return fmt.Errorf("no image data available")
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// #nosec G306 -- Example code uses 0600 for generated image files
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write image file: %w", err)
 	}
 

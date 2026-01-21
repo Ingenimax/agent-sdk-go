@@ -240,7 +240,7 @@ func (t *Tool) startSession(ctx context.Context, prompt, aspectRatio, imageSize 
 			t.sessionsMu.Lock()
 			delete(t.sessions, sessionID)
 			t.sessionsMu.Unlock()
-			session.Close()
+			_ = session.Close()
 			return "", fmt.Errorf("prompt exceeds maximum length of %d characters", t.maxPromptLen)
 		}
 
@@ -253,7 +253,7 @@ func (t *Tool) startSession(ctx context.Context, prompt, aspectRatio, imageSize 
 			t.sessionsMu.Lock()
 			delete(t.sessions, sessionID)
 			t.sessionsMu.Unlock()
-			session.Close()
+			_ = session.Close()
 			return "", fmt.Errorf("failed to generate initial image: %w", err)
 		}
 		return t.formatResponse(ctx, sessionID, resp, prompt, true)
@@ -289,7 +289,7 @@ func (t *Tool) editImage(ctx context.Context, sessionID, prompt, aspectRatio, im
 		t.sessionsMu.Lock()
 		delete(t.sessions, sessionID)
 		t.sessionsMu.Unlock()
-		entry.session.Close()
+		_ = entry.session.Close()
 		return "", fmt.Errorf("%w: session %s has expired after %v of inactivity", interfaces.ErrSessionExpired, sessionID, t.sessionTimeout)
 	}
 
@@ -322,7 +322,7 @@ func (t *Tool) endSession(ctx context.Context, sessionID string) (string, error)
 	duration := time.Since(entry.createdAt)
 
 	// Close and remove session
-	entry.session.Close()
+	_ = entry.session.Close()
 	delete(t.sessions, sessionID)
 
 	return fmt.Sprintf(`Session %s closed successfully.
@@ -424,7 +424,7 @@ func (t *Tool) cleanupExpiredSessions() {
 		now := time.Now()
 		for sessionID, entry := range t.sessions {
 			if now.Sub(entry.lastUsed) > t.sessionTimeout {
-				entry.session.Close()
+				_ = entry.session.Close()
 				delete(t.sessions, sessionID)
 			}
 		}

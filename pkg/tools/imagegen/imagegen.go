@@ -341,7 +341,7 @@ func (t *Tool) generateWithSession(ctx context.Context, sessionKey, prompt, aspe
 	// Close any existing session for this key
 	t.sessionsMu.Lock()
 	if existing, ok := t.sessions[sessionKey]; ok {
-		existing.session.Close()
+		_ = existing.session.Close()
 		delete(t.sessions, sessionKey)
 	}
 	t.sessionsMu.Unlock()
@@ -395,7 +395,7 @@ func (t *Tool) generateWithSession(ctx context.Context, sessionKey, prompt, aspe
 		t.sessionsMu.Lock()
 		delete(t.sessions, sessionKey)
 		t.sessionsMu.Unlock()
-		session.Close()
+		_ = session.Close()
 		return "", fmt.Errorf("failed to generate initial image: %w", err)
 	}
 
@@ -428,7 +428,7 @@ func (t *Tool) editInSession(ctx context.Context, sessionKey, prompt, aspectRati
 		t.sessionsMu.Lock()
 		delete(t.sessions, sessionKey)
 		t.sessionsMu.Unlock()
-		entry.session.Close()
+		_ = entry.session.Close()
 		return t.generateWithSession(ctx, sessionKey, prompt, aspectRatio, imageSize)
 	}
 
@@ -462,7 +462,7 @@ func (t *Tool) endSession(ctx context.Context, sessionKey string) (string, error
 	duration := time.Since(entry.createdAt)
 
 	// Close and remove session
-	entry.session.Close()
+	_ = entry.session.Close()
 	delete(t.sessions, sessionKey)
 
 	return fmt.Sprintf("Editing session closed.\n\nSession duration: %v\nTotal turns: %d",
@@ -474,9 +474,9 @@ func (t *Tool) formatMultiTurnResponse(ctx context.Context, resp *interfaces.Ima
 	var result string
 
 	if isInitial {
-		result = fmt.Sprintf("Image generated successfully.\n\n")
+		result = "Image generated successfully.\n\n"
 	} else {
-		result = fmt.Sprintf("Image edited successfully.\n\n")
+		result = "Image edited successfully.\n\n"
 	}
 
 	// Add text response if present
@@ -554,7 +554,7 @@ func (t *Tool) formatImageBase64(image *interfaces.GeneratedImage, index int) st
 	const maxBase64Size = 50000 // ~50KB limit - be conservative for UI performance
 	if len(image.Base64) > maxBase64Size {
 		// Image too large for embedding - provide info but not the data
-		result += fmt.Sprintf("[Image generated successfully]\n\n")
+		result += "[Image generated successfully]\n\n"
 		result += fmt.Sprintf("Format: %s\n", image.MimeType)
 		result += fmt.Sprintf("Size: %d bytes (%.1f KB)\n", len(image.Data), float64(len(image.Data))/1024)
 		result += "\nNote: Image was generated but is too large to display inline.\n"
@@ -580,7 +580,7 @@ func (t *Tool) cleanupExpiredSessions() {
 		now := time.Now()
 		for sessionKey, entry := range t.sessions {
 			if now.Sub(entry.lastUsed) > t.sessionTimeout {
-				entry.session.Close()
+				_ = entry.session.Close()
 				delete(t.sessions, sessionKey)
 			}
 		}
