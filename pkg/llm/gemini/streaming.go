@@ -515,7 +515,16 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		// If no tool calls, we're done with the iteration loop
 		if len(toolCalls) == 0 {
 			// No tool calls means we have received the final response content
-			// The streaming has already been handled by executeStreamingRequestWithToolCapture
+			// If content was filtered (captured), we need to replay it now
+			if shouldFilter && len(iterationContentEvents) > 0 {
+				for _, event := range iterationContentEvents {
+					select {
+					case eventCh <- event:
+					case <-ctx.Done():
+						return "", ctx.Err()
+					}
+				}
+			}
 			return "", nil
 		}
 

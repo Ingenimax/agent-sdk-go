@@ -69,3 +69,51 @@ Run individual tests: `go test ./pkg/[package]`
 Run specific test: `go test -run TestName ./pkg/[package]`
 
 Always run linter after code changes: `make lint`
+
+## Microservice UI (pkg/microservice/ui-nextjs)
+
+The SDK includes an embedded Next.js web UI for agent interaction, located at `pkg/microservice/ui-nextjs/`.
+
+### Architecture
+- **Framework**: Next.js 15 with App Router
+- **Styling**: Tailwind CSS with shadcn/ui components
+- **State**: React hooks, no external state management
+
+### Key Components
+- `components/chat/chat-area.tsx` - Main chat interface with streaming support
+- `components/chat/chat-message.tsx` - Individual message rendering with markdown
+- `components/chat/image-lightbox.tsx` - Lightbox for viewing generated images
+- `components/screens/` - Various screens (memory, tools, settings, traces)
+- `components/layout/` - Sidebar and main layout components
+
+### Performance Considerations
+
+**Message Rendering**: The `ChatMessage` component uses `React.memo` with a custom comparison function to prevent unnecessary re-renders. This is critical when messages contain large base64-encoded images.
+
+```tsx
+// ChatMessage is memoized to prevent re-renders on parent state changes
+const ChatMessageInner = memo(function ChatMessageInner({ message }) {
+  // ... component code
+}, (prevProps, nextProps) => {
+  // Only re-render if message content or id changes
+  return prevProps.message.id === nextProps.message.id &&
+         prevProps.message.content === nextProps.message.content;
+});
+```
+
+**Image Handling**: When image generation tools return base64 data:
+1. Large images (>50KB base64) should not be embedded inline in tool responses
+2. The backend `imagegen` tool has size limits to prevent token overflow
+3. Configure GCS storage for production to get shareable URLs instead of base64
+4. Without proper memoization, base64 images cause UI flickering on every keystroke
+
+### Development
+```bash
+cd pkg/microservice/ui-nextjs
+npm install
+npm run dev    # Development server on port 3000
+npm run build  # Production build
+```
+
+### Integration
+The UI is embedded in the Go binary via `go:embed` and served by the microservice HTTP server. See `pkg/microservice/http_server.go` for the embedding logic.

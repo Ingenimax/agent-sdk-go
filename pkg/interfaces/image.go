@@ -22,6 +22,15 @@ var (
 
 	// ErrStorageUploadFailed indicates failed to upload image to storage
 	ErrStorageUploadFailed = errors.New("failed to upload image to storage")
+
+	// ErrSessionNotFound indicates the image editing session was not found
+	ErrSessionNotFound = errors.New("image editing session not found")
+
+	// ErrSessionExpired indicates the image editing session has expired
+	ErrSessionExpired = errors.New("image editing session has expired")
+
+	// ErrMultiTurnNotSupported indicates multi-turn image editing is not supported
+	ErrMultiTurnNotSupported = errors.New("multi-turn image editing not supported by this model")
 )
 
 // ImageGenerator represents an LLM that can generate images
@@ -183,5 +192,94 @@ func DefaultImageGenerationOptions() *ImageGenerationOptions {
 		AspectRatio:       "1:1",
 		OutputFormat:      "png",
 		SafetyFilterLevel: "medium",
+	}
+}
+
+// =============================================================================
+// Multi-Turn Image Editing Types
+// =============================================================================
+
+// ImageEditSession represents a multi-turn image editing session
+// that maintains conversation context for iterative image creation and modification.
+type ImageEditSession interface {
+	// SendMessage sends a text message and returns the response (text and/or image)
+	SendMessage(ctx context.Context, message string, options *ImageEditOptions) (*ImageEditResponse, error)
+
+	// SendMessageWithImage sends a message with an image reference for editing
+	SendMessageWithImage(ctx context.Context, message string, image *ImageData, options *ImageEditOptions) (*ImageEditResponse, error)
+
+	// GetHistory returns the conversation history for this session
+	GetHistory() []ImageEditTurn
+
+	// Close closes the session and releases resources
+	Close() error
+}
+
+// ImageEditOptions configures a single turn in the image editing session
+type ImageEditOptions struct {
+	// AspectRatio controls the output image dimensions
+	// Supported values: "1:1", "2:3", "3:2", "16:9", "21:9"
+	AspectRatio string
+
+	// ImageSize controls the output image resolution
+	// Supported values: "1K", "2K", "4K"
+	ImageSize string
+}
+
+// ImageEditResponse represents the result of an image editing turn
+type ImageEditResponse struct {
+	// Text contains the text response from the model (if any)
+	Text string
+
+	// Images contains generated/edited images (if any)
+	Images []GeneratedImage
+
+	// Usage contains token/cost information if available
+	Usage *ImageUsage
+
+	// Metadata contains provider-specific information
+	Metadata map[string]interface{}
+}
+
+// ImageEditTurn represents a single turn in the image editing conversation
+type ImageEditTurn struct {
+	// Role is either "user" or "model"
+	Role string
+
+	// Message is the text content of this turn
+	Message string
+
+	// Images contains any images in this turn
+	Images []*ImageData
+}
+
+// MultiTurnImageEditor is an interface for LLM providers that support
+// multi-turn conversational image editing sessions.
+type MultiTurnImageEditor interface {
+	// CreateImageEditSession creates a new multi-turn image editing session
+	CreateImageEditSession(ctx context.Context, options *ImageEditSessionOptions) (ImageEditSession, error)
+
+	// SupportsMultiTurnImageEditing returns true if this provider supports multi-turn editing
+	SupportsMultiTurnImageEditing() bool
+}
+
+// ImageEditSessionOptions configures a new image editing session
+type ImageEditSessionOptions struct {
+	// Model specifies the model to use (e.g., "gemini-3-pro-image-preview")
+	// If empty, the provider's default image editing model will be used
+	Model string
+
+	// SystemInstruction provides optional system-level guidance for the session
+	SystemInstruction string
+
+	// Tools lists optional tools to enable (e.g., "google_search")
+	Tools []string
+}
+
+// DefaultImageEditOptions returns default options for image editing
+func DefaultImageEditOptions() *ImageEditOptions {
+	return &ImageEditOptions{
+		AspectRatio: "1:1",
+		ImageSize:   "1K",
 	}
 }

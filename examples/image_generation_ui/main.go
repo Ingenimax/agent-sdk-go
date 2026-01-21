@@ -35,6 +35,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/option"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
@@ -47,7 +49,7 @@ import (
 )
 
 const (
-	defaultPort = 8080
+	defaultPort = 8090
 )
 
 var localStoragePath string
@@ -79,8 +81,18 @@ func main() {
 	fmt.Println("=== Image Generation UI Example ===")
 	fmt.Println()
 
-	// Determine port
+	// Load .env file if present
+	if err := agent.LoadEnvFile(".env"); err != nil {
+		log.Printf("Warning: could not load .env file: %v", err)
+	}
+
+	// Determine port from environment or use default
 	port := defaultPort
+	if portStr := agent.GetEnvValue("PORT"); portStr != "" {
+		if p, err := fmt.Sscanf(portStr, "%d", &port); err != nil || p != 1 {
+			port = defaultPort
+		}
+	}
 
 	// Create storage (GCS or local with HTTP serving)
 	imgStorage, storageType, err := createImageStorage(ctx, port)
@@ -166,7 +178,7 @@ func main() {
 // Returns the storage, storage type name, and any error.
 func createImageStorage(ctx context.Context, port int) (imgstorage.ImageStorage, string, error) {
 	// Try GCS first if configured
-	bucket := os.Getenv("GCS_BUCKET")
+	bucket := agent.GetEnvValue("GCS_BUCKET")
 	if bucket != "" {
 		storage, err := createGCSStorage(ctx)
 		if err != nil {
@@ -276,25 +288,49 @@ If the user asks about something unrelated to images, respond helpfully as a gen
 
 // createGCSStorage creates a GCS storage backend from environment variables.
 // If the bucket doesn't exist, it will be created.
+// Supports both ADC and VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT.
 func createGCSStorage(ctx context.Context) (imgstorage.ImageStorage, error) {
-	bucket := os.Getenv("GCS_BUCKET")
+	bucket := agent.GetEnvValue("GCS_BUCKET")
 	if bucket == "" {
 		return nil, fmt.Errorf("GCS_BUCKET environment variable not set")
 	}
 
-	projectID := os.Getenv("GCS_PROJECT")
+	projectID := agent.GetEnvValue("GCS_PROJECT")
 	if projectID == "" {
 		// Try to get from Vertex AI project
-		projectID = os.Getenv("VERTEX_AI_PROJECT")
+		projectID = agent.GetEnvValue("VERTEX_AI_PROJECT")
 	}
 
-	// Ensure bucket exists
-	if err := ensureBucketExists(ctx, bucket, projectID); err != nil {
+	// Get credentials JSON if available (supports base64 encoded or raw JSON)
+	credentialsJSON := ""
+	creds := agent.GetEnvValue("VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
+	fmt.Printf("[GCS] VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT length: %d\n", len(creds))
+	if creds != "" {
+		// Try to decode base64
+		if decoded, err := base64.StdEncoding.DecodeString(creds); err == nil {
+			fmt.Printf("[GCS] Base64 decoded length: %d\n", len(decoded))
+			if len(decoded) > 0 && decoded[0] == '{' {
+				credentialsJSON = string(decoded)
+				fmt.Printf("[GCS] Using base64 decoded credentials (length=%d)\n", len(credentialsJSON))
+			}
+		} else {
+			fmt.Printf("[GCS] Base64 decode failed: %v\n", err)
+		}
+		// If not base64, use as-is
+		if credentialsJSON == "" && len(creds) > 0 && creds[0] == '{' {
+			credentialsJSON = creds
+			fmt.Printf("[GCS] Using raw JSON credentials (length=%d)\n", len(credentialsJSON))
+		}
+	}
+	fmt.Printf("[GCS] Final credentialsJSON length: %d\n", len(credentialsJSON))
+
+	// Ensure bucket exists (pass credentials for bucket check/creation)
+	if err := ensureBucketExistsWithCreds(ctx, bucket, projectID, credentialsJSON); err != nil {
 		return nil, fmt.Errorf("failed to ensure bucket exists: %w", err)
 	}
 
 	// Optional: prefix for organizing images in the bucket
-	prefix := os.Getenv("GCS_PREFIX")
+	prefix := agent.GetEnvValue("GCS_PREFIX")
 	if prefix == "" {
 		prefix = "generated-images"
 	}
@@ -302,16 +338,34 @@ func createGCSStorage(ctx context.Context) (imgstorage.ImageStorage, error) {
 	cfg := imgstorage.GCSConfig{
 		Bucket:              bucket,
 		Prefix:              prefix,
-		UseSignedURLs:       false, // Use public URLs (bucket configured for public access)
+		CredentialsJSON:     credentialsJSON, // Pass credentials to storage
+		UseSignedURLs:       true,            // Use signed URLs when using service account
 		SignedURLExpiration: 24 * time.Hour,
 	}
 
+	fmt.Printf("[GCS] Creating GCS storage: bucket=%s, prefix=%s, credsLen=%d, useSignedURLs=%v\n",
+		cfg.Bucket, cfg.Prefix, len(cfg.CredentialsJSON), cfg.UseSignedURLs)
 	return imgstorage.NewGCSStorage(cfg)
 }
 
-// ensureBucketExists checks if the bucket exists and creates it if it doesn't.
-func ensureBucketExists(ctx context.Context, bucketName, projectID string) error {
-	client, err := storage.NewClient(ctx)
+// ensureBucketExistsWithCreds checks if the bucket exists and creates it if it doesn't.
+// Supports explicit credentials JSON or falls back to ADC.
+func ensureBucketExistsWithCreds(ctx context.Context, bucketName, projectID, credentialsJSON string) error {
+	var client *storage.Client
+	var err error
+
+	fmt.Printf("[GCS] ensureBucketExistsWithCreds: bucket=%s, projectID=%s, credsLen=%d\n", bucketName, projectID, len(credentialsJSON))
+
+	if credentialsJSON != "" {
+		// Use explicit credentials
+		fmt.Println("[GCS] Using explicit credentials JSON for bucket check")
+		//nolint:staticcheck // SA1019: WithCredentialsJSON is deprecated but needed for programmatic credentials
+		client, err = storage.NewClient(ctx, option.WithCredentialsJSON([]byte(credentialsJSON)))
+	} else {
+		// Use Application Default Credentials
+		fmt.Println("[GCS] Using Application Default Credentials for bucket check")
+		client, err = storage.NewClient(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create GCS client: %w", err)
 	}
@@ -378,9 +432,9 @@ func getGeminiOptions(model string) ([]gemini.Option, error) {
 	opts := []gemini.Option{gemini.WithModel(model)}
 
 	// Check for Vertex AI credentials first
-	vertexCreds := os.Getenv("VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
-	vertexProject := os.Getenv("VERTEX_AI_PROJECT")
-	vertexRegion := os.Getenv("VERTEX_AI_REGION")
+	vertexCreds := agent.GetEnvValue("VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
+	vertexProject := agent.GetEnvValue("VERTEX_AI_PROJECT")
+	vertexRegion := agent.GetEnvValue("VERTEX_AI_REGION")
 
 	if vertexCreds != "" && vertexProject != "" {
 		if vertexRegion == "" {
@@ -401,7 +455,7 @@ func getGeminiOptions(model string) ([]gemini.Option, error) {
 	}
 
 	// Fall back to API key
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := agent.GetEnvValue("GEMINI_API_KEY")
 	if apiKey != "" {
 		opts = append(opts, gemini.WithAPIKey(apiKey))
 		return opts, nil

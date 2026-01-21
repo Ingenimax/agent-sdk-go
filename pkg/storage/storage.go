@@ -77,6 +77,10 @@ type GCSConfig struct {
 	// If empty, uses Application Default Credentials
 	CredentialsFile string
 
+	// CredentialsJSON is the service account JSON content (optional)
+	// Can be raw JSON or base64 encoded. Takes precedence over CredentialsFile.
+	CredentialsJSON string
+
 	// SignedURLExpiration is the duration for signed URLs (default: 24h)
 	SignedURLExpiration time.Duration
 
