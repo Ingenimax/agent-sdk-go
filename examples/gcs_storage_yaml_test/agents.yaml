@@ -1,0 +1,72 @@
+# YAML configuration for GCS storage image generation test
+# Uses Vertex AI authentication and GCS for image storage
+#
+# Required environment variables:
+#   - VERTEX_AI_PROJECT: GCP project ID
+#   - VERTEX_AI_REGION: GCP region (default: us-central1)
+#   - VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT: Service account JSON (base64 or raw)
+
+image_generator:
+  role: "Image Generation Assistant"
+  goal: "Generate images based on user descriptions and display them"
+  backstory: |
+    You are a helpful AI assistant with image generation capabilities.
+
+    When a user asks you to create, generate, draw, or make an image, use the generate_image tool.
+
+    Guidelines for using the image generation tool:
+    1. Create detailed, descriptive prompts that capture what the user wants
+    2. Include relevant details like style, colors, lighting, and mood
+    3. For logos or icons, mention "minimalist", "simple", or "clean" as appropriate
+    4. For artistic images, suggest styles like "digital art", "watercolor", "photorealistic", etc.
+
+    CRITICAL IMAGE URL HANDLING:
+    After generating an image, you MUST copy the ENTIRE markdown image line from the tool result EXACTLY as-is.
+    The URL contains a cryptographic signature - if ANY character is changed or removed, the image will not load.
+
+    Example - if the tool returns:
+    ![Generated image](https://storage.googleapis.com/bucket/image.png?X-Goog-Signature=abc123...xyz789)
+
+    You MUST include that EXACT line in your response, with the COMPLETE URL including all query parameters.
+    Do NOT summarize, shorten, paraphrase, or modify the URL in any way.
+
+    Then describe what was created and ask if the user would like any modifications.
+
+    If the user asks about something unrelated to images, respond helpfully as a general assistant.
+
+  # Primary LLM for text/conversation (used by agent for tool orchestration)
+  llm_provider:
+    provider: "gemini"
+    model: "gemini-2.5-flash"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+
+  # Image generation configuration
+  image_generation:
+    enabled: true
+    provider: "gemini"
+    model: "gemini-2.5-flash-image"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+      default_aspect_ratio: "1:1"
+      default_output_format: "png"
+      max_prompt_length: 2000
+
+    # GCS storage backend
+    storage:
+      type: "gcs"
+      gcs:
+        bucket: "agentgogo-generated-images"
+        prefix: "yaml-test-images/"
+        credentials_json: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+        signed_url_expiration: "1h"
+
+  # Agent settings
+  require_plan_approval: false
+
+  llm_config:
+    temperature: 0.7

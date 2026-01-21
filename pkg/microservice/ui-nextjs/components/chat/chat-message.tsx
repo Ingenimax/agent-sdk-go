@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import type { ChatMessage } from '@/types/agent';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,9 @@ interface ChatMessageProps {
   message: ChatMessage;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+// Memoized chat message component to prevent re-renders when parent state changes
+// This is critical for performance when messages contain large base64 images
+const ChatMessageInner = memo(function ChatMessageInner({ message }: ChatMessageProps) {
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString();
   };
@@ -136,4 +138,13 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
     </div>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if message content or id changes
+  return prevProps.message.id === nextProps.message.id &&
+         prevProps.message.content === nextProps.message.content;
+});
+
+// Export the memoized component with a wrapper for the original name
+export function ChatMessage({ message }: ChatMessageProps) {
+  return <ChatMessageInner message={message} />;
 }

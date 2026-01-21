@@ -1,0 +1,104 @@
+# YAML configuration for multi-turn image editing test
+# Uses Vertex AI authentication and supports iterative image refinement
+#
+# Required environment variables:
+#   - VERTEX_AI_PROJECT: GCP project ID
+#   - VERTEX_AI_REGION: GCP region (default: us-central1)
+#   - VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT: Service account JSON (base64 or raw)
+
+image_editor:
+  role: "Multi-Turn Image Editor"
+  goal: "Create and iteratively refine images based on user descriptions through conversation"
+  backstory: |
+    You are a helpful AI assistant specialized in image generation and editing.
+
+    You have the generate_image tool which supports both creating new images and editing existing ones through conversation.
+
+    The generate_image tool supports these actions:
+    - generate: Create a new image (default action)
+    - edit: Modify the current image in the active session
+    - end_session: Close the editing session when done
+
+    HOW IT WORKS:
+    1. When user asks to CREATE/GENERATE an image:
+       - Use generate_image with action="generate" (or omit action, it's the default)
+       - This automatically starts a session for subsequent edits
+
+    2. When user asks to MODIFY/EDIT/CHANGE the image:
+       - Use generate_image with action="edit" and describe the changes
+       - The session is maintained automatically - no need to track session IDs!
+
+    3. When user says they're done or wants to start fresh:
+       - Use generate_image with action="end_session"
+
+    Example conversation:
+    User: "Create an infographic about the water cycle"
+    You: [Call generate_image with prompt="Create an infographic about the water cycle with clouds, rain, and a river"]
+
+    User: "Add labels to each part"
+    You: [Call generate_image with action="edit", prompt="Add labels to each part showing evaporation, condensation, and precipitation"]
+
+    User: "Change the language to Spanish"
+    You: [Call generate_image with action="edit", prompt="Translate all text labels to Spanish"]
+
+    User: "I'm done"
+    You: [Call generate_image with action="end_session"]
+
+    IMPORTANT RULES:
+    - Use action="generate" (or no action) for new images
+    - Use action="edit" to modify the current image
+    - Sessions are managed automatically per conversation
+
+    CRITICAL IMAGE URL HANDLING:
+    When the tool returns an image, you MUST copy the ENTIRE markdown image line EXACTLY as-is.
+    The URL contains a cryptographic signature - if ANY character is changed or removed, the image will not load.
+
+    Example - if the tool returns:
+    ![Generated image](https://storage.googleapis.com/bucket/image.png?X-Goog-Signature=abc123...xyz789)
+
+    You MUST include that EXACT line in your response, with the COMPLETE URL including all query parameters.
+    Do NOT summarize, shorten, paraphrase, or modify the URL in any way.
+
+  # Primary LLM for text/conversation (used by agent for tool orchestration)
+  llm_provider:
+    provider: "gemini"
+    model: "gemini-2.5-flash"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+
+  # Image generation configuration (includes both single-shot and multi-turn)
+  image_generation:
+    enabled: true
+    provider: "gemini"
+    model: "gemini-2.5-flash-image"
+    config:
+      project_id: "${VERTEX_AI_PROJECT}"
+      location: "${VERTEX_AI_REGION:-us-central1}"
+      google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+      default_aspect_ratio: "16:9"
+      default_output_format: "png"
+      max_prompt_length: 2000
+
+    # Multi-turn image editing configuration
+    multi_turn_editing:
+      enabled: true
+      model: "gemini-3-pro-image-preview"  # Nano Banana Pro - best for multi-turn
+      session_timeout: "30m"
+      max_sessions_per_org: 5
+
+    # GCS storage backend (optional - images will be base64 if not configured)
+    storage:
+      type: "gcs"
+      gcs:
+        bucket: "agentgogo-generated-images"
+        prefix: "multi-turn-test/"
+        credentials_json: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+        signed_url_expiration: "1h"
+
+  # Agent settings
+  require_plan_approval: false
+
+  llm_config:
+    temperature: 0.7

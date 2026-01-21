@@ -342,6 +342,13 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		if expandedConfig.ImageGeneration != nil {
 			imgGenEnabled := expandedConfig.ImageGeneration.Enabled == nil || *expandedConfig.ImageGeneration.Enabled
 			if imgGenEnabled {
+				// Check if multi-turn editing is enabled
+				multiTurnEnabled := false
+				if expandedConfig.ImageGeneration.MultiTurnEditing != nil {
+					multiTurnEnabled = expandedConfig.ImageGeneration.MultiTurnEditing.Enabled == nil || *expandedConfig.ImageGeneration.MultiTurnEditing.Enabled
+				}
+
+				// Create image generation tool (with multi-turn support if enabled)
 				imgTool, err := createImageGenerationToolFromConfig(expandedConfig.ImageGeneration, a.logger)
 				if err != nil {
 					if a.logger != nil {
@@ -352,7 +359,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 				} else if imgTool != nil {
 					a.tools = deduplicateTools(append(a.tools, imgTool))
 					if a.logger != nil {
-						a.logger.Info(context.Background(), "Successfully created image generation tool from YAML config", nil)
+						a.logger.Info(context.Background(), "Successfully created image generation tool from YAML config", map[string]interface{}{
+							"multi_turn_enabled": multiTurnEnabled,
+						})
 					}
 				}
 			}
@@ -2139,6 +2148,83 @@ func createImageGenerationToolFromConfig(config *ImageGenerationYAML, logger log
 		}
 	}
 
+	// Check if multi-turn editing is enabled
+	if config.MultiTurnEditing != nil {
+		mtEnabled := config.MultiTurnEditing.Enabled == nil || *config.MultiTurnEditing.Enabled
+		if mtEnabled {
+			// Create a separate client for multi-turn editing (may use different model)
+			multiTurnModel := config.MultiTurnEditing.Model
+			if multiTurnModel == "" {
+				multiTurnModel = model // Fall back to the same model
+			}
+
+			// Create multi-turn client options (same auth, different model)
+			var mtOptions []gemini.Option
+			mtOptions = append(mtOptions, gemini.WithModel(multiTurnModel))
+
+			if googleCreds != "" && projectID != "" {
+				credentialsJSON, _ := parseGoogleCredentials(googleCreds)
+				mtOptions = append(mtOptions,
+					gemini.WithBackend(genai.BackendVertexAI),
+					gemini.WithCredentialsJSON([]byte(credentialsJSON)),
+					gemini.WithProjectID(projectID),
+					gemini.WithLocation(location),
+				)
+			} else {
+				apiKey := ""
+				if config.Config != nil {
+					if key, ok := config.Config["api_key"].(string); ok {
+						apiKey = key
+					}
+				}
+				if apiKey == "" {
+					apiKey = os.Getenv("GEMINI_API_KEY")
+				}
+				if apiKey == "" {
+					apiKey = os.Getenv("GOOGLE_API_KEY")
+				}
+				if apiKey != "" {
+					mtOptions = append(mtOptions, gemini.WithAPIKey(apiKey))
+				}
+			}
+
+			mtClient, err := gemini.NewClient(ctx, mtOptions...)
+			if err != nil {
+				if logger != nil {
+					logger.Warn(ctx, "Failed to create multi-turn client, multi-turn editing disabled", map[string]interface{}{
+						"error": err.Error(),
+					})
+				}
+			} else if mtClient.SupportsMultiTurnImageEditing() {
+				// Add multi-turn support to the tool
+				toolOptions = append(toolOptions, imagegen.WithMultiTurnEditor(mtClient))
+				toolOptions = append(toolOptions, imagegen.WithMultiTurnModel(multiTurnModel))
+
+				// Apply multi-turn specific options
+				if config.MultiTurnEditing.SessionTimeout != "" {
+					if timeout, err := time.ParseDuration(config.MultiTurnEditing.SessionTimeout); err == nil {
+						toolOptions = append(toolOptions, imagegen.WithSessionTimeout(timeout))
+					}
+				}
+				if config.MultiTurnEditing.MaxSessionsPerOrg != nil {
+					toolOptions = append(toolOptions, imagegen.WithMaxSessionsPerOrg(*config.MultiTurnEditing.MaxSessionsPerOrg))
+				}
+
+				if logger != nil {
+					logger.Info(ctx, "Multi-turn image editing enabled", map[string]interface{}{
+						"model": multiTurnModel,
+					})
+				}
+			} else {
+				if logger != nil {
+					logger.Warn(ctx, "Model does not support multi-turn image editing", map[string]interface{}{
+						"model": multiTurnModel,
+					})
+				}
+			}
+		}
+	}
+
 	// Create the image generation tool
 	imgTool := imagegen.New(geminiClient, imageStorage, toolOptions...)
 
@@ -2179,10 +2265,14 @@ func createImageStorageFromConfig(config *ImageStorageYAML) (storage.ImageStorag
 		if config.GCS == nil {
 			return nil, fmt.Errorf("GCS storage configuration is required when type is 'gcs'")
 		}
+		// Debug: log the credentials being passed
+		fmt.Printf("[createImageStorageFromConfig] GCS config: bucket=%s, prefix=%s, creds_json_len=%d, creds_file=%s\n",
+			config.GCS.Bucket, config.GCS.Prefix, len(config.GCS.CredentialsJSON), config.GCS.CredentialsFile)
 		gcsCfg := storage.GCSConfig{
 			Bucket:          config.GCS.Bucket,
 			Prefix:          config.GCS.Prefix,
 			CredentialsFile: config.GCS.CredentialsFile,
+			CredentialsJSON: config.GCS.CredentialsJSON,
 		}
 		// Parse signed URL expiration duration
 		if config.GCS.SignedURLExpiration != "" {
@@ -2202,3 +2292,4 @@ func createImageStorageFromConfig(config *ImageStorageYAML) (storage.ImageStorag
 		return nil, fmt.Errorf("unsupported storage type: %s (only 'local' and 'gcs' are supported)", storageType)
 	}
 }
+

@@ -98,12 +98,23 @@ export function ImageLightbox({ src, alt, className }: ImageLightboxProps) {
             ref={imgRef}
             src={src}
             alt={alt || "Generated image"}
+            crossOrigin="anonymous"
             className={cn(
               "max-w-full max-h-[400px] rounded-lg border border-border cursor-pointer hover:opacity-90 transition-opacity object-contain shadow-sm",
               isLoading && "opacity-0 absolute"
             )}
-            onLoad={() => setIsLoading(false)}
-            onError={() => {
+            onLoad={() => {
+              console.log("[ImageLightbox] Image loaded successfully:", src.substring(0, 100) + "...");
+              setIsLoading(false);
+            }}
+            onError={(e) => {
+              console.error("[ImageLightbox] Failed to load image:", {
+                src: src.substring(0, 200),
+                fullSrcLength: src.length,
+                isGCS: src.includes("storage.googleapis.com"),
+                isSignedURL: src.includes("X-Goog-Signature"),
+                error: e,
+              });
               setHasError(true);
               setIsLoading(false);
             }}
@@ -159,7 +170,14 @@ export function ImageLightbox({ src, alt, className }: ImageLightboxProps) {
             <img
               src={src}
               alt={alt || "Generated image"}
+              crossOrigin="anonymous"
               className="max-w-full max-h-full object-contain"
+              onError={(e) => {
+                console.error("[ImageLightbox] Failed to load full-size image:", {
+                  src: src.substring(0, 200),
+                  error: e,
+                });
+              }}
             />
           </div>
         </DialogContent>

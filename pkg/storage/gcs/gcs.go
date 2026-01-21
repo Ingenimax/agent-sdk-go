@@ -3,6 +3,7 @@ package gcs
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -36,10 +37,20 @@ func New(cfg imgstorage.GCSConfig) (imgstorage.ImageStorage, error) {
 
 	// Build client options
 	var opts []option.ClientOption
-	if cfg.CredentialsFile != "" {
+
+	// CredentialsJSON takes precedence over CredentialsFile
+	if cfg.CredentialsJSON != "" {
+		credentialsJSON := parseCredentialsJSON(cfg.CredentialsJSON)
+		fmt.Printf("[gcs] Using credentials JSON (length=%d, starts_with_brace=%v)\n",
+			len(credentialsJSON), len(credentialsJSON) > 0 && credentialsJSON[0] == '{')
+		opts = append(opts, option.WithCredentialsJSON([]byte(credentialsJSON)))
+	} else if cfg.CredentialsFile != "" {
 		// nolint:staticcheck // WithCredentialsFile is deprecated but simpler to use
 		// Users should prefer Application Default Credentials when possible
+		fmt.Printf("[gcs] Using credentials file: %s\n", cfg.CredentialsFile)
 		opts = append(opts, option.WithCredentialsFile(cfg.CredentialsFile))
+	} else {
+		fmt.Println("[gcs] No credentials provided, using Application Default Credentials")
 	}
 
 	// Create GCS client
@@ -281,4 +292,17 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+// parseCredentialsJSON parses credentials that may be base64 encoded or raw JSON
+func parseCredentialsJSON(creds string) string {
+	// Try to decode as base64 first
+	if decoded, err := base64.StdEncoding.DecodeString(creds); err == nil {
+		// Check if decoded content looks like JSON
+		if len(decoded) > 0 && decoded[0] == '{' {
+			return string(decoded)
+		}
+	}
+	// Return as-is (assuming it's raw JSON)
+	return creds
 }

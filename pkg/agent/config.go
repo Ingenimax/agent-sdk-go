@@ -132,11 +132,20 @@ type RuntimeConfigYAML struct {
 
 // ImageGenerationYAML represents image generation configuration in YAML
 type ImageGenerationYAML struct {
-	Enabled  *bool                  `yaml:"enabled,omitempty"`
-	Provider string                 `yaml:"provider,omitempty"` // "gemini"
-	Model    string                 `yaml:"model,omitempty"`    // e.g., "gemini-2.5-flash-image"
-	Config   map[string]interface{} `yaml:"config,omitempty"`
-	Storage  *ImageStorageYAML      `yaml:"storage,omitempty"`
+	Enabled          *bool                      `yaml:"enabled,omitempty"`
+	Provider         string                     `yaml:"provider,omitempty"` // "gemini"
+	Model            string                     `yaml:"model,omitempty"`    // e.g., "gemini-2.5-flash-image"
+	Config           map[string]interface{}     `yaml:"config,omitempty"`
+	Storage          *ImageStorageYAML          `yaml:"storage,omitempty"`
+	MultiTurnEditing *MultiTurnEditingYAML      `yaml:"multi_turn_editing,omitempty"`
+}
+
+// MultiTurnEditingYAML represents multi-turn image editing configuration in YAML
+type MultiTurnEditingYAML struct {
+	Enabled            *bool  `yaml:"enabled,omitempty"`
+	Model              string `yaml:"model,omitempty"`               // e.g., "gemini-3-pro-image-preview"
+	SessionTimeout     string `yaml:"session_timeout,omitempty"`     // e.g., "30m"
+	MaxSessionsPerOrg  *int   `yaml:"max_sessions_per_org,omitempty"`
 }
 
 // ImageStorageYAML represents image storage configuration in YAML
@@ -157,6 +166,7 @@ type GCSStorageYAML struct {
 	Bucket              string `yaml:"bucket,omitempty"`
 	Prefix              string `yaml:"prefix,omitempty"`
 	CredentialsFile     string `yaml:"credentials_file,omitempty"`
+	CredentialsJSON     string `yaml:"credentials_json,omitempty"`
 	SignedURLExpiration string `yaml:"signed_url_expiration,omitempty"`
 }
 
@@ -651,8 +661,18 @@ func ExpandAgentConfig(config AgentConfig) AgentConfig {
 					Bucket:              expandWithConfigVars(config.ImageGeneration.Storage.GCS.Bucket, configVars),
 					Prefix:              expandWithConfigVars(config.ImageGeneration.Storage.GCS.Prefix, configVars),
 					CredentialsFile:     expandWithConfigVars(config.ImageGeneration.Storage.GCS.CredentialsFile, configVars),
+					CredentialsJSON:     expandWithConfigVars(config.ImageGeneration.Storage.GCS.CredentialsJSON, configVars),
 					SignedURLExpiration: expandWithConfigVars(config.ImageGeneration.Storage.GCS.SignedURLExpiration, configVars),
 				}
+			}
+		}
+		// Expand multi-turn editing configuration
+		if config.ImageGeneration.MultiTurnEditing != nil {
+			expanded.ImageGeneration.MultiTurnEditing = &MultiTurnEditingYAML{
+				Enabled:           config.ImageGeneration.MultiTurnEditing.Enabled,
+				Model:             expandWithConfigVars(config.ImageGeneration.MultiTurnEditing.Model, configVars),
+				SessionTimeout:    expandWithConfigVars(config.ImageGeneration.MultiTurnEditing.SessionTimeout, configVars),
+				MaxSessionsPerOrg: config.ImageGeneration.MultiTurnEditing.MaxSessionsPerOrg,
 			}
 		}
 	}
