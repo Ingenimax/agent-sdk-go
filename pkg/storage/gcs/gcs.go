@@ -46,8 +46,8 @@ func New(cfg imgstorage.GCSConfig) (imgstorage.ImageStorage, error) {
 		//nolint:staticcheck // SA1019: WithCredentialsJSON is deprecated but needed for programmatic credentials
 		opts = append(opts, option.WithCredentialsJSON([]byte(credentialsJSON)))
 	} else if cfg.CredentialsFile != "" {
-		//nolint:staticcheck // SA1019: WithCredentialsFile is deprecated but needed for file-based credentials
 		fmt.Printf("[gcs] Using credentials file: %s\n", cfg.CredentialsFile)
+		//nolint:staticcheck // SA1019: WithCredentialsFile is deprecated but needed for file-based credentials
 		opts = append(opts, option.WithCredentialsFile(cfg.CredentialsFile))
 	} else {
 		fmt.Println("[gcs] No credentials provided, using Application Default Credentials")

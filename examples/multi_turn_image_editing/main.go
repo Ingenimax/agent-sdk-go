@@ -116,7 +116,7 @@ func multiTurnEditingExample(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create image edit session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	fmt.Println("Session created successfully!")
 	fmt.Println()
