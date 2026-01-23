@@ -586,6 +586,52 @@ func deepCopyAgentConfig(src *agent.AgentConfig) *agent.AgentConfig {
 		}
 	}
 
+	// Deep copy ImageGeneration
+	if src.ImageGeneration != nil {
+		dst.ImageGeneration = &agent.ImageGenerationYAML{
+			Provider: src.ImageGeneration.Provider,
+			Model:    src.ImageGeneration.Model,
+			Config:   deepCopyMap(src.ImageGeneration.Config),
+		}
+		// Deep copy the Enabled bool pointer
+		if src.ImageGeneration.Enabled != nil {
+			val := *src.ImageGeneration.Enabled
+			dst.ImageGeneration.Enabled = &val
+		}
+		if src.ImageGeneration.Storage != nil {
+			dst.ImageGeneration.Storage = &agent.ImageStorageYAML{
+				Type: src.ImageGeneration.Storage.Type,
+			}
+			if src.ImageGeneration.Storage.Local != nil {
+				dst.ImageGeneration.Storage.Local = &agent.LocalStorageYAML{
+					Path:    src.ImageGeneration.Storage.Local.Path,
+					BaseURL: src.ImageGeneration.Storage.Local.BaseURL,
+				}
+			}
+			if src.ImageGeneration.Storage.GCS != nil {
+				dst.ImageGeneration.Storage.GCS = &agent.GCSStorageYAML{
+					Bucket:              src.ImageGeneration.Storage.GCS.Bucket,
+					Prefix:              src.ImageGeneration.Storage.GCS.Prefix,
+					CredentialsFile:     src.ImageGeneration.Storage.GCS.CredentialsFile,
+					CredentialsJSON:     src.ImageGeneration.Storage.GCS.CredentialsJSON,
+					SignedURLExpiration: src.ImageGeneration.Storage.GCS.SignedURLExpiration,
+				}
+			}
+		}
+		if src.ImageGeneration.MultiTurnEditing != nil {
+			dst.ImageGeneration.MultiTurnEditing = &agent.MultiTurnEditingYAML{
+				Model:             src.ImageGeneration.MultiTurnEditing.Model,
+				SessionTimeout:    src.ImageGeneration.MultiTurnEditing.SessionTimeout,
+				MaxSessionsPerOrg: src.ImageGeneration.MultiTurnEditing.MaxSessionsPerOrg,
+			}
+			// Deep copy the Enabled bool pointer
+			if src.ImageGeneration.MultiTurnEditing.Enabled != nil {
+				val := *src.ImageGeneration.MultiTurnEditing.Enabled
+				dst.ImageGeneration.MultiTurnEditing.Enabled = &val
+			}
+		}
+	}
+
 	// Deep copy SubAgents map (recursive)
 	if src.SubAgents != nil {
 		dst.SubAgents = make(map[string]agent.AgentConfig)
@@ -911,6 +957,44 @@ func MergeAgentConfig(primary, base *agent.AgentConfig, strategy MergeStrategy) 
 		merged.LogLevel = mergeString(result.Runtime.LogLevel, base.Runtime.LogLevel)
 		merged.TimeoutDuration = mergeString(result.Runtime.TimeoutDuration, base.Runtime.TimeoutDuration)
 		result.Runtime = &merged
+	}
+
+	// Merge ImageGeneration (deep copy from base if needed)
+	if result.ImageGeneration == nil && base.ImageGeneration != nil {
+		result.ImageGeneration = &agent.ImageGenerationYAML{
+			Enabled:  base.ImageGeneration.Enabled,
+			Provider: base.ImageGeneration.Provider,
+			Model:    base.ImageGeneration.Model,
+			Config:   deepCopyMap(base.ImageGeneration.Config),
+		}
+		if base.ImageGeneration.Storage != nil {
+			result.ImageGeneration.Storage = &agent.ImageStorageYAML{
+				Type: base.ImageGeneration.Storage.Type,
+			}
+			if base.ImageGeneration.Storage.Local != nil {
+				result.ImageGeneration.Storage.Local = &agent.LocalStorageYAML{
+					Path:    base.ImageGeneration.Storage.Local.Path,
+					BaseURL: base.ImageGeneration.Storage.Local.BaseURL,
+				}
+			}
+			if base.ImageGeneration.Storage.GCS != nil {
+				result.ImageGeneration.Storage.GCS = &agent.GCSStorageYAML{
+					Bucket:              base.ImageGeneration.Storage.GCS.Bucket,
+					Prefix:              base.ImageGeneration.Storage.GCS.Prefix,
+					CredentialsFile:     base.ImageGeneration.Storage.GCS.CredentialsFile,
+					CredentialsJSON:     base.ImageGeneration.Storage.GCS.CredentialsJSON,
+					SignedURLExpiration: base.ImageGeneration.Storage.GCS.SignedURLExpiration,
+				}
+			}
+		}
+		if base.ImageGeneration.MultiTurnEditing != nil {
+			result.ImageGeneration.MultiTurnEditing = &agent.MultiTurnEditingYAML{
+				Enabled:           base.ImageGeneration.MultiTurnEditing.Enabled,
+				Model:             base.ImageGeneration.MultiTurnEditing.Model,
+				SessionTimeout:    base.ImageGeneration.MultiTurnEditing.SessionTimeout,
+				MaxSessionsPerOrg: base.ImageGeneration.MultiTurnEditing.MaxSessionsPerOrg,
+			}
+		}
 	}
 
 	// Merge SubAgents recursively (deep copy from base if needed)
