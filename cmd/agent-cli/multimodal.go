@@ -35,7 +35,7 @@ func buildImageContentParts(imageURLs []string, imagePaths []string, detail stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to open current directory: %w", err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	for _, p := range imagePaths {
 		p = strings.TrimSpace(p)
