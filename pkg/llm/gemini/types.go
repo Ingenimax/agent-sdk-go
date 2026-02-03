@@ -88,15 +88,22 @@ func DefaultThinkingConfig() ThinkingConfig {
 
 // ModelCapabilities represents the capabilities of different Gemini models
 type ModelCapabilities struct {
-	SupportsStreaming   bool
-	SupportsToolCalling bool
-	SupportsVision      bool
-	SupportsAudio       bool
-	SupportsThinking    bool
-	MaxInputTokens      int
-	MaxOutputTokens     int
-	MaxThinkingTokens   *int32 // nil if thinking not supported
-	SupportedMimeTypes  []string
+	SupportsStreaming             bool
+	SupportsToolCalling           bool
+	SupportsVision                bool
+	SupportsAudio                 bool
+	SupportsThinking              bool
+	SupportsImageGeneration       bool // Whether the model can generate images
+	SupportsMultiTurnImageEditing bool // Whether the model supports conversational image editing
+	MaxInputTokens                int
+	MaxOutputTokens               int
+	MaxThinkingTokens             *int32 // nil if thinking not supported
+	MaxReferenceImages            int    // Max reference images for multi-turn editing (Gemini 3 Pro: 14)
+	MaxObjectImages               int    // Max high-fidelity object images (Gemini 3 Pro: 6)
+	MaxHumanImages                int    // Max human images for character consistency (Gemini 3 Pro: 5)
+	SupportedMimeTypes            []string
+	SupportedOutputFormats        []string // Output formats for image generation (e.g., "png", "jpeg")
+	SupportedImageSizes           []string // Supported image sizes (e.g., "1K", "2K", "4K")
 }
 
 // GetModelCapabilities returns the capabilities for a given model
@@ -253,18 +260,62 @@ func GetModelCapabilities(model string) ModelCapabilities {
 		}
 	case ModelGemini20FlashPreviewImageGen:
 		return ModelCapabilities{
-			SupportsStreaming:   true,
-			SupportsToolCalling: true,
-			SupportsVision:      true,
-			SupportsAudio:       false,
-			SupportsThinking:    false,   // 2.0 and 1.5 models don't support thinking
-			MaxInputTokens:      1048576, // 1M tokens
-			MaxOutputTokens:     8192,
-			MaxThinkingTokens:   nil,
+			SupportsStreaming:        true,
+			SupportsToolCalling:      true,
+			SupportsVision:           true,
+			SupportsAudio:            false,
+			SupportsThinking:         false,   // 2.0 and 1.5 models don't support thinking
+			SupportsImageGeneration:  true,    // Can generate images
+			MaxInputTokens:           1048576, // 1M tokens
+			MaxOutputTokens:          8192,
+			MaxThinkingTokens:        nil,
 			SupportedMimeTypes: []string{
 				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
 				"text/plain",
 			},
+			SupportedOutputFormats: []string{"png", "jpeg"},
+		}
+	case ModelGemini25FlashImage:
+		return ModelCapabilities{
+			SupportsStreaming:             true,
+			SupportsToolCalling:           false, // Image gen models typically don't support tools
+			SupportsVision:                true,  // Can accept images as input for image-to-image
+			SupportsAudio:                 false,
+			SupportsThinking:              false,
+			SupportsImageGeneration:       true,  // Primary purpose: generate images
+			SupportsMultiTurnImageEditing: true,  // Supports chat-based image editing
+			MaxInputTokens:                32768,
+			MaxOutputTokens:               8192,
+			MaxThinkingTokens:             nil,
+			SupportedMimeTypes: []string{
+				"image/png", "image/jpeg", "image/webp",
+				"text/plain",
+			},
+			SupportedOutputFormats: []string{"png", "jpeg"},
+			SupportedImageSizes:    []string{"1K", "2K"},
+		}
+	case ModelGemini3ProImagePreview:
+		// Nano Banana Pro - Google's most advanced image generation and editing model
+		return ModelCapabilities{
+			SupportsStreaming:             true,
+			SupportsToolCalling:           false, // Image gen models typically don't support tools
+			SupportsVision:                true,  // Can accept images as input
+			SupportsAudio:                 false,
+			SupportsThinking:              true,  // Uses "Thinking" for complex instructions
+			SupportsImageGeneration:       true,
+			SupportsMultiTurnImageEditing: true,  // Primary feature: multi-turn image editing
+			MaxInputTokens:                32768,
+			MaxOutputTokens:               8192,
+			MaxThinkingTokens:             nil,
+			MaxReferenceImages:            14, // Up to 14 reference images
+			MaxObjectImages:               6,  // Up to 6 high-fidelity object images
+			MaxHumanImages:                5,  // Up to 5 human images for character consistency
+			SupportedMimeTypes: []string{
+				"image/png", "image/jpeg", "image/webp",
+				"text/plain",
+			},
+			SupportedOutputFormats: []string{"png", "jpeg"},
+			SupportedImageSizes:    []string{"1K", "2K", "4K"},
 		}
 	default:
 		// Return default capabilities for unknown models
@@ -308,6 +359,18 @@ func SupportsThinking(model string) bool {
 	return capabilities.SupportsThinking
 }
 
+// SupportsImageGeneration returns true if the model supports image generation
+func SupportsImageGeneration(model string) bool {
+	capabilities := GetModelCapabilities(model)
+	return capabilities.SupportsImageGeneration
+}
+
+// GetSupportedOutputFormats returns the supported output formats for image generation
+func GetSupportedOutputFormats(model string) []string {
+	capabilities := GetModelCapabilities(model)
+	return capabilities.SupportedOutputFormats
+}
+
 // GetMaxThinkingTokens returns the maximum thinking tokens for a model
 func GetMaxThinkingTokens(model string) *int32 {
 	capabilities := GetModelCapabilities(model)
@@ -326,4 +389,16 @@ func ValidateThinkingBudget(model string, budget int32) error {
 	}
 
 	return nil
+}
+
+// SupportsMultiTurnImageEditing returns true if the model supports multi-turn image editing
+func SupportsMultiTurnImageEditing(model string) bool {
+	capabilities := GetModelCapabilities(model)
+	return capabilities.SupportsMultiTurnImageEditing
+}
+
+// GetSupportedImageSizes returns the supported image sizes for the model
+func GetSupportedImageSizes(model string) []string {
+	capabilities := GetModelCapabilities(model)
+	return capabilities.SupportedImageSizes
 }
