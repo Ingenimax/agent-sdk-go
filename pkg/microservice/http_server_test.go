@@ -407,7 +407,7 @@ func TestHTTPServer_MultipartStoreMode_SavesAndServes(t *testing.T) {
 		t.Fatalf("expected 200 from file download, got %d: %s", getW.Code, getW.Body.String())
 	}
 	if !bytes.Equal(getW.Body.Bytes(), img) {
-		t.Fatalf("served bytes mismatch: got %q want %q", string(getW.Body.Bytes()), string(img))
+		t.Fatalf("served bytes mismatch: got %q want %q", getW.Body.String(), string(img))
 	}
 
 	// Cleanup saved file.

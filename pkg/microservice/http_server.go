@@ -425,11 +425,11 @@ func (h *HTTPServer) parseAgentRequest(r *http.Request) (StreamRequest, []interf
 func (h *HTTPServer) parseJSONAgentRequest(r *http.Request) (StreamRequest, []interfaces.ContentPart, error) {
 	var req StreamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return StreamRequest{}, nil, fmt.Errorf("Invalid JSON: %w", err)
+		return StreamRequest{}, nil, fmt.Errorf("invalid JSON: %w", err)
 	}
 
 	if req.Input == "" && len(req.ContentParts) == 0 {
-		return StreamRequest{}, nil, errors.New("Either 'input' or 'content_parts' is required")
+		return StreamRequest{}, nil, errors.New("either 'input' or 'content_parts' is required")
 	}
 
 	contentParts := req.ContentParts
@@ -445,7 +445,7 @@ func (h *HTTPServer) parseJSONAgentRequest(r *http.Request) (StreamRequest, []in
 
 func (h *HTTPServer) parseMultipartAgentRequest(r *http.Request) (StreamRequest, []interfaces.ContentPart, error) {
 	if err := r.ParseMultipartForm(maxMultipartMemoryBytes); err != nil {
-		return StreamRequest{}, nil, fmt.Errorf("Invalid multipart form: %w", err)
+		return StreamRequest{}, nil, fmt.Errorf("invalid multipart form: %w", err)
 	}
 
 	var req StreamRequest
@@ -462,7 +462,7 @@ func (h *HTTPServer) parseMultipartAgentRequest(r *http.Request) (StreamRequest,
 	var contentParts []interfaces.ContentPart
 	if rawParts := r.FormValue("content_parts"); strings.TrimSpace(rawParts) != "" {
 		if err := json.Unmarshal([]byte(rawParts), &contentParts); err != nil {
-			return StreamRequest{}, nil, fmt.Errorf("Invalid content_parts JSON: %w", err)
+			return StreamRequest{}, nil, fmt.Errorf("invalid content_parts JSON: %w", err)
 		}
 		if err := validateContentParts(contentParts); err != nil {
 			return StreamRequest{}, nil, err
@@ -492,7 +492,7 @@ func (h *HTTPServer) parseMultipartAgentRequest(r *http.Request) (StreamRequest,
 	}
 
 	if req.Input == "" && len(contentParts) == 0 {
-		return StreamRequest{}, nil, errors.New("Either 'input' or 'content_parts' is required")
+		return StreamRequest{}, nil, errors.New("either 'input' or 'content_parts' is required")
 	}
 
 	// Back-compat: if both input and content_parts are provided and no text part exists, prepend input.
@@ -538,7 +538,7 @@ func (h *HTTPServer) contentPartFromUploadedFile(r *http.Request, fh *multipart.
 		if h.uploadDir == "" {
 			return interfaces.ContentPart{}, errors.New("upload_mode=store is not enabled on this server")
 		}
-		if err := os.MkdirAll(h.uploadDir, 0o755); err != nil {
+		if err := os.MkdirAll(h.uploadDir, 0o750); err != nil {
 			return interfaces.ContentPart{}, fmt.Errorf("failed to create upload dir: %w", err)
 		}
 		name, err := randomFilename(filepath.Base(fh.Filename))
@@ -546,7 +546,7 @@ func (h *HTTPServer) contentPartFromUploadedFile(r *http.Request, fh *multipart.
 			return interfaces.ContentPart{}, fmt.Errorf("failed to generate filename: %w", err)
 		}
 		destPath := filepath.Join(h.uploadDir, name)
-		if err := os.WriteFile(destPath, data, 0o644); err != nil {
+		if err := os.WriteFile(destPath, data, 0o600); err != nil {
 			return interfaces.ContentPart{}, fmt.Errorf("failed to save file: %w", err)
 		}
 		u := h.fileURL(r, name)
@@ -577,15 +577,15 @@ func validateContentParts(parts []interfaces.ContentPart) error {
 			continue
 		}
 		if p.ImageURL == nil || strings.TrimSpace(p.ImageURL.URL) == "" {
-			return errors.New("Invalid content_parts: image_url.url is required when type is 'image_url'")
+			return errors.New("invalid content_parts: image_url.url is required when type is 'image_url'")
 		}
 		u := strings.TrimSpace(p.ImageURL.URL)
 		if !isAllowedImageURLScheme(u) {
-			return fmt.Errorf("Invalid image_url: must start with http://, https://, or data:")
+			return fmt.Errorf("invalid image_url: must start with http://, https://, or data")
 		}
 		// Minimal additional hardening: if it's a data URL, require image/* prefix.
 		if strings.HasPrefix(u, "data:") && !strings.HasPrefix(strings.ToLower(u), "data:image/") {
-			return fmt.Errorf("Invalid image_url data URL: must be data:image/*")
+			return fmt.Errorf("invalid image_url data URL: must be data:image/*")
 		}
 	}
 	return nil

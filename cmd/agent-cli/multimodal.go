@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func buildImageContentParts(imageURLs []string, imagePaths []string, detail stri
 			continue
 		}
 		if !isAllowedImageURLScheme(u) {
-			return nil, fmt.Errorf("invalid --image-url: must start with http://, https://, or data:")
+			return nil, fmt.Errorf("invalid --image-url: must start with http://, https://, or data")
 		}
 		if strings.HasPrefix(strings.ToLower(u), "data:") && !strings.HasPrefix(strings.ToLower(u), "data:image/") {
 			return nil, fmt.Errorf("invalid --image-url data URL: must be data:image/*")
@@ -29,13 +30,24 @@ func buildImageContentParts(imageURLs []string, imagePaths []string, detail stri
 		parts = append(parts, interfaces.ImageURLPart(u, detail))
 	}
 
-	// Local files → data URL
+	// Local files → data URL (scoped to current directory to prevent path traversal)
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open current directory: %w", err)
+	}
+	defer root.Close()
+
 	for _, p := range imagePaths {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
-		data, err := os.ReadFile(p)
+		f, err := root.Open(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read image file %q: %w", p, err)
+		}
+		data, err := io.ReadAll(f)
+		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read image file %q: %w", p, err)
 		}
@@ -64,4 +76,3 @@ func isAllowedImageMIME(mime string) bool {
 		return false
 	}
 }
-
