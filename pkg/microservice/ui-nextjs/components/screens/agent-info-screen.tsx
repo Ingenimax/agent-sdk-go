@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { AgentConfig } from '@/types/agent';
 import { agentAPI } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,23 +17,31 @@ export function AgentInfoScreen({ agentConfig }: AgentInfoScreenProps) {
   const [healthStatus, setHealthStatus] = useState<'checking' | 'healthy' | 'error'>('checking');
   const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
 
-  useEffect(() => {
-    checkHealth();
-    const interval = setInterval(checkHealth, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const checkHealth = async () => {
+  const checkHealth = useCallback(async () => {
     try {
       setHealthStatus('checking');
       await agentAPI.health();
       setHealthStatus('healthy');
       setLastHealthCheck(new Date());
-    } catch (error) {
+    } catch {
       setHealthStatus('error');
       setLastHealthCheck(new Date());
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Defer initial check to avoid triggering setState synchronously inside effect.
+    const initialTimer = window.setTimeout(() => {
+      void checkHealth();
+    }, 0);
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, 30000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [checkHealth]);
 
   const getHealthStatusIcon = () => {
     switch (healthStatus) {

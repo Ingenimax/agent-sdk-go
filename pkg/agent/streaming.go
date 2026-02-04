@@ -126,9 +126,14 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 		// Add user message to memory
 		if a.memory != nil {
+			var parts []interfaces.ContentPart
+			if p, ok := interfaces.GetContextContentParts(ctx); ok && len(p) > 0 {
+				parts = p
+			}
 			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: input,
+				Role:         "user",
+				Content:      input,
+				ContentParts: parts,
 			}); err != nil {
 				eventChan <- interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
@@ -300,6 +305,11 @@ func (a *Agent) runStreamingGeneration(
 	// Add memory if available
 	if a.memory != nil {
 		options = append(options, interfaces.WithMemory(a.memory))
+	}
+
+	// If multimodal content parts are provided via context, forward them to the LLM.
+	if parts, ok := interfaces.GetContextContentParts(ctx); ok && len(parts) > 0 {
+		options = append(options, interfaces.WithContentParts(parts...))
 	}
 
 	// Add stream config if available

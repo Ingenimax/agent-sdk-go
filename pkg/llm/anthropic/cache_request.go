@@ -76,7 +76,7 @@ func (b *cacheRequestBuilder) BuildMessages(messages []Message) (json.RawMessage
 		Content: []CacheableContent{
 			{
 				Type:         "text",
-				Text:         lastMsg.Content,
+				Text:         messageTextContent(lastMsg),
 				CacheControl: b.getCacheControl(),
 			},
 		},

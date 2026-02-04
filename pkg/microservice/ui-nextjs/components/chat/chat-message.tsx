@@ -78,7 +78,7 @@ const ChatMessageInner = memo(function ChatMessageInner({ message }: ChatMessage
                 rehypePlugins={[rehypeHighlight]}
                 components={{
                   // Custom components for better styling
-                  code: ({ node, inline, className, children, ...props }: any) => {
+                  code: ({ inline, className, children, ...props }: React.ComponentProps<'code'> & { inline?: boolean }) => {
                     const match = /language-(\w+)/.exec(className || '');
                     return !inline && match ? (
                       <pre className="overflow-x-auto rounded-md bg-muted p-4">
@@ -130,7 +130,7 @@ const ChatMessageInner = memo(function ChatMessageInner({ message }: ChatMessage
                   },
                 }}
               >
-                {message.content}
+                {message.display_content ?? message.content}
               </ReactMarkdown>
             </div>
           </CardContent>

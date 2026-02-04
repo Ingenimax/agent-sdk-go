@@ -65,7 +65,7 @@ func TestMessageHistoryBuilder_BuildMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			messages := builder.buildMessages(context.Background(), tt.prompt, tt.memory)
+			messages := builder.buildMessages(context.Background(), tt.prompt, tt.memory, nil)
 			if len(messages) != tt.expected {
 				t.Errorf("Expected %d messages, got %d", tt.expected, len(messages))
 			}
