@@ -626,6 +626,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				eventChan <- interfaces.StreamEvent{
 					Type:      interfaces.StreamEventToolResult,
 					Timestamp: time.Now(),
+					Content:   result,
 					ToolCall: &interfaces.ToolCall{
 						ID:        toolCall.ID,
 						Name:      toolCall.Function.Name,
