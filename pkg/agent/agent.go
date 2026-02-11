@@ -84,6 +84,7 @@ type Agent struct {
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
+	cacheConfig          *interfaces.CacheConfig  // Prompt caching configuration (Anthropic only)
 
 	// Runtime configuration fields
 	memoryConfig   map[string]interface{} // Memory configuration from YAML
@@ -261,6 +262,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		}
 		if expandedConfig.LLMConfig != nil {
 			a.llmConfig = convertLLMConfigYAMLToInterface(expandedConfig.LLMConfig)
+		}
+		if expandedConfig.CacheConfig != nil {
+			a.cacheConfig = convertCacheConfigYAMLToInterface(expandedConfig.CacheConfig)
 		}
 
 		// Process LLM provider configuration
@@ -446,6 +450,13 @@ func WithResponseFormat(formatType interfaces.ResponseFormat) Option {
 func WithLLMConfig(config interfaces.LLMConfig) Option {
 	return func(a *Agent) {
 		a.llmConfig = &config
+	}
+}
+
+// WithCacheConfig sets the prompt caching configuration for the agent (Anthropic only)
+func WithCacheConfig(config interfaces.CacheConfig) Option {
+	return func(a *Agent) {
+		a.cacheConfig = &config
 	}
 }
 
@@ -1240,6 +1251,12 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
+	}
+
+	if a.cacheConfig != nil {
+		generateOptions = append(generateOptions, func(options *interfaces.GenerateOptions) {
+			options.CacheConfig = a.cacheConfig
+		})
 	}
 
 	tracker := getUsageTracker(ctx)

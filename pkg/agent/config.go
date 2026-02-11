@@ -45,6 +45,7 @@ type AgentConfig struct {
 	// NEW: Complex configuration objects
 	StreamConfig *StreamConfigYAML `yaml:"stream_config,omitempty"`
 	LLMConfig    *LLMConfigYAML    `yaml:"llm_config,omitempty"`
+	CacheConfig  *CacheConfigYAML  `yaml:"cache_config,omitempty"`
 
 	// NEW: LLM Provider configuration
 	LLMProvider *LLMProviderYAML `yaml:"llm_provider,omitempty"`
@@ -82,6 +83,14 @@ type StreamConfigYAML struct {
 	BufferSize                  *int  `yaml:"buffer_size,omitempty"`
 	IncludeToolProgress         *bool `yaml:"include_tool_progress,omitempty"`
 	IncludeIntermediateMessages *bool `yaml:"include_intermediate_messages,omitempty"`
+}
+
+// CacheConfigYAML represents prompt caching configuration in YAML (Anthropic only)
+type CacheConfigYAML struct {
+	CacheSystemMessage *bool   `yaml:"cache_system_message,omitempty"`
+	CacheTools         *bool   `yaml:"cache_tools,omitempty"`
+	CacheConversation  *bool   `yaml:"cache_conversation,omitempty"`
+	CacheTTL           *string `yaml:"cache_ttl,omitempty"`
 }
 
 // LLMConfigYAML represents LLM configuration in YAML
@@ -731,6 +740,28 @@ func convertStreamConfigYAMLToInterface(config *StreamConfigYAML) *interfaces.St
 	}
 
 	return streamConfig
+}
+
+// convertCacheConfigYAMLToInterface converts CacheConfigYAML to interfaces.CacheConfig
+func convertCacheConfigYAMLToInterface(cfg *CacheConfigYAML) *interfaces.CacheConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	cc := &interfaces.CacheConfig{}
+	if cfg.CacheSystemMessage != nil {
+		cc.CacheSystemMessage = *cfg.CacheSystemMessage
+	}
+	if cfg.CacheTools != nil {
+		cc.CacheTools = *cfg.CacheTools
+	}
+	if cfg.CacheConversation != nil {
+		cc.CacheConversation = *cfg.CacheConversation
+	}
+	if cfg.CacheTTL != nil {
+		cc.CacheTTL = *cfg.CacheTTL
+	}
+	return cc
 }
 
 // convertLLMConfigYAMLToInterface converts LLMConfigYAML to interfaces.LLMConfig

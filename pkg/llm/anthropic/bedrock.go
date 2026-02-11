@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
@@ -86,25 +87,44 @@ func (bc *BedrockConfig) TransformRequest(req *CompletionRequest) (*BedrockReque
 	return bedrockReq, nil
 }
 
-// InvokeModel invokes a Bedrock model using the AWS SDK (non-streaming)
-// TODO: Add prompt caching support for Bedrock. Currently, caching options are ignored
-// when using Bedrock. The cache_control blocks would need to be added to BedrockRequest
-// and the request format verified against AWS Bedrock's Anthropic integration.
-func (bc *BedrockConfig) InvokeModel(ctx context.Context, modelID string, req *CompletionRequest) (*CompletionResponse, error) {
-	if !bc.Enabled {
-		return nil, fmt.Errorf("bedrock is not enabled")
+// BuildRequestBody creates a JSON request body for Bedrock, applying prompt caching
+// when a CacheConfig is provided. When caching is disabled, it uses the standard
+// BedrockRequest format via TransformRequest. When caching is enabled, it uses
+// CacheableCompletionRequest with the Bedrock-specific anthropic_version and no model field.
+func (bc *BedrockConfig) BuildRequestBody(req *CompletionRequest, cacheConfig *interfaces.CacheConfig) ([]byte, error) {
+	cacheBuilder := newCacheRequestBuilder(cacheConfig)
+	if cacheBuilder.HasCacheOptions() {
+		// Use cache-aware request builder
+		cacheableReq, err := cacheBuilder.BuildCacheableRequest(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build cacheable request: %w", err)
+		}
+		// Override for Bedrock: set version, clear model (passed separately to AWS SDK),
+		// and clear stream (Bedrock controls streaming via API call, not request field)
+		cacheableReq.AnthropicVersion = "bedrock-2023-05-31"
+		cacheableReq.Model = ""
+		cacheableReq.Stream = false
+		return json.Marshal(cacheableReq)
 	}
 
-	// Transform request to Bedrock format
+	// No caching: use standard Bedrock request format
 	bedrockReq, err := bc.TransformRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform request: %w", err)
 	}
+	return json.Marshal(bedrockReq)
+}
 
-	// Marshal request to JSON
-	requestBody, err := json.Marshal(bedrockReq)
+// InvokeModel invokes a Bedrock model using the AWS SDK (non-streaming)
+func (bc *BedrockConfig) InvokeModel(ctx context.Context, modelID string, req *CompletionRequest, cacheConfig *interfaces.CacheConfig) (*CompletionResponse, error) {
+	if !bc.Enabled {
+		return nil, fmt.Errorf("bedrock is not enabled")
+	}
+
+	// Build request body (handles both cached and non-cached paths)
+	requestBody, err := bc.BuildRequestBody(req, cacheConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to build request body: %w", err)
 	}
 
 	bc.logger.Debug(ctx, "Invoking Bedrock model", map[string]interface{}{
@@ -149,21 +169,15 @@ func (bc *BedrockConfig) InvokeModel(ctx context.Context, modelID string, req *C
 }
 
 // InvokeModelStream invokes a Bedrock model with streaming using AWS SDK
-func (bc *BedrockConfig) InvokeModelStream(ctx context.Context, modelID string, req *CompletionRequest) (*bedrockruntime.InvokeModelWithResponseStreamOutput, error) {
+func (bc *BedrockConfig) InvokeModelStream(ctx context.Context, modelID string, req *CompletionRequest, cacheConfig *interfaces.CacheConfig) (*bedrockruntime.InvokeModelWithResponseStreamOutput, error) {
 	if !bc.Enabled {
 		return nil, fmt.Errorf("bedrock is not enabled")
 	}
 
-	// Transform request to Bedrock format
-	bedrockReq, err := bc.TransformRequest(req)
+	// Build request body (handles both cached and non-cached paths)
+	requestBody, err := bc.BuildRequestBody(req, cacheConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to transform request: %w", err)
-	}
-
-	// Marshal request to JSON
-	requestBody, err := json.Marshal(bedrockReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to build request body: %w", err)
 	}
 
 	bc.logger.Debug(ctx, "Invoking Bedrock model with streaming", map[string]interface{}{

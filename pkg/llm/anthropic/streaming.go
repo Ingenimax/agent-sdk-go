@@ -161,15 +161,6 @@ func (c *AnthropicClient) GenerateStream(
 	return eventChan, nil
 }
 
-// executeStreamingRequest performs the actual streaming HTTP request
-func (c *AnthropicClient) executeStreamingRequest(
-	ctx context.Context,
-	req CompletionRequest,
-	eventChan chan<- interfaces.StreamEvent,
-) error {
-	return c.executeStreamingRequestWithMemory(ctx, req, eventChan, "", nil)
-}
-
 func (c *AnthropicClient) executeStreamingRequestWithMemory(
 	ctx context.Context,
 	req CompletionRequest,
@@ -189,7 +180,11 @@ func (c *AnthropicClient) executeStreamingRequestWithMemory(
 
 		// Handle Bedrock streaming separately using AWS SDK
 		if c.BedrockConfig != nil && c.BedrockConfig.Enabled {
-			return c.executeBedrockStreaming(ctx, &req, eventChan)
+			var cacheConfig *interfaces.CacheConfig
+			if params != nil {
+				cacheConfig = params.CacheConfig
+			}
+			return c.executeBedrockStreaming(ctx, &req, eventChan, cacheConfig)
 		}
 
 		// Create streaming HTTP request (supports both Vertex AI and standard Anthropic API)
@@ -503,7 +498,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		if params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages {
 			filterContentDeltas = false
 		}
-		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas)
+		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas, params)
 		if err != nil {
 			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] LLM call failed", map[string]interface{}{
 				"iteration": iteration + 1,
@@ -883,6 +878,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
 	filterContentDeltas bool,
+	params *interfaces.GenerateOptions,
 ) ([]interfaces.ToolCall, bool, []interfaces.StreamEvent, error) {
 
 	// Create temporary channel to capture events
@@ -901,7 +897,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 			close(tempEventChan)
 		}()
 
-		if err := c.executeStreamingRequest(ctx, req, tempEventChan); err != nil {
+		if err := c.executeStreamingRequestWithMemory(ctx, req, tempEventChan, "", params); err != nil {
 			select {
 			case tempEventChan <- interfaces.StreamEvent{
 				Type:      interfaces.StreamEventError,
@@ -923,6 +919,7 @@ func (c *AnthropicClient) executeBedrockStreaming(
 	ctx context.Context,
 	req *CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
+	cacheConfig *interfaces.CacheConfig,
 ) error {
 	c.logger.Debug(ctx, "Executing Bedrock streaming request", map[string]interface{}{
 		"modelID": c.Model,
@@ -930,7 +927,7 @@ func (c *AnthropicClient) executeBedrockStreaming(
 	})
 
 	// Invoke Bedrock streaming
-	output, err := c.BedrockConfig.InvokeModelStream(ctx, c.Model, req)
+	output, err := c.BedrockConfig.InvokeModelStream(ctx, c.Model, req, cacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to invoke Bedrock streaming: %w", err)
 	}
