@@ -161,15 +161,6 @@ func (c *AnthropicClient) GenerateStream(
 	return eventChan, nil
 }
 
-// executeStreamingRequest performs the actual streaming HTTP request
-func (c *AnthropicClient) executeStreamingRequest(
-	ctx context.Context,
-	req CompletionRequest,
-	eventChan chan<- interfaces.StreamEvent,
-) error {
-	return c.executeStreamingRequestWithMemory(ctx, req, eventChan, "", nil)
-}
-
 func (c *AnthropicClient) executeStreamingRequestWithMemory(
 	ctx context.Context,
 	req CompletionRequest,
@@ -507,7 +498,7 @@ func (c *AnthropicClient) executeStreamingWithTools(
 		if params.StreamConfig != nil && params.StreamConfig.IncludeIntermediateMessages {
 			filterContentDeltas = false
 		}
-		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas)
+		toolCalls, hasContent, capturedContentEvents, err := c.executeStreamingRequestWithToolCapture(ctx, req, eventChan, filterContentDeltas, params)
 		if err != nil {
 			c.logger.Error(ctx, "[LLM RESPONSE DEBUG] LLM call failed", map[string]interface{}{
 				"iteration": iteration + 1,
@@ -887,6 +878,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 	req CompletionRequest,
 	eventChan chan<- interfaces.StreamEvent,
 	filterContentDeltas bool,
+	params *interfaces.GenerateOptions,
 ) ([]interfaces.ToolCall, bool, []interfaces.StreamEvent, error) {
 
 	// Create temporary channel to capture events
@@ -905,7 +897,7 @@ func (c *AnthropicClient) executeStreamingRequestWithToolCapture(
 			close(tempEventChan)
 		}()
 
-		if err := c.executeStreamingRequest(ctx, req, tempEventChan); err != nil {
+		if err := c.executeStreamingRequestWithMemory(ctx, req, tempEventChan, "", params); err != nil {
 			select {
 			case tempEventChan <- interfaces.StreamEvent{
 				Type:      interfaces.StreamEventError,
