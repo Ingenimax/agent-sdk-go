@@ -57,3 +57,26 @@ func (m *ToolMiddleware) Run(ctx context.Context, input string) (string, error) 
 
 	return processedOutput, nil
 }
+
+// Execute executes the tool with the given arguments, applying guardrails
+func (m *ToolMiddleware) Execute(ctx context.Context, args string) (string, error) {
+	// Process request through guardrails
+	processedInput, err := m.pipeline.ProcessRequest(ctx, args)
+	if err != nil {
+		return "", err
+	}
+
+	// Call the underlying tool
+	output, err := m.tool.Execute(ctx, processedInput)
+	if err != nil {
+		return "", err
+	}
+
+	// Process response through guardrails
+	processedOutput, err := m.pipeline.ProcessResponse(ctx, output)
+	if err != nil {
+		return "", err
+	}
+
+	return processedOutput, nil
+}
