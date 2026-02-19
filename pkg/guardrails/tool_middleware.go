@@ -6,6 +6,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
+// Compile-time assertion that ToolMiddleware implements interfaces.Tool.
+var _ interfaces.Tool = (*ToolMiddleware)(nil)
+
 // ToolMiddleware implements middleware for tool calls
 type ToolMiddleware struct {
 	tool     interfaces.Tool
