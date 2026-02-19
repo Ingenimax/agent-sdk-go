@@ -16,6 +16,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
+	"github.com/Ingenimax/agent-sdk-go/pkg/sandbox"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -685,10 +686,11 @@ func (s *MCPServerImpl) Close() error {
 
 // StdioServerConfig holds configuration for a stdio MCP server
 type StdioServerConfig struct {
-	Command string
-	Args    []string
-	Env     []string
-	Logger  logging.Logger
+	Command  string
+	Args     []string
+	Env      []string
+	Logger   logging.Logger
+	Executor sandbox.CommandExecutor // Optional sandboxed executor. Nil uses direct host execution.
 }
 
 // NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
@@ -769,9 +771,18 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		}
 	}
 
-	// Create the command with context
-	// #nosec G204 -- commandPath is validated above with LookPath and security checks
-	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
+	// Create the command, optionally through sandbox executor
+	var cmd *exec.Cmd
+	if config.Executor != nil {
+		var execErr error
+		cmd, execErr = config.Executor.Command(ctx, commandPath, config.Args...)
+		if execErr != nil {
+			return nil, fmt.Errorf("sandbox executor error: %w", execErr)
+		}
+	} else {
+		// #nosec G204 -- commandPath is validated above with LookPath and security checks
+		cmd = exec.CommandContext(ctx, commandPath, config.Args...)
+	}
 	if len(config.Env) > 0 {
 		cmd.Env = append(os.Environ(), config.Env...)
 
