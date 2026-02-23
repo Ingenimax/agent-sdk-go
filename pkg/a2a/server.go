@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/a2aproject/a2a-go/a2a"
@@ -23,6 +24,7 @@ type Server struct {
 	mux             *http.ServeMux
 	addr            string
 	resolvedAddr    string
+	addrMu          sync.RWMutex
 	basePath        string
 	logger          logging.Logger
 	shutdownTimeout time.Duration
@@ -71,7 +73,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("a2a server: failed to listen on %s: %w", s.addr, err)
 	}
+	s.addrMu.Lock()
 	s.resolvedAddr = listener.Addr().String()
+	s.addrMu.Unlock()
 
 	s.logger.Info(ctx, "A2A server starting", map[string]interface{}{
 		"address":          s.resolvedAddr,
@@ -106,8 +110,11 @@ func (s *Server) Start(ctx context.Context) error {
 // Addr returns the resolved listen address after Start has been called.
 // Before Start, it returns the configured address.
 func (s *Server) Addr() string {
-	if s.resolvedAddr != "" {
-		return s.resolvedAddr
+	s.addrMu.RLock()
+	resolved := s.resolvedAddr
+	s.addrMu.RUnlock()
+	if resolved != "" {
+		return resolved
 	}
 	return s.addr
 }
