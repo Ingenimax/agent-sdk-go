@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 
@@ -49,6 +50,14 @@ func (e *echoAgent) RunStream(_ context.Context, input string) (<-chan interface
 	return ch, nil
 }
 
+// loggingMiddleware logs incoming requests. Replace with your auth middleware.
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[%s] %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	agent := &echoAgent{}
 
@@ -68,9 +77,12 @@ func main() {
 		Examples:    []string{"Hello, world!"},
 	}).Build()
 
-	// Create and start the A2A server
+	// Create and start the A2A server with middleware
 	srv := a2apkg.NewServer(agent, card,
 		a2apkg.WithAddress(":9100"),
+		a2apkg.WithMiddleware(loggingMiddleware),
+		// Add auth middleware:
+		// a2apkg.WithMiddleware(authMiddleware),
 	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

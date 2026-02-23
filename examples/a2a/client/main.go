@@ -33,7 +33,8 @@ func main() {
 
 	ctx := context.Background()
 
-	// Discover and connect to the remote A2A agent
+	// Discover and connect to the remote A2A agent.
+	// Use WithBearerToken("token") for authenticated agents.
 	client, err := a2apkg.NewClient(ctx, agentURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to A2A agent at %s: %v", agentURL, err)
@@ -73,6 +74,26 @@ func main() {
 			}
 		}
 	}
+
+	fmt.Println()
+
+	// Multi-turn conversation using context ID
+	fmt.Println("--- Multi-turn conversation ---")
+	_, err = client.SendMessage(ctx, "Remember my name is Alice",
+		a2apkg.WithContextID("conversation-1"),
+	)
+	if err != nil {
+		log.Fatalf("First turn failed: %v", err)
+	}
+	fmt.Println("Turn 1 sent")
+
+	result2, err := client.SendMessage(ctx, "What is my name?",
+		a2apkg.WithContextID("conversation-1"),
+	)
+	if err != nil {
+		log.Fatalf("Second turn failed: %v", err)
+	}
+	fmt.Printf("Turn 2 response: %s\n", a2apkg.ExtractResultText(result2))
 
 	fmt.Println()
 

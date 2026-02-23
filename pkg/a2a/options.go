@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
@@ -31,10 +32,20 @@ func WithServerLogger(logger logging.Logger) ServerOption {
 	}
 }
 
-// WithTaskStore sets a custom task store for the A2A server.
-func WithTaskStore(store TaskStore) ServerOption {
+// WithShutdownTimeout sets the graceful shutdown timeout for the A2A server.
+// Defaults to 30 seconds.
+func WithShutdownTimeout(d time.Duration) ServerOption {
 	return func(s *Server) {
-		s.taskStore = store
+		s.shutdownTimeout = d
+	}
+}
+
+// WithMiddleware adds an HTTP middleware to the A2A server.
+// Middleware is applied in the order provided, wrapping the base handler.
+// Use this for authentication, rate limiting, CORS, logging, etc.
+func WithMiddleware(mw func(http.Handler) http.Handler) ServerOption {
+	return func(s *Server) {
+		s.middlewares = append(s.middlewares, mw)
 	}
 }
 
@@ -98,5 +109,37 @@ func WithInputModes(modes ...string) CardOption {
 func WithOutputModes(modes ...string) CardOption {
 	return func(b *CardBuilder) {
 		b.outputModes = modes
+	}
+}
+
+// WithBearerToken sets a static bearer token for authentication on the A2A client.
+// The token is injected into every outgoing request as an Authorization header.
+func WithBearerToken(token string) ClientOption {
+	return func(c *Client) {
+		c.bearerToken = token
+	}
+}
+
+// SendOption configures individual SendMessage / SendMessageStream calls.
+type SendOption func(*sendConfig)
+
+// sendConfig holds per-call options for send operations.
+type sendConfig struct {
+	contextID string
+	taskID    string
+}
+
+// WithContextID sets the context ID for multi-turn conversations.
+// Messages sharing a context ID are grouped into the same interaction thread.
+func WithContextID(id string) SendOption {
+	return func(c *sendConfig) {
+		c.contextID = id
+	}
+}
+
+// WithTaskID continues an existing task by referencing its ID.
+func WithTaskID(id string) SendOption {
+	return func(c *sendConfig) {
+		c.taskID = id
 	}
 }
