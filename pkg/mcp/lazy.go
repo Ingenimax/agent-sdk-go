@@ -175,9 +175,9 @@ type LazyMCPServerConfig struct {
 	Args              []string
 	Env               []string
 	URL               string
-	Token             string                 // Bearer token for HTTP authentication
-	HttpTransportMode string                 // "sse" or "streamable"
-	AllowedTools      []string               // List of allowed tool names for this MCP server
+	Token             string                  // Bearer token for HTTP authentication
+	HttpTransportMode string                  // "sse" or "streamable"
+	AllowedTools      []string                // List of allowed tool names for this MCP server
 	Executor          sandbox.CommandExecutor // Optional sandbox executor for stdio servers
 }
 

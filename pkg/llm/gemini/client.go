@@ -1212,7 +1212,7 @@ func (c *GeminiClient) CreateImageEditSession(ctx context.Context, options *inte
 	}
 
 	c.logger.Debug(ctx, "Creating image edit session", map[string]interface{}{
-		"model":                model,
+		"model":                  model,
 		"has_system_instruction": options != nil && options.SystemInstruction != "",
 	})
 

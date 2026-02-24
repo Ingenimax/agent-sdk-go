@@ -71,7 +71,7 @@ func ExampleAdvancedOptions() {
 		WithLocalFallback("./configs/research.yaml"), // Specific fallback file
 		WithCache(10 * time.Minute),                  // Longer cache
 		WithEnvOverrides(),                           // Enable env var overrides
-		WithVerbose(),                               // Enable logging
+		WithVerbose(),                                // Enable logging
 	}
 
 	// Agent options for customization

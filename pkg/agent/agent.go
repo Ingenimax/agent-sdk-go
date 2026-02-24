@@ -41,8 +41,8 @@ type LazyMCPConfig struct {
 	URL               string
 	Token             string // Bearer token for HTTP authentication
 	Tools             []LazyMCPToolConfig
-	HttpTransportMode string                 // "sse" or "streamable"
-	AllowedTools      []string               // List of allowed tool names for this MCP server
+	HttpTransportMode string                  // "sse" or "streamable"
+	AllowedTools      []string                // List of allowed tool names for this MCP server
 	Executor          sandbox.CommandExecutor // Optional sandbox executor
 }
 
@@ -2311,4 +2311,3 @@ func createImageStorageFromConfig(config *ImageStorageYAML) (storage.ImageStorag
 		return nil, fmt.Errorf("unsupported storage type: %s (only 'local' and 'gcs' are supported)", storageType)
 	}
 }
-

@@ -260,15 +260,15 @@ func GetModelCapabilities(model string) ModelCapabilities {
 		}
 	case ModelGemini20FlashPreviewImageGen:
 		return ModelCapabilities{
-			SupportsStreaming:        true,
-			SupportsToolCalling:      true,
-			SupportsVision:           true,
-			SupportsAudio:            false,
-			SupportsThinking:         false,   // 2.0 and 1.5 models don't support thinking
-			SupportsImageGeneration:  true,    // Can generate images
-			MaxInputTokens:           1048576, // 1M tokens
-			MaxOutputTokens:          8192,
-			MaxThinkingTokens:        nil,
+			SupportsStreaming:       true,
+			SupportsToolCalling:     true,
+			SupportsVision:          true,
+			SupportsAudio:           false,
+			SupportsThinking:        false,   // 2.0 and 1.5 models don't support thinking
+			SupportsImageGeneration: true,    // Can generate images
+			MaxInputTokens:          1048576, // 1M tokens
+			MaxOutputTokens:         8192,
+			MaxThinkingTokens:       nil,
 			SupportedMimeTypes: []string{
 				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
 				"text/plain",
@@ -282,8 +282,8 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsVision:                true,  // Can accept images as input for image-to-image
 			SupportsAudio:                 false,
 			SupportsThinking:              false,
-			SupportsImageGeneration:       true,  // Primary purpose: generate images
-			SupportsMultiTurnImageEditing: true,  // Supports chat-based image editing
+			SupportsImageGeneration:       true, // Primary purpose: generate images
+			SupportsMultiTurnImageEditing: true, // Supports chat-based image editing
 			MaxInputTokens:                32768,
 			MaxOutputTokens:               8192,
 			MaxThinkingTokens:             nil,
@@ -301,9 +301,9 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling:           false, // Image gen models typically don't support tools
 			SupportsVision:                true,  // Can accept images as input
 			SupportsAudio:                 false,
-			SupportsThinking:              true,  // Uses "Thinking" for complex instructions
+			SupportsThinking:              true, // Uses "Thinking" for complex instructions
 			SupportsImageGeneration:       true,
-			SupportsMultiTurnImageEditing: true,  // Primary feature: multi-turn image editing
+			SupportsMultiTurnImageEditing: true, // Primary feature: multi-turn image editing
 			MaxInputTokens:                32768,
 			MaxOutputTokens:               8192,
 			MaxThinkingTokens:             nil,

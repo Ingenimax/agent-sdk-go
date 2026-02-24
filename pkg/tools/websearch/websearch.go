@@ -173,11 +173,11 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 
 	// Format results
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search results for '%s':\n\n", query))
+	fmt.Fprintf(&sb, "Search results for '%s':\n\n", query)
 	for i, item := range result.Items {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Title))
-		sb.WriteString(fmt.Sprintf("   URL: %s\n", item.Link))
-		sb.WriteString(fmt.Sprintf("   %s\n\n", item.Snippet))
+		fmt.Fprintf(&sb, "%d. %s\n", i+1, item.Title)
+		fmt.Fprintf(&sb, "   URL: %s\n", item.Link)
+		fmt.Fprintf(&sb, "   %s\n\n", item.Snippet)
 	}
 
 	// Cache result

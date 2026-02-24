@@ -108,34 +108,34 @@ func (c *DeepSeekClient) SupportsStreaming() bool {
 
 // ChatCompletionRequest represents a request to the DeepSeek Chat Completion API
 type ChatCompletionRequest struct {
-	Model            string                   `json:"model"`
-	Messages         []Message                `json:"messages"`
-	Temperature      float64                  `json:"temperature,omitempty"`
-	TopP             float64                  `json:"top_p,omitempty"`
-	FrequencyPenalty float64                  `json:"frequency_penalty,omitempty"`
-	PresencePenalty  float64                  `json:"presence_penalty,omitempty"`
-	Stop             []string                 `json:"stop,omitempty"`
-	MaxTokens        int                      `json:"max_tokens,omitempty"`
-	Stream           bool                     `json:"stream,omitempty"`
-	Tools            []Tool                   `json:"tools,omitempty"`
-	ToolChoice       interface{}              `json:"tool_choice,omitempty"`
-	ResponseFormat   *ResponseFormatParam     `json:"response_format,omitempty"`
+	Model            string               `json:"model"`
+	Messages         []Message            `json:"messages"`
+	Temperature      float64              `json:"temperature,omitempty"`
+	TopP             float64              `json:"top_p,omitempty"`
+	FrequencyPenalty float64              `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64              `json:"presence_penalty,omitempty"`
+	Stop             []string             `json:"stop,omitempty"`
+	MaxTokens        int                  `json:"max_tokens,omitempty"`
+	Stream           bool                 `json:"stream,omitempty"`
+	Tools            []Tool               `json:"tools,omitempty"`
+	ToolChoice       interface{}          `json:"tool_choice,omitempty"`
+	ResponseFormat   *ResponseFormatParam `json:"response_format,omitempty"`
 }
 
 // Message represents a message in the chat
 type Message struct {
-	Role       string      `json:"role"`
-	Content    string      `json:"content,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	Name       string      `json:"name,omitempty"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
 }
 
 // ToolCall represents a tool call in the response
 type ToolCall struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`
-	Function FunctionCall   `json:"function"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
 }
 
 // FunctionCall represents a function call
@@ -146,8 +146,8 @@ type FunctionCall struct {
 
 // Tool represents a tool/function definition
 type Tool struct {
-	Type     string        `json:"type"`
-	Function FunctionDef   `json:"function"`
+	Type     string      `json:"type"`
+	Function FunctionDef `json:"function"`
 }
 
 // FunctionDef represents a function definition
@@ -455,13 +455,13 @@ func (c *DeepSeekClient) GenerateWithToolsDetailed(ctx context.Context, prompt s
 		}
 
 		c.logger.Debug(ctx, "Sending request with tools to DeepSeek", map[string]interface{}{
-			"model":           c.Model,
-			"temperature":     req.Temperature,
-			"messages":        len(req.Messages),
-			"tools":           len(req.Tools),
-			"iteration":       iteration + 1,
-			"maxIterations":   maxIterations,
-			"org_id":          orgID,
+			"model":         c.Model,
+			"temperature":   req.Temperature,
+			"messages":      len(req.Messages),
+			"tools":         len(req.Tools),
+			"iteration":     iteration + 1,
+			"maxIterations": maxIterations,
+			"org_id":        orgID,
 		})
 
 		// Make request
