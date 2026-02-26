@@ -425,6 +425,36 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 				paramSchema.Type = genai.TypeObject
 			}
 
+			// Handle array items
+			if param.Items != nil {
+				itemSchema := &genai.Schema{}
+
+				// Set items type
+				switch param.Items.Type {
+				case "string":
+					itemSchema.Type = genai.TypeString
+				case "number", "integer":
+					itemSchema.Type = genai.TypeNumber
+				case "boolean":
+					itemSchema.Type = genai.TypeBoolean
+				case "array":
+					itemSchema.Type = genai.TypeArray
+				case "object":
+					itemSchema.Type = genai.TypeObject
+				}
+
+				// Handle items enum if present
+				if param.Items.Enum != nil {
+					enumStrings := make([]string, len(param.Items.Enum))
+					for i, e := range param.Items.Enum {
+						enumStrings[i] = fmt.Sprintf("%v", e)
+					}
+					itemSchema.Enum = enumStrings
+				}
+
+				paramSchema.Items = itemSchema
+			}
+
 			if param.Enum != nil {
 				enumStrings := make([]string, len(param.Enum))
 				for i, e := range param.Enum {
