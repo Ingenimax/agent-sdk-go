@@ -169,7 +169,7 @@ func formatFilePart(fp a2a.FilePart) string {
 		if name == "" {
 			name = "unnamed"
 		}
-		return fmt.Sprintf("[file: %s (%d bytes)]", name, len(fc.Bytes))
+		return fmt.Sprintf("[file: %s (base64: %d chars)]", name, len(fc.Bytes))
 	default:
 		return "[file: unknown]"
 	}

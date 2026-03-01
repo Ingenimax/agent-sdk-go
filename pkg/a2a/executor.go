@@ -26,9 +26,10 @@ type AgentAdapter interface {
 
 // agentExecutor implements a2asrv.AgentExecutor by delegating to an AgentAdapter.
 type agentExecutor struct {
-	agent   AgentAdapter
-	logger  logging.Logger
-	cancels sync.Map // map[a2a.TaskID]context.CancelFunc
+	agent     AgentAdapter
+	logger    logging.Logger
+	cancels   sync.Map // map[a2a.TaskID]context.CancelFunc
+	canceled  sync.Map // map[a2a.TaskID]struct{} -- tracks externally-canceled tasks
 }
 
 func newAgentExecutor(agent AgentAdapter, logger logging.Logger) *agentExecutor {
@@ -143,6 +144,16 @@ func (e *agentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestConte
 		}
 	}
 
+	// If the task was canceled externally, Cancel already wrote the final
+	// event. Skip writing a duplicate final event to avoid the race where
+	// both Execute and Cancel emit Final=true for the same task.
+	if _, wasCanceled := e.canceled.LoadAndDelete(reqCtx.TaskID); wasCanceled {
+		e.logger.Debug(ctx, "A2A executor: skipping final event, task was canceled externally", map[string]interface{}{
+			"task_id": string(reqCtx.TaskID),
+		})
+		return nil
+	}
+
 	// Determine final state
 	if lastErr != nil {
 		e.logger.Error(ctx, "A2A executor: agent completed with error", map[string]interface{}{
@@ -182,6 +193,7 @@ func (e *agentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContex
 	})
 
 	if cancelFn, ok := e.cancels.LoadAndDelete(reqCtx.TaskID); ok {
+		e.canceled.Store(reqCtx.TaskID, struct{}{})
 		cancelFn.(context.CancelFunc)()
 	}
 

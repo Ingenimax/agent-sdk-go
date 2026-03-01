@@ -123,8 +123,8 @@ func TestPartToText_FilePartBytes(t *testing.T) {
 	if !strings.Contains(text, "image.png") {
 		t.Errorf("expected file name, got %q", text)
 	}
-	if !strings.Contains(text, "bytes") {
-		t.Errorf("expected bytes indicator, got %q", text)
+	if !strings.Contains(text, "base64") {
+		t.Errorf("expected base64 indicator, got %q", text)
 	}
 }
 

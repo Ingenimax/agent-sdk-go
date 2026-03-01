@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,7 +15,10 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
-const defaultShutdownTimeout = 30 * time.Second
+const (
+	defaultShutdownTimeout    = 30 * time.Second
+	defaultReadHeaderTimeout  = 10 * time.Second
+)
 
 // Server wraps an agent-sdk-go agent and exposes it as an A2A-compliant HTTP server.
 type Server struct {
@@ -86,7 +90,8 @@ func (s *Server) Start(ctx context.Context) error {
 	})
 
 	srv := &http.Server{
-		Handler: s.Handler(),
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
 	}
 
 	errCh := make(chan error, 1)
@@ -99,10 +104,21 @@ func (s *Server) Start(ctx context.Context) error {
 		s.logger.Info(ctx, "A2A server shutting down gracefully", map[string]interface{}{
 			"timeout": s.shutdownTimeout.String(),
 		})
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		// Drain the serve goroutine; Shutdown causes Serve to return
+		// ErrServerClosed which is expected during graceful shutdown.
+		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
 		return err
 	}
 }

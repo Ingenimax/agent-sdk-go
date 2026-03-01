@@ -475,7 +475,7 @@ func TestExtractTextFromMessage_FilePartBytes(t *testing.T) {
 	if !strings.Contains(text, "image.png") {
 		t.Errorf("expected file name in text, got %q", text)
 	}
-	if !strings.Contains(text, "bytes") {
-		t.Errorf("expected 'bytes' indicator in text, got %q", text)
+	if !strings.Contains(text, "base64") {
+		t.Errorf("expected 'base64' indicator in text, got %q", text)
 	}
 }
