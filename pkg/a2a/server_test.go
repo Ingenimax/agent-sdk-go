@@ -15,6 +15,22 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
+// waitForServer polls srv.Addr() until it returns a resolved address (not the
+// configured ":0" placeholder). It fails the test if the address is not
+// resolved within the deadline.
+func waitForServer(t *testing.T, srv *Server, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		addr := srv.Addr()
+		if addr != "" && addr != ":0" && addr != "127.0.0.1:0" {
+			return
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	t.Fatal("server did not start within timeout")
+}
+
 func TestServer_AgentCardEndpoint(t *testing.T) {
 	agent := &mockAgent{
 		name:        "test-agent",
@@ -94,8 +110,7 @@ func TestServer_Start_ContextCancellation(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	// Give server time to start
-	time.Sleep(50 * time.Millisecond)
+	waitForServer(t, srv, 2*time.Second)
 	cancel()
 
 	select {
@@ -130,8 +145,7 @@ func TestServer_ResolvedAddr(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	// Give server time to start and resolve addr
-	time.Sleep(50 * time.Millisecond)
+	waitForServer(t, srv, 2*time.Second)
 
 	// After Start, returns resolved address with real port
 	resolvedAddr := srv.Addr()
@@ -215,7 +229,7 @@ func TestServer_ShutdownTimeout(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForServer(t, srv, 2*time.Second)
 
 	start := time.Now()
 	cancel()

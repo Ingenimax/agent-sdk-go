@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
@@ -37,6 +39,38 @@ func WithServerLogger(logger logging.Logger) ServerOption {
 func WithShutdownTimeout(d time.Duration) ServerOption {
 	return func(s *Server) {
 		s.shutdownTimeout = d
+	}
+}
+
+// WithReadHeaderTimeout sets the amount of time the server allows for reading
+// request headers. Defaults to 10 seconds.
+func WithReadHeaderTimeout(d time.Duration) ServerOption {
+	return func(s *Server) {
+		s.readHeaderTimeout = d
+	}
+}
+
+// WithReadTimeout sets the maximum duration for reading the entire request,
+// including the body. A zero value means no timeout.
+func WithReadTimeout(d time.Duration) ServerOption {
+	return func(s *Server) {
+		s.readTimeout = d
+	}
+}
+
+// WithWriteTimeout sets the maximum duration before timing out writes of the
+// response. A zero value means no timeout.
+func WithWriteTimeout(d time.Duration) ServerOption {
+	return func(s *Server) {
+		s.writeTimeout = d
+	}
+}
+
+// WithIdleTimeout sets the maximum amount of time to wait for the next request
+// when keep-alives are enabled. A zero value means no timeout.
+func WithIdleTimeout(d time.Duration) ServerOption {
+	return func(s *Server) {
+		s.idleTimeout = d
 	}
 }
 
@@ -126,7 +160,7 @@ type SendOption func(*sendConfig)
 // sendConfig holds per-call options for send operations.
 type sendConfig struct {
 	contextID string
-	taskID    string
+	taskID    a2a.TaskID
 }
 
 // WithContextID sets the context ID for multi-turn conversations.
@@ -138,7 +172,7 @@ func WithContextID(id string) SendOption {
 }
 
 // WithTaskID continues an existing task by referencing its ID.
-func WithTaskID(id string) SendOption {
+func WithTaskID(id a2a.TaskID) SendOption {
 	return func(c *sendConfig) {
 		c.taskID = id
 	}

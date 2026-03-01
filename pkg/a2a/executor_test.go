@@ -270,8 +270,14 @@ func TestExecutor_CancelStopsRunningAgent(t *testing.T) {
 		execDone <- executor.Execute(context.Background(), execReqCtx, execQueue)
 	}()
 
-	// Wait for execution to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for execution to register its cancel function
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := executor.cancels.Load(taskID); ok {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
 
 	// Cancel the task
 	cancelQueue := &collectEvents{}

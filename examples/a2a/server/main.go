@@ -35,16 +35,24 @@ func (e *echoAgent) Run(_ context.Context, input string) (string, error) {
 	return fmt.Sprintf("Echo: %s", input), nil
 }
 
-func (e *echoAgent) RunStream(_ context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
+func (e *echoAgent) RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
 	ch := make(chan interfaces.AgentStreamEvent, 2)
 	go func() {
 		defer close(ch)
-		ch <- interfaces.AgentStreamEvent{
+		select {
+		case <-ctx.Done():
+			return
+		case ch <- interfaces.AgentStreamEvent{
 			Type:    interfaces.AgentEventContent,
 			Content: fmt.Sprintf("Echo: %s", input),
+		}:
 		}
-		ch <- interfaces.AgentStreamEvent{
+		select {
+		case <-ctx.Done():
+			return
+		case ch <- interfaces.AgentStreamEvent{
 			Type: interfaces.AgentEventComplete,
+		}:
 		}
 	}()
 	return ch, nil

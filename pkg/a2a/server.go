@@ -22,17 +22,22 @@ const (
 
 // Server wraps an agent-sdk-go agent and exposes it as an A2A-compliant HTTP server.
 type Server struct {
-	agent           AgentAdapter
-	card            *a2a.AgentCard
-	handler         a2asrv.RequestHandler
-	mux             *http.ServeMux
-	addr            string
-	resolvedAddr    string
-	addrMu          sync.RWMutex
-	basePath        string
-	logger          logging.Logger
-	shutdownTimeout time.Duration
-	middlewares     []func(http.Handler) http.Handler
+	agent             AgentAdapter
+	card              *a2a.AgentCard
+	handler           a2asrv.RequestHandler
+	mux               *http.ServeMux
+	builtHandler      http.Handler
+	addr              string
+	resolvedAddr      string
+	addrMu            sync.RWMutex
+	basePath          string
+	logger            logging.Logger
+	shutdownTimeout   time.Duration
+	readHeaderTimeout time.Duration
+	readTimeout       time.Duration
+	writeTimeout      time.Duration
+	idleTimeout       time.Duration
+	middlewares       []func(http.Handler) http.Handler
 }
 
 // NewServer creates a new A2A server that serves the given agent.
@@ -46,12 +51,13 @@ func NewServer(agent AgentAdapter, agentCard *a2a.AgentCard, opts ...ServerOptio
 		panic("a2a: NewServer requires a non-nil agentCard")
 	}
 	s := &Server{
-		agent:           agent,
-		card:            agentCard,
-		addr:            ":0",
-		basePath:        "/",
-		logger:          logging.New(),
-		shutdownTimeout: defaultShutdownTimeout,
+		agent:             agent,
+		card:              agentCard,
+		addr:              ":0",
+		basePath:          "/",
+		logger:            logging.New(),
+		shutdownTimeout:   defaultShutdownTimeout,
+		readHeaderTimeout: defaultReadHeaderTimeout,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -64,17 +70,21 @@ func NewServer(agent AgentAdapter, agentCard *a2a.AgentCard, opts ...ServerOptio
 	s.mux.Handle(s.basePath, a2asrv.NewJSONRPCHandler(s.handler))
 	s.mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(agentCard))
 
-	return s
-}
-
-// Handler returns the http.Handler so callers can mount it on their own server.
-// Middleware is applied in the order it was added.
-func (s *Server) Handler() http.Handler {
+	// Build and cache the final handler with middleware applied.
 	var h http.Handler = s.mux
 	for i := len(s.middlewares) - 1; i >= 0; i-- {
 		h = s.middlewares[i](h)
 	}
-	return h
+	s.builtHandler = h
+
+	return s
+}
+
+// Handler returns the http.Handler so callers can mount it on their own server.
+// Middleware is applied in the order it was added. The handler is built once
+// during NewServer and cached for subsequent calls.
+func (s *Server) Handler() http.Handler {
+	return s.builtHandler
 }
 
 // Start starts the A2A server and blocks until the context is canceled.
@@ -98,7 +108,10 @@ func (s *Server) Start(ctx context.Context) error {
 
 	srv := &http.Server{
 		Handler:           s.Handler(),
-		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadHeaderTimeout: s.readHeaderTimeout,
+		ReadTimeout:       s.readTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
 	}
 
 	errCh := make(chan error, 1)

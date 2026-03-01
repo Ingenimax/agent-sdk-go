@@ -148,7 +148,7 @@ func TestIntegration_ClientSendMessageWithTaskID(t *testing.T) {
 
 	// The first task completed (terminal state), so the A2A protocol correctly
 	// rejects continuation. Verify the server enforces this constraint.
-	_, err = client.SendMessage(ctx, "continue", WithTaskID(string(task.ID)))
+	_, err = client.SendMessage(ctx, "continue", WithTaskID(task.ID))
 	if err == nil {
 		t.Error("expected error when continuing a completed task")
 	}

@@ -365,7 +365,7 @@ fmt.Println("Task started:", task.ID, "State:", task.Status.State)
 
 // Later, continue the same task (only valid while task is not in a terminal state)
 result2, err := client.SendMessage(ctx, "Add more detail",
-    a2apkg.WithTaskID(string(task.ID)),
+    a2apkg.WithTaskID(task.ID),
 )
 ```
 

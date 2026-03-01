@@ -18,6 +18,7 @@ type Client struct {
 	url         string
 	card        *a2a.AgentCard
 	a2aClient   *a2aclient.Client
+	httpClient  *http.Client
 	logger      logging.Logger
 	timeout     time.Duration
 	bearerToken string
@@ -81,8 +82,9 @@ func NewClientFromCard(ctx context.Context, card *a2a.AgentCard, opts ...ClientO
 
 // factoryOptions builds the a2aclient.FactoryOption slice from Client config.
 func (c *Client) factoryOptions() []a2aclient.FactoryOption {
+	c.httpClient = &http.Client{Timeout: c.timeout}
 	opts := []a2aclient.FactoryOption{
-		a2aclient.WithJSONRPCTransport(&http.Client{Timeout: c.timeout}),
+		a2aclient.WithJSONRPCTransport(c.httpClient),
 	}
 	if c.bearerToken != "" {
 		opts = append(opts, a2aclient.WithInterceptors(
@@ -121,7 +123,7 @@ func (c *Client) SendMessageStream(ctx context.Context, text string, opts ...Sen
 func (c *Client) buildMessage(text string, cfg sendConfig) *a2a.Message {
 	if cfg.taskID != "" || cfg.contextID != "" {
 		return a2a.NewMessageForTask(a2a.MessageRoleUser, a2a.TaskInfo{
-			TaskID:    a2a.TaskID(cfg.taskID),
+			TaskID:    cfg.taskID,
 			ContextID: cfg.contextID,
 		}, a2a.TextPart{Text: text})
 	}
@@ -145,4 +147,12 @@ func (c *Client) GetTask(ctx context.Context, taskID a2a.TaskID) (*a2a.Task, err
 // CancelTask cancels a running task.
 func (c *Client) CancelTask(ctx context.Context, taskID a2a.TaskID) (*a2a.Task, error) {
 	return c.a2aClient.CancelTask(ctx, &a2a.TaskIDParams{ID: taskID})
+}
+
+// Close releases resources held by the client. It closes idle connections
+// on the underlying HTTP transport. Safe to call multiple times.
+func (c *Client) Close() {
+	if c.httpClient != nil {
+		c.httpClient.CloseIdleConnections()
+	}
 }
