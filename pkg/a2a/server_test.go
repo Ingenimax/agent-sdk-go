@@ -279,3 +279,23 @@ func TestServer_MiddlewareOrdering(t *testing.T) {
 		t.Errorf("expected middleware order [mw1, mw2], got %v", order)
 	}
 }
+
+func TestServer_NilAgent(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for nil agent")
+		}
+	}()
+	card := NewCardBuilder("test", "test", "http://localhost").Build()
+	NewServer(nil, card)
+}
+
+func TestServer_NilCard(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for nil agentCard")
+		}
+	}()
+	agent := &mockAgent{name: "test", description: "test"}
+	NewServer(agent, nil)
+}

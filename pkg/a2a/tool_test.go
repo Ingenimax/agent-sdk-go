@@ -18,7 +18,11 @@ func TestSanitizeToolName(t *testing.T) {
 		{"Recipe Agent", "recipe_agent"},
 		{"hello-world", "hello_world"},
 		{"Test123", "test123"},
-		{"Special!@#$chars", "special____chars"},
+		{"Special!@#$chars", "special_chars"},
+		{"!!!", "remote_agent"},
+		{"", "remote_agent"},
+		{"123agent", "agent_123agent"},
+		{"---hello---", "hello"},
 	}
 
 	for _, tt := range tests {
@@ -78,7 +82,7 @@ func TestPartToText_DataPart(t *testing.T) {
 	ctx := context.Background()
 
 	dp := a2a.DataPart{Data: map[string]any{"count": 42, "active": true}}
-	text := partToText(dp, logger, ctx)
+	text := partToText(ctx, logger, dp)
 	if !strings.Contains(text, "42") || !strings.Contains(text, "active") {
 		t.Errorf("expected JSON representation, got %q", text)
 	}
@@ -92,7 +96,7 @@ func TestPartToText_FilePartURI(t *testing.T) {
 		FileMeta: a2a.FileMeta{Name: "report.pdf"},
 		URI:      "https://example.com/report.pdf",
 	}}
-	text := partToText(fp, logger, ctx)
+	text := partToText(ctx, logger, fp)
 	if !strings.Contains(text, "report.pdf") {
 		t.Errorf("expected file name in text, got %q", text)
 	}
@@ -105,7 +109,7 @@ func TestPartToText_FilePartURINoName(t *testing.T) {
 	fp := a2a.FilePart{File: a2a.FileURI{
 		URI: "https://example.com/unnamed.bin",
 	}}
-	text := partToText(fp, logger, ctx)
+	text := partToText(ctx, logger, fp)
 	if !strings.Contains(text, "https://example.com/unnamed.bin") {
 		t.Errorf("expected URI as fallback name, got %q", text)
 	}
@@ -119,7 +123,7 @@ func TestPartToText_FilePartBytes(t *testing.T) {
 		FileMeta: a2a.FileMeta{Name: "image.png"},
 		Bytes:    "aGVsbG8gd29ybGQ=",
 	}}
-	text := partToText(fp, logger, ctx)
+	text := partToText(ctx, logger, fp)
 	if !strings.Contains(text, "image.png") {
 		t.Errorf("expected file name, got %q", text)
 	}
@@ -135,7 +139,7 @@ func TestPartToText_FilePartBytesNoName(t *testing.T) {
 	fp := a2a.FilePart{File: a2a.FileBytes{
 		Bytes: "AQID",
 	}}
-	text := partToText(fp, logger, ctx)
+	text := partToText(ctx, logger, fp)
 	if !strings.Contains(text, "unnamed") {
 		t.Errorf("expected 'unnamed' fallback, got %q", text)
 	}

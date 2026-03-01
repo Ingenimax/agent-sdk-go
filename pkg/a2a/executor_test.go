@@ -70,7 +70,10 @@ func (q *collectEvents) Write(_ context.Context, event a2a.Event) error {
 	return nil
 }
 
-func (q *collectEvents) WriteVersioned(_ context.Context, _ a2a.Event, _ a2a.TaskVersion) error {
+func (q *collectEvents) WriteVersioned(_ context.Context, event a2a.Event, _ a2a.TaskVersion) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.events = append(q.events, event)
 	return nil
 }
 
@@ -414,13 +417,13 @@ func TestExtractTextFromMessage(t *testing.T) {
 		a2a.TextPart{Text: "Hello"},
 		a2a.TextPart{Text: "World"},
 	)
-	text := extractTextFromMessage(msg, logger, ctx)
+	text := extractTextFromMessage(ctx, logger, msg)
 	if text != "Hello\nWorld" {
 		t.Errorf("expected 'Hello\\nWorld', got %q", text)
 	}
 
 	// nil message
-	if extractTextFromMessage(nil, logger, ctx) != "" {
+	if extractTextFromMessage(ctx, logger, nil) != "" {
 		t.Error("expected empty string for nil message")
 	}
 }
@@ -433,7 +436,7 @@ func TestExtractTextFromMessage_DataPart(t *testing.T) {
 		a2a.TextPart{Text: "Here is data:"},
 		a2a.DataPart{Data: map[string]any{"key": "value"}},
 	)
-	text := extractTextFromMessage(msg, logger, ctx)
+	text := extractTextFromMessage(ctx, logger, msg)
 	if text == "" {
 		t.Error("expected non-empty text for message with DataPart")
 	}
@@ -452,7 +455,7 @@ func TestExtractTextFromMessage_FilePart(t *testing.T) {
 			URI:      "https://example.com/doc.pdf",
 		}},
 	)
-	text := extractTextFromMessage(msg, logger, ctx)
+	text := extractTextFromMessage(ctx, logger, msg)
 	if text == "" {
 		t.Error("expected non-empty text for message with FilePart")
 	}
@@ -471,7 +474,7 @@ func TestExtractTextFromMessage_FilePartBytes(t *testing.T) {
 			Bytes:    "aGVsbG8=",
 		}},
 	)
-	text := extractTextFromMessage(msg, logger, ctx)
+	text := extractTextFromMessage(ctx, logger, msg)
 	if !strings.Contains(text, "image.png") {
 		t.Errorf("expected file name in text, got %q", text)
 	}

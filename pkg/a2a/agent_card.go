@@ -23,7 +23,17 @@ type CardBuilder struct {
 }
 
 // NewCardBuilder creates a new CardBuilder with required fields.
+// It panics if name, description, or url is empty.
 func NewCardBuilder(name, description, url string, opts ...CardOption) *CardBuilder {
+	if name == "" {
+		panic("a2a: NewCardBuilder requires a non-empty name")
+	}
+	if description == "" {
+		panic("a2a: NewCardBuilder requires a non-empty description")
+	}
+	if url == "" {
+		panic("a2a: NewCardBuilder requires a non-empty url")
+	}
 	b := &CardBuilder{
 		name:        name,
 		description: description,

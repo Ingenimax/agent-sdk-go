@@ -37,7 +37,14 @@ type Server struct {
 
 // NewServer creates a new A2A server that serves the given agent.
 // The agentCard describes the agent's capabilities to A2A clients.
+// It panics if agent or agentCard is nil.
 func NewServer(agent AgentAdapter, agentCard *a2a.AgentCard, opts ...ServerOption) *Server {
+	if agent == nil {
+		panic("a2a: NewServer requires a non-nil agent")
+	}
+	if agentCard == nil {
+		panic("a2a: NewServer requires a non-nil agentCard")
+	}
 	s := &Server{
 		agent:           agent,
 		card:            agentCard,

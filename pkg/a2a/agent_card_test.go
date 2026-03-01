@@ -117,3 +117,30 @@ func TestCardBuilder_DefaultValues(t *testing.T) {
 		t.Errorf("expected default input mode text/plain, got %v", card.DefaultInputModes)
 	}
 }
+
+func TestCardBuilder_EmptyName(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty name")
+		}
+	}()
+	NewCardBuilder("", "desc", "http://localhost")
+}
+
+func TestCardBuilder_EmptyDescription(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty description")
+		}
+	}()
+	NewCardBuilder("name", "", "http://localhost")
+}
+
+func TestCardBuilder_EmptyURL(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty url")
+		}
+	}()
+	NewCardBuilder("name", "desc", "")
+}

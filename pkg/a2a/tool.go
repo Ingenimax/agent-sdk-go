@@ -72,7 +72,7 @@ func (t *RemoteAgentTool) Run(ctx context.Context, input string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("a2a tool %s: %w", t.Name(), err)
 	}
-	return extractResultText(result, t.logger, ctx), nil
+	return extractResultText(ctx, t.logger, result), nil
 }
 
 func (t *RemoteAgentTool) Execute(ctx context.Context, args string) (string, error) {
@@ -91,18 +91,18 @@ func (t *RemoteAgentTool) Execute(ctx context.Context, args string) (string, err
 // ExtractResultText pulls text content from an A2A SendMessageResult.
 // Non-text parts are converted with warnings logged via the provided logger.
 func ExtractResultText(result a2a.SendMessageResult) string {
-	return extractResultText(result, logging.New(), context.Background())
+	return extractResultText(context.Background(), logging.New(), result)
 }
 
 // extractResultText is the internal version that accepts a logger for non-text part warnings.
-func extractResultText(result a2a.SendMessageResult, logger logging.Logger, ctx context.Context) string {
+func extractResultText(ctx context.Context, logger logging.Logger, result a2a.SendMessageResult) string {
 	switch r := result.(type) {
 	case *a2a.Task:
 		if len(r.Artifacts) > 0 {
 			var parts []string
 			for _, artifact := range r.Artifacts {
 				for _, p := range artifact.Parts {
-					if text := partToText(p, logger, ctx); text != "" {
+					if text := partToText(ctx, logger, p); text != "" {
 						parts = append(parts, text)
 					}
 				}
@@ -110,30 +110,30 @@ func extractResultText(result a2a.SendMessageResult, logger logging.Logger, ctx 
 			return strings.Join(parts, "\n")
 		}
 		if r.Status.Message != nil {
-			return messagePartsToText(r.Status.Message, logger, ctx)
+			return messagePartsToText(ctx, logger, r.Status.Message)
 		}
 		return ""
 	case *a2a.Message:
-		return messagePartsToText(r, logger, ctx)
+		return messagePartsToText(ctx, logger, r)
 	default:
 		return fmt.Sprintf("%v", result)
 	}
 }
 
 // messagePartsToText extracts text from all parts of a message.
-func messagePartsToText(msg *a2a.Message, logger logging.Logger, ctx context.Context) string {
+func messagePartsToText(ctx context.Context, logger logging.Logger, msg *a2a.Message) string {
 	if msg == nil {
 		return ""
 	}
 	var parts []string
 	for _, p := range msg.Parts {
-		parts = append(parts, partToText(p, logger, ctx))
+		parts = append(parts, partToText(ctx, logger, p))
 	}
 	return strings.Join(parts, "\n")
 }
 
 // partToText converts any A2A Part to a text representation.
-func partToText(p a2a.Part, logger logging.Logger, ctx context.Context) string {
+func partToText(ctx context.Context, logger logging.Logger, p a2a.Part) string {
 	switch tp := p.(type) {
 	case a2a.TextPart:
 		return tp.Text
@@ -182,5 +182,17 @@ func sanitizeToolName(name string) string {
 		}
 		return '_'
 	}, name)
-	return strings.ToLower(result)
+	result = strings.ToLower(result)
+	// Collapse consecutive underscores and trim edges.
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
+	}
+	result = strings.Trim(result, "_")
+	if result == "" {
+		return "remote_agent"
+	}
+	if result[0] >= '0' && result[0] <= '9' {
+		result = "agent_" + result
+	}
+	return result
 }

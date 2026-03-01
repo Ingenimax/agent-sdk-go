@@ -46,7 +46,7 @@ func (e *agentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestConte
 	e.cancels.Store(reqCtx.TaskID, cancel)
 	defer e.cancels.Delete(reqCtx.TaskID)
 
-	input := extractTextFromMessage(reqCtx.Message, e.logger, ctx)
+	input := extractTextFromMessage(ctx, e.logger, reqCtx.Message)
 
 	e.logger.Debug(ctx, "A2A executor: starting agent execution", map[string]interface{}{
 		"agent":      e.agent.GetName(),
@@ -204,7 +204,7 @@ func (e *agentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContex
 
 // extractTextFromMessage extracts the concatenated text from all parts of an A2A message.
 // Non-text parts (DataPart, FilePart) are converted to text representations with log warnings.
-func extractTextFromMessage(msg *a2a.Message, logger logging.Logger, ctx context.Context) string {
+func extractTextFromMessage(ctx context.Context, logger logging.Logger, msg *a2a.Message) string {
 	if msg == nil {
 		return ""
 	}
