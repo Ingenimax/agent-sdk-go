@@ -166,13 +166,13 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, model.Name)
 		fmt.Fprintf(&sb, "   ID: %s\n", model.ModelID)
 		if model.Description != "" {
-			sb.WriteString(fmt.Sprintf("   Description: %s\n", model.Description))
+			fmt.Fprintf(&sb, "   Description: %s\n", model.Description)
 		}
-		sb.WriteString(fmt.Sprintf("   Downloads: %d\n", model.Downloads))
-		sb.WriteString(fmt.Sprintf("   Likes: %d\n", model.Likes))
-		sb.WriteString(fmt.Sprintf("   Task: %s\n", model.Task))
-		sb.WriteString(fmt.Sprintf("   Library: %s\n", model.LibraryName))
-		sb.WriteString(fmt.Sprintf("   Tags: %v\n\n", model.Tags))
+		fmt.Fprintf(&sb, "   Downloads: %d\n", model.Downloads)
+		fmt.Fprintf(&sb, "   Likes: %d\n", model.Likes)
+		fmt.Fprintf(&sb, "   Task: %s\n", model.Task)
+		fmt.Fprintf(&sb, "   Library: %s\n", model.LibraryName)
+		fmt.Fprintf(&sb, "   Tags: %v\n\n", model.Tags)
 	}
 
 	return sb.String(), nil

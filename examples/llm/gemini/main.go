@@ -531,28 +531,28 @@ func formatReasoningResponse(response string) string {
 		// Start reasoning section
 		if !inReasoningSection && isReasoningLine {
 			inReasoningSection = true
-			result.WriteString(fmt.Sprintf("%s💭 REASONING PROCESS:%s\n", ColorGray, ColorReset))
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
+			fmt.Fprintf(&result, "%s💭 REASONING PROCESS:%s\n", ColorGray, ColorReset)
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
 		}
 
 		// End reasoning section and start final answer
 		if inReasoningSection && isFinalAnswer {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
-			result.WriteString(fmt.Sprintf("%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
+			fmt.Fprintf(&result, "%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset)
 			inReasoningSection = false
 		}
 
 		// Format the line based on current section
 		if inReasoningSection {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, line, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, line, ColorReset)
 		} else {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorWhite, line, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorWhite, line, ColorReset)
 		}
 
 		// Add extra formatting for the last line if we're still in reasoning
 		if i == len(lines)-1 && inReasoningSection {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
-			result.WriteString(fmt.Sprintf("%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
+			fmt.Fprintf(&result, "%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset)
 		}
 	}
 

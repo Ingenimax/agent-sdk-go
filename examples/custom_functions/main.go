@@ -96,7 +96,7 @@ func aiEnhancedProcessor(ctx context.Context, input string, agent *agent.Agent) 
 		}
 	}
 
-	finalResult.WriteString(fmt.Sprintf("Original input length: %d characters", len(input)))
+	fmt.Fprintf(&finalResult, "Original input length: %d characters", len(input))
 
 	result := finalResult.String()
 

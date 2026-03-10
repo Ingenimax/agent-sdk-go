@@ -455,7 +455,7 @@ func (r *RedisMemory) createSummary(ctx context.Context, messages []interfaces.M
 	sb.WriteString("Summarize the following conversation concisely, preserving key information and context:\n\n")
 
 	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+		fmt.Fprintf(&sb, "%s: %s\n", msg.Role, msg.Content)
 	}
 
 	sb.WriteString("\nProvide a concise summary that captures the essential information from this conversation.")

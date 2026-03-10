@@ -89,14 +89,14 @@ func FormatExecutionPlan(plan *ExecutionPlan) string {
 	fmt.Fprintf(&sb, "Status: %s\n\n", plan.Status)
 
 	for i, step := range plan.Steps {
-		sb.WriteString(fmt.Sprintf("## Step %d: %s\n", i+1, step.Description))
-		sb.WriteString(fmt.Sprintf("Tool: %s\n", step.ToolName))
-		sb.WriteString(fmt.Sprintf("Input: %s\n", step.Input))
+		fmt.Fprintf(&sb, "## Step %d: %s\n", i+1, step.Description)
+		fmt.Fprintf(&sb, "Tool: %s\n", step.ToolName)
+		fmt.Fprintf(&sb, "Input: %s\n", step.Input)
 
 		if len(step.Parameters) > 0 {
 			sb.WriteString("Parameters:\n")
 			for name, value := range step.Parameters {
-				sb.WriteString(fmt.Sprintf("- %s: %v\n", name, value))
+				fmt.Fprintf(&sb, "- %s: %v\n", name, value)
 			}
 		}
 
@@ -152,7 +152,7 @@ func CreateExecutionPlanPrompt(input string, tools []interfaces.Tool) string {
 	// Build a list of available tools
 	var toolDescriptions strings.Builder
 	for _, tool := range tools {
-		toolDescriptions.WriteString(fmt.Sprintf("- %s: %s\n", tool.Name(), tool.Description()))
+		fmt.Fprintf(&toolDescriptions, "- %s: %s\n", tool.Name(), tool.Description())
 
 		// Add parameter descriptions
 		params := tool.Parameters()
@@ -163,7 +163,7 @@ func CreateExecutionPlanPrompt(input string, tools []interfaces.Tool) string {
 				if spec.Required {
 					required = " (required)"
 				}
-				toolDescriptions.WriteString(fmt.Sprintf("  - %s: %s%s\n", name, spec.Description, required))
+				fmt.Fprintf(&toolDescriptions, "  - %s: %s%s\n", name, spec.Description, required)
 			}
 		}
 	}

@@ -90,19 +90,19 @@ func (s *Store) buildExtractionPrompt(text string, options *interfaces.Extractio
 		sb.WriteString("Use the following schema:\n\n")
 		sb.WriteString("Entity Types:\n")
 		for _, et := range s.schema.EntityTypes {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", et.Name, et.Description))
+			fmt.Fprintf(&sb, "- %s: %s\n", et.Name, et.Description)
 		}
 		sb.WriteString("\nRelationship Types:\n")
 		for _, rt := range s.schema.RelationshipTypes {
-			sb.WriteString(fmt.Sprintf("- %s: %s (from %v to %v)\n", rt.Name, rt.Description, rt.SourceTypes, rt.TargetTypes))
+			fmt.Fprintf(&sb, "- %s: %s (from %v to %v)\n", rt.Name, rt.Description, rt.SourceTypes, rt.TargetTypes)
 		}
 		sb.WriteString("\n")
 	} else if len(options.EntityTypes) > 0 || len(options.RelationshipTypes) > 0 {
 		if len(options.EntityTypes) > 0 {
-			sb.WriteString(fmt.Sprintf("Focus on entity types: %s\n", strings.Join(options.EntityTypes, ", ")))
+			fmt.Fprintf(&sb, "Focus on entity types: %s\n", strings.Join(options.EntityTypes, ", "))
 		}
 		if len(options.RelationshipTypes) > 0 {
-			sb.WriteString(fmt.Sprintf("Focus on relationship types: %s\n", strings.Join(options.RelationshipTypes, ", ")))
+			fmt.Fprintf(&sb, "Focus on relationship types: %s\n", strings.Join(options.RelationshipTypes, ", "))
 		}
 		sb.WriteString("\n")
 	}
