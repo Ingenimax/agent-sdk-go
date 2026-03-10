@@ -62,8 +62,8 @@ func parseGoogleCredentials(input string) (string, error) {
 	}
 
 	// 1. Check if it's a file path
-	if _, err := os.Stat(input); err == nil {
-		// #nosec G304 -- File path comes from agent configuration, not untrusted user input
+	if _, err := os.Stat(input); err == nil { // #nosec G703 - input comes from agent configuration, not untrusted user input
+		// #nosec G304,G703 -- File path comes from agent configuration, not untrusted user input
 		data, err := os.ReadFile(input)
 		if err != nil {
 			return "", fmt.Errorf("failed to read credentials file: %w", err)

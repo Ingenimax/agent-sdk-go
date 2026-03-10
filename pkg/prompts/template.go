@@ -369,9 +369,9 @@ func serializeTemplate(tmpl *Template) string {
 	var buf bytes.Buffer
 
 	// Write metadata
-	buf.WriteString(fmt.Sprintf("name: %s\n", tmpl.Name))
-	buf.WriteString(fmt.Sprintf("description: %s\n", tmpl.Description))
-	buf.WriteString(fmt.Sprintf("format: %s\n", tmpl.Format))
+	fmt.Fprintf(&buf, "name: %s\n", tmpl.Name)
+	fmt.Fprintf(&buf, "description: %s\n", tmpl.Description)
+	fmt.Fprintf(&buf, "format: %s\n", tmpl.Format)
 
 	if len(tmpl.Tags) > 0 {
 		buf.WriteString(fmt.Sprintf("tags: %s\n", strings.Join(tmpl.Tags, ", ")))

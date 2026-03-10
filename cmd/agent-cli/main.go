@@ -243,7 +243,7 @@ func loadMCPServersFromFile(filePath string) ([]MCPServerConfig, error) {
 	}
 
 	// Read JSON file
-	// #nosec G304 -- filePath is validated above to be absolute
+	// #nosec G304,G703 -- filePath is validated above to be absolute
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
@@ -1153,7 +1153,7 @@ func importMCPServers() {
 	}
 
 	// Read JSON file
-	// #nosec G304 -- filePath is validated above to be absolute
+	// #nosec G304,G703 -- filePath is validated above to be absolute
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Printf("❌ Failed to read file: %v\n", err)
@@ -1286,7 +1286,7 @@ func exportMCPServers() {
 	}
 
 	// Write to file with secure permissions
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
+	if err := os.WriteFile(filePath, data, 0600); err != nil { // #nosec G703 - filePath is validated above
 		fmt.Printf("❌ Failed to write file: %v\n", err)
 		return
 	}
@@ -1334,7 +1334,7 @@ func generateConfigs() {
 	}
 
 	// Create output directory with secure permissions
-	if err := os.MkdirAll(outputDir, 0750); err != nil {
+	if err := os.MkdirAll(outputDir, 0750); err != nil { // #nosec G703 - outputDir is from CLI flag
 		log.Fatalf("❌ Failed to create output directory: %v", err)
 	}
 
@@ -1344,7 +1344,7 @@ func generateConfigs() {
 	}
 
 	agentFile := filepath.Join(outputDir, "agents.yaml")
-	// #nosec G304 -- agentFile is constructed from validated outputDir
+	// #nosec G304,G703 -- agentFile is constructed from validated outputDir
 	agentYaml, err := os.Create(agentFile)
 	if err != nil {
 		log.Fatalf("❌ Failed to create agent config file: %v", err)
@@ -1361,7 +1361,7 @@ func generateConfigs() {
 
 	// Save task configs
 	taskFile := filepath.Join(outputDir, "tasks.yaml")
-	// #nosec G304 -- taskFile is constructed from validated outputDir
+	// #nosec G304,G703 -- taskFile is constructed from validated outputDir
 	taskYaml, err := os.Create(taskFile)
 	if err != nil {
 		log.Fatalf("❌ Failed to create task config file: %v", err)

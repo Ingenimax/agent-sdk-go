@@ -250,7 +250,7 @@ func main() {
 	for _, id := range allUserIDs {
 		err = collection.Delete(ctx, id)
 		if err != nil {
-			log.Printf("Warning: Failed to delete document %s: %v", id, err)
+			log.Printf("Warning: Failed to delete document %s: %v", id, err) // #nosec G706 - id is from internal data, not user input
 		} else {
 			fmt.Printf("    Deleted user with ID: %s\n", id)
 		}

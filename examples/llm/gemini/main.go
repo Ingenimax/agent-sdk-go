@@ -168,7 +168,7 @@ func main() {
 		} else if credentialsFile != "" {
 			// Service account credentials from file
 			authOptions = append(authOptions, gemini.WithCredentialsFile(credentialsFile))
-			log.Printf("Using credentials file from GOOGLE_APPLICATION_CREDENTIALS: %s\n", credentialsFile)
+			log.Printf("Using credentials file from GOOGLE_APPLICATION_CREDENTIALS: %s\n", credentialsFile) // #nosec G706 - credentialsFile is from env var, not user input
 		} else {
 			// Fall back to Application Default Credentials (ADC)
 			log.Println("No explicit credentials provided, will try default credentials (ADC)")
