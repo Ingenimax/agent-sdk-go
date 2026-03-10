@@ -177,7 +177,7 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 	for i, item := range result.Items {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, item.Title)
 		fmt.Fprintf(&sb, "   URL: %s\n", item.Link)
-		sb.WriteString(fmt.Sprintf("   %s\n\n", item.Snippet))
+		fmt.Fprintf(&sb, "   %s\n\n", item.Snippet)
 	}
 
 	// Cache result
