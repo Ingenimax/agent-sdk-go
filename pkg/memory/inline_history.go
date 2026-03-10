@@ -57,7 +57,7 @@ func BuildInlineHistoryPrompt(ctx context.Context, prompt string, memory interfa
 						toolName = name
 					}
 				}
-				promptBuilder.WriteString(fmt.Sprintf("Tool %s result: %s\n", toolName, msg.Content))
+				fmt.Fprintf(&promptBuilder, "Tool %s result: %s\n", toolName, msg.Content)
 			}
 		}
 	}
