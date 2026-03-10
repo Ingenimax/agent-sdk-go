@@ -37,7 +37,7 @@ func main() {
 	// Use WithBearerToken("token") for authenticated agents.
 	client, err := a2apkg.NewClient(ctx, agentURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to A2A agent at %s: %v", agentURL, err)
+		log.Fatalf("Failed to connect to A2A agent at %s: %v", agentURL, err) // #nosec G706 -- agentURL is from CLI flag, not external input
 	}
 
 	card := client.Card()

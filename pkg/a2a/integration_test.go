@@ -40,7 +40,7 @@ func startTestServer(t *testing.T, agent AgentAdapter, opts ...ServerOption) str
 		_ = http.Serve(listener, srv.Handler())
 	}()
 
-	t.Cleanup(func() { listener.Close() })
+	t.Cleanup(func() { _ = listener.Close() })
 
 	return baseURL
 }

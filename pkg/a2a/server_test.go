@@ -50,7 +50,7 @@ func TestServer_AgentCardEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	go func() {
 		_ = http.Serve(listener, srv.Handler())
@@ -63,7 +63,7 @@ func TestServer_AgentCardEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to fetch agent card: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -188,7 +188,7 @@ func TestServer_Middleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	go func() {
 		_ = http.Serve(listener, srv.Handler())
@@ -204,7 +204,7 @@ func TestServer_Middleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !headerSeen {
 		t.Error("middleware was not invoked")
@@ -274,7 +274,7 @@ func TestServer_MiddlewareOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	go func() {
 		_ = http.Serve(listener, srv.Handler())
@@ -284,7 +284,7 @@ func TestServer_MiddlewareOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if len(order) != 2 {
 		t.Fatalf("expected 2 middleware calls, got %d", len(order))

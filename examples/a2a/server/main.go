@@ -61,7 +61,7 @@ func (e *echoAgent) RunStream(ctx context.Context, input string) (<-chan interfa
 // loggingMiddleware logs incoming requests. Replace with your auth middleware.
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[%s] %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		log.Printf("[%s] %s %s", r.RemoteAddr, r.Method, r.URL.Path) // #nosec G706 -- logging standard HTTP request fields for diagnostics
 		next.ServeHTTP(w, r)
 	})
 }
