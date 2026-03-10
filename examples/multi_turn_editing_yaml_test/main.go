@@ -186,7 +186,7 @@ func findConfigFile() string {
 	}
 
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
+		if _, err := os.Stat(p); err == nil { // #nosec G703 - paths are constructed from known safe sources
 			return p
 		}
 	}

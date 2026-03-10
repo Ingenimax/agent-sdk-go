@@ -85,7 +85,7 @@ func isTimeoutExplicitlySet(config RemoteAgentConfig) bool {
 // withTimeoutIfSet adds timeout to context if timeout > 0, otherwise returns context as-is (infinite timeout)
 func (r *RemoteAgentClient) withTimeoutIfSet(ctx context.Context) (context.Context, context.CancelFunc) {
 	if r.timeout > 0 {
-		return context.WithTimeout(ctx, r.timeout)
+		return context.WithTimeout(ctx, r.timeout) // #nosec G118 - cancel func is returned to caller
 	}
 	// For 0 timeout (infinite), return context as-is with a no-op cancel function
 	return ctx, func() {}

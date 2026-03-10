@@ -401,7 +401,7 @@ func (o *LLMOrchestrator) generateFinalResponse(ctx context.Context, plan *Plan,
 	for i, step := range plan.Steps {
 		stepID := fmt.Sprintf("step_%d", i)
 		if result, ok := results[stepID]; ok {
-			finalPrompt.WriteString(fmt.Sprintf("--- %s (%s) ---\n%s\n\n", step.Description, step.AgentID, result))
+			fmt.Fprintf(&finalPrompt, "--- %s (%s) ---\n%s\n\n", step.Description, step.AgentID, result)
 			completedSteps++
 		}
 	}
@@ -423,7 +423,7 @@ func (o *LLMOrchestrator) generateFinalResponse(ctx context.Context, plan *Plan,
 func formatAgentDescriptions(descriptions map[string]string) string {
 	var result strings.Builder
 	for id, desc := range descriptions {
-		result.WriteString(fmt.Sprintf("- %s: %s\n", id, desc))
+		fmt.Fprintf(&result, "- %s: %s\n", id, desc)
 	}
 	return result.String()
 }

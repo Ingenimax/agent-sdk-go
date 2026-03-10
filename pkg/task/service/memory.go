@@ -74,7 +74,7 @@ func (s *InMemoryTaskService) CreateTask(ctx context.Context, req task.CreateTas
 
 	// Start planning in a goroutine if planner is available
 	if s.planner != nil {
-		go s.planTask(context.Background(), newTask)
+		go s.planTask(context.Background(), newTask) // #nosec G118 - background context is intentional for async planning
 	}
 
 	return newTask, nil
@@ -200,7 +200,7 @@ func (s *InMemoryTaskService) ApproveTaskPlan(ctx context.Context, taskID string
 
 		// Schedule execution
 		if s.executor != nil {
-			go func() {
+			go func() { // #nosec G118 - background context is intentional for async execution
 				if err := s.executor.ExecuteTask(context.Background(), t); err != nil {
 					s.logger.Error(context.Background(), "Failed to execute task", map[string]interface{}{
 						"task_id": t.ID,
@@ -220,7 +220,7 @@ func (s *InMemoryTaskService) ApproveTaskPlan(ctx context.Context, taskID string
 		// If rejected, replan with feedback
 		t.Status = task.StatusPlanning
 		if s.planner != nil {
-			go s.replanTask(context.Background(), t, req.Feedback)
+			go s.replanTask(context.Background(), t, req.Feedback) // #nosec G118 - background context is intentional for async replanning
 		}
 	}
 

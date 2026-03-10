@@ -122,5 +122,5 @@ func generateInvocationID() string {
 
 // WithTimeout adds a timeout to the context for sub-agent calls
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, timeout)
+	return context.WithTimeout(ctx, timeout) // #nosec G118 - cancel func is returned to caller
 }

@@ -197,7 +197,7 @@ Respond with only the ID of the agent that should handle this query.`, formatAge
 func formatAgents(agents map[string]string) string {
 	var result strings.Builder
 	for id, desc := range agents {
-		result.WriteString(fmt.Sprintf("- %s: %s\n", id, desc))
+		fmt.Fprintf(&result, "- %s: %s\n", id, desc)
 	}
 	return result.String()
 }

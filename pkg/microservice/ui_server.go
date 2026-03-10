@@ -462,7 +462,7 @@ func (h *HTTPServerWithUI) handleMemory(w http.ResponseWriter, r *http.Request) 
 
 	if conversationID != "" {
 		// Get messages for specific conversation
-		log.Printf("Getting messages for conversation: %s", conversationID)
+		log.Printf("Getting messages for conversation: %s", conversationID) // #nosec G706 - conversationID is a UUID from internal routing
 		response = h.getConversationMessagesWithContext(r.Context(), conversationID, limit, offset)
 	} else {
 		// Get all conversations
@@ -794,13 +794,13 @@ func (h *HTTPServerWithUI) getAllConversationsFromAllOrgs(limit, offset int) Mem
 func (h *HTTPServerWithUI) getConversationMessagesFromAllOrgs(conversationID string, limit, offset int) MemoryResponse {
 	// Handle remote agents by making HTTP calls to their memory endpoint
 	if h.agent.IsRemote() {
-		log.Printf("Fetching messages for conversation %s from remote agent memory", conversationID)
+		log.Printf("Fetching messages for conversation %s from remote agent memory", conversationID) // #nosec G706 - conversationID is a UUID from internal routing
 		return h.getRemoteMemoryMessages(conversationID, limit, offset)
 	}
 
 	// Check if memory supports cross-org operations
 	if adminMem, ok := h.agent.GetMemory().(interfaces.AdminConversationMemory); ok {
-		log.Printf("Fetching messages for conversation %s from admin conversation memory across all orgs", conversationID)
+		log.Printf("Fetching messages for conversation %s from admin conversation memory across all orgs", conversationID) // #nosec G706 - conversationID is a UUID from internal routing
 		return h.buildMessageListFromAllOrgs(adminMem, conversationID, limit, offset)
 	}
 
@@ -1725,7 +1725,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryConversations(limit, offset int) Memor
 	// Make HTTP request to remote agent's memory endpoint
 	url := fmt.Sprintf("%s/api/v1/memory?limit=%d&offset=%d", remoteURL, limit, offset)
 
-	// #nosec G107 - URL is constructed from validated parameters
+	// #nosec G107,G704 - URL is constructed from validated parameters
 	resp, err := http.Get(url)
 	if err != nil {
 		return MemoryResponse{
@@ -1780,7 +1780,7 @@ func (h *HTTPServerWithUI) getRemoteMemoryMessages(conversationID string, limit,
 	url := fmt.Sprintf("%s/api/v1/memory?conversation_id=%s&limit=%d&offset=%d",
 		remoteURL, conversationID, limit, offset)
 
-	// #nosec G107 - URL is constructed from validated parameters
+	// #nosec G107,G704 - URL is constructed from validated parameters
 	resp, err := http.Get(url)
 	if err != nil {
 		return MemoryResponse{

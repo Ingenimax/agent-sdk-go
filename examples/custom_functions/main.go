@@ -87,16 +87,16 @@ func aiEnhancedProcessor(ctx context.Context, input string, agent *agent.Agent) 
 	// Combine everything
 	var finalResult strings.Builder
 	finalResult.WriteString("AI Analysis:\n")
-	finalResult.WriteString(fmt.Sprintf("Summary: %s\n", summary))
+	fmt.Fprintf(&finalResult, "Summary: %s\n", summary)
 
 	if len(toolResults) > 0 {
 		finalResult.WriteString("Tool Results:\n")
 		for _, result := range toolResults {
-			finalResult.WriteString(fmt.Sprintf("- %s\n", result))
+			fmt.Fprintf(&finalResult, "- %s\n", result)
 		}
 	}
 
-	finalResult.WriteString(fmt.Sprintf("Original input length: %d characters", len(input)))
+	fmt.Fprintf(&finalResult, "Original input length: %d characters", len(input))
 
 	result := finalResult.String()
 

@@ -170,9 +170,9 @@ func (c *ConversationSummary) summarize(ctx context.Context, messages []interfac
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("Summarize the following conversation in a concise summary (about %d words maximum):\n\n", summaryLength))
+	fmt.Fprintf(&sb, "Summarize the following conversation in a concise summary (about %d words maximum):\n\n", summaryLength)
 	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", msg.Role, msg.Content))
+		fmt.Fprintf(&sb, "%s: %s\n", msg.Role, msg.Content)
 	}
 	sb.WriteString("\nSummary:")
 

@@ -192,19 +192,19 @@ func (c *AgentContext) Environment(key string) (interface{}, bool) {
 
 // WithTimeout sets a timeout for the context
 func (c *AgentContext) WithTimeout(timeout time.Duration) (*AgentContext, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	ctx, cancel := context.WithTimeout(c.ctx, timeout) // #nosec G118 - cancel func is returned to caller
 	return &AgentContext{ctx: ctx}, cancel
 }
 
 // WithDeadline sets a deadline for the context
 func (c *AgentContext) WithDeadline(deadline time.Time) (*AgentContext, context.CancelFunc) {
-	ctx, cancel := context.WithDeadline(c.ctx, deadline)
+	ctx, cancel := context.WithDeadline(c.ctx, deadline) // #nosec G118 - cancel func is returned to caller
 	return &AgentContext{ctx: ctx}, cancel
 }
 
 // WithCancel returns a new context that can be canceled
 func (c *AgentContext) WithCancel() (*AgentContext, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(c.ctx)
+	ctx, cancel := context.WithCancel(c.ctx) // #nosec G118 - cancel func is returned to caller
 	return &AgentContext{ctx: ctx}, cancel
 }
 

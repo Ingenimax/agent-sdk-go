@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/genai"
@@ -62,9 +63,9 @@ func parseGoogleCredentials(input string) (string, error) {
 	}
 
 	// 1. Check if it's a file path
-	if _, err := os.Stat(input); err == nil {
-		// #nosec G304 -- File path comes from agent configuration, not untrusted user input
-		data, err := os.ReadFile(input)
+	cleanPath := filepath.Clean(input)
+	if _, err := os.Stat(cleanPath); err == nil { // #nosec G703 - input comes from agent configuration, not untrusted user input
+		data, err := os.ReadFile(cleanPath) // #nosec G304 G703 -- File path comes from agent configuration, not untrusted user input
 		if err != nil {
 			return "", fmt.Errorf("failed to read credentials file: %w", err)
 		}

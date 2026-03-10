@@ -168,7 +168,7 @@ func main() {
 		} else if credentialsFile != "" {
 			// Service account credentials from file
 			authOptions = append(authOptions, gemini.WithCredentialsFile(credentialsFile))
-			log.Printf("Using credentials file from GOOGLE_APPLICATION_CREDENTIALS: %s\n", credentialsFile)
+			log.Printf("Using credentials file from GOOGLE_APPLICATION_CREDENTIALS: %s\n", credentialsFile) // #nosec G706 - credentialsFile is from env var, not user input
 		} else {
 			// Fall back to Application Default Credentials (ADC)
 			log.Println("No explicit credentials provided, will try default credentials (ADC)")
@@ -531,28 +531,28 @@ func formatReasoningResponse(response string) string {
 		// Start reasoning section
 		if !inReasoningSection && isReasoningLine {
 			inReasoningSection = true
-			result.WriteString(fmt.Sprintf("%s💭 REASONING PROCESS:%s\n", ColorGray, ColorReset))
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
+			fmt.Fprintf(&result, "%s💭 REASONING PROCESS:%s\n", ColorGray, ColorReset)
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
 		}
 
 		// End reasoning section and start final answer
 		if inReasoningSection && isFinalAnswer {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
-			result.WriteString(fmt.Sprintf("%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
+			fmt.Fprintf(&result, "%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset)
 			inReasoningSection = false
 		}
 
 		// Format the line based on current section
 		if inReasoningSection {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, line, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, line, ColorReset)
 		} else {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorWhite, line, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorWhite, line, ColorReset)
 		}
 
 		// Add extra formatting for the last line if we're still in reasoning
 		if i == len(lines)-1 && inReasoningSection {
-			result.WriteString(fmt.Sprintf("%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset))
-			result.WriteString(fmt.Sprintf("%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset))
+			fmt.Fprintf(&result, "%s%s%s\n", ColorGray, strings.Repeat("-", 40), ColorReset)
+			fmt.Fprintf(&result, "%s📝 FINAL ANSWER:%s\n", ColorGreen, ColorReset)
 		}
 	}
 
