@@ -161,10 +161,10 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 
 	// Format results
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Found %d models matching '%s':\n\n", len(models), query))
+	fmt.Fprintf(&sb, "Found %d models matching '%s':\n\n", len(models), query)
 	for i, model := range models {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, model.Name))
-		sb.WriteString(fmt.Sprintf("   ID: %s\n", model.ModelID))
+		fmt.Fprintf(&sb, "%d. %s\n", i+1, model.Name)
+		fmt.Fprintf(&sb, "   ID: %s\n", model.ModelID)
 		if model.Description != "" {
 			sb.WriteString(fmt.Sprintf("   Description: %s\n", model.Description))
 		}
