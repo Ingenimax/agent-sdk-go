@@ -84,9 +84,9 @@ type PlanGenerator interface {
 func FormatExecutionPlan(plan *ExecutionPlan) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("# Execution Plan: %s\n\n", plan.Description))
-	sb.WriteString(fmt.Sprintf("Task ID: %s\n", plan.TaskID))
-	sb.WriteString(fmt.Sprintf("Status: %s\n\n", plan.Status))
+	fmt.Fprintf(&sb, "# Execution Plan: %s\n\n", plan.Description)
+	fmt.Fprintf(&sb, "Task ID: %s\n", plan.TaskID)
+	fmt.Fprintf(&sb, "Status: %s\n\n", plan.Status)
 
 	for i, step := range plan.Steps {
 		sb.WriteString(fmt.Sprintf("## Step %d: %s\n", i+1, step.Description))
