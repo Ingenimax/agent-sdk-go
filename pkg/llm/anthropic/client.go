@@ -608,7 +608,7 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 
 		// Bedrock uses AWS SDK, not HTTP requests
 		if c.BedrockConfig != nil && c.BedrockConfig.Enabled {
-			bedrockResp, err := c.BedrockConfig.InvokeModel(ctx, c.Model, &req)
+			bedrockResp, err := c.BedrockConfig.InvokeModel(ctx, c.Model, &req, params.CacheConfig)
 			if err != nil {
 				return fmt.Errorf("failed to invoke Bedrock model: %w", err)
 			}
@@ -1133,6 +1133,16 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 		// Define operation for retry mechanism
 		operation := func() error {
+			// Bedrock uses AWS SDK, not HTTP requests
+			if c.BedrockConfig != nil && c.BedrockConfig.Enabled {
+				bedrockResp, err := c.BedrockConfig.InvokeModel(ctx, c.Model, &req, params.CacheConfig)
+				if err != nil {
+					return fmt.Errorf("failed to invoke Bedrock model (iteration %d): %w", iteration+1, err)
+				}
+				resp = *bedrockResp
+				return nil
+			}
+
 			// Create HTTP request (supports both Vertex AI and standard Anthropic API, with caching)
 			httpReq, err := c.createHTTPRequestWithCache(ctx, &req, "/v1/messages", params.CacheConfig)
 			if err != nil {

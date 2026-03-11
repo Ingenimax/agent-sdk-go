@@ -307,6 +307,13 @@ func (a *Agent) runStreamingGeneration(
 		options = append(options, interfaces.WithStreamConfig(*a.streamConfig))
 	}
 
+	// Add cache config if available
+	if a.cacheConfig != nil {
+		options = append(options, func(opts *interfaces.GenerateOptions) {
+			opts.CacheConfig = a.cacheConfig
+		})
+	}
+
 	// Inject stream forwarder into context so sub-agents can forward their events
 	// This allows nested sub-agent streaming to work properly
 	streamForwarder := func(event interfaces.AgentStreamEvent) {
