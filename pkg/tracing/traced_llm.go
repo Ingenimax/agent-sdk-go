@@ -23,6 +23,17 @@ func NewTracedLLM(llm interfaces.LLM, tracer interfaces.Tracer) interfaces.LLM {
 	}
 }
 
+// shouldIncludeContent checks if the tracer supports and has enabled content inclusion
+func (m *TracedLLM) shouldIncludeContent() bool {
+	if adapter, ok := m.tracer.(*OTELTracerAdapter); ok {
+		return adapter.otelTracer.ShouldIncludeContent()
+	}
+	if tracer, ok := m.tracer.(*OTELLangfuseTracer); ok {
+		return tracer.ShouldIncludeContent()
+	}
+	return false
+}
+
 // Generate generates text from a prompt with tracing
 func (m *TracedLLM) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
 	startTime := time.Now()
@@ -56,6 +67,12 @@ func (m *TracedLLM) Generate(ctx context.Context, prompt string, options ...inte
 		span.SetAttribute("response.length", len(response))
 		span.SetAttribute("response.hash", hashString(response))
 		span.SetAttribute("duration_ms", duration.Milliseconds())
+
+		// Include actual content if configured
+		if m.shouldIncludeContent() {
+			span.SetAttribute("prompt.content", prompt)
+			span.SetAttribute("response.content", response)
+		}
 	} else {
 		span.RecordError(err)
 	}
@@ -113,6 +130,12 @@ func (m *TracedLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
 			span.SetAttribute("response.length", len(response))
 			span.SetAttribute("response.hash", hashString(response))
 			span.SetAttribute("duration_ms", duration.Milliseconds())
+
+			// Include actual content if configured
+			if m.shouldIncludeContent() {
+				span.SetAttribute("prompt.content", prompt)
+				span.SetAttribute("response.content", response)
+			}
 		} else {
 			span.RecordError(err)
 		}
@@ -170,6 +193,11 @@ func (m *TracedLLM) GenerateStream(ctx context.Context, prompt string, options .
 	}
 	span.SetAttribute("model", model)
 
+	// Include actual prompt content if configured (response is streamed)
+	if m.shouldIncludeContent() {
+		span.SetAttribute("prompt.content", prompt)
+	}
+
 	return streamingLLM.GenerateStream(ctx, prompt, options...)
 }
 
@@ -208,6 +236,11 @@ func (m *TracedLLM) GenerateWithToolsStream(ctx context.Context, prompt string, 
 			toolNames[i] = tool.Name()
 		}
 		span.SetAttribute("tools", strings.Join(toolNames, ","))
+	}
+
+	// Include actual prompt content if configured (response is streamed)
+	if m.shouldIncludeContent() {
+		span.SetAttribute("prompt.content", prompt)
 	}
 
 	// Initialize tool calls collection in context for tracing
@@ -317,6 +350,12 @@ func (m *TracedLLM) GenerateDetailed(ctx context.Context, prompt string, options
 		}
 	}
 	span.SetAttribute("duration_ms", duration.Milliseconds())
+
+	// Include actual content if configured
+	if m.shouldIncludeContent() {
+		span.SetAttribute("prompt.content", prompt)
+		span.SetAttribute("response.content", response.Content)
+	}
 
 	return response, nil
 }

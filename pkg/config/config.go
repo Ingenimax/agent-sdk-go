@@ -91,11 +91,12 @@ type Config struct {
 	Tracing struct {
 		// Langfuse configuration
 		Langfuse struct {
-			Enabled     bool
-			SecretKey   string
-			PublicKey   string
-			Host        string
-			Environment string
+			Enabled        bool
+			SecretKey      string
+			PublicKey      string
+			Host           string
+			Environment    string
+			IncludeContent bool
 		}
 
 		// OpenTelemetry configuration
@@ -190,6 +191,7 @@ func LoadFromEnv() *Config {
 	config.Tracing.Langfuse.PublicKey = getEnv("LANGFUSE_PUBLIC_KEY", "")
 	config.Tracing.Langfuse.Host = getEnv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 	config.Tracing.Langfuse.Environment = getEnv("LANGFUSE_ENVIRONMENT", "development")
+	config.Tracing.Langfuse.IncludeContent = getEnvBool("LANGFUSE_INCLUDE_CONTENT", false)
 
 	config.Tracing.OpenTelemetry.Enabled = getEnvBool("OTEL_ENABLED", false)
 	config.Tracing.OpenTelemetry.ServiceName = getEnv("OTEL_SERVICE_NAME", "agent-sdk")
