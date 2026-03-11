@@ -83,6 +83,7 @@ type Agent struct {
 	mcpServers           []interfaces.MCPServer   // MCP servers for the agent
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
+	disableFinalSummary  bool                     // When true, skip the final summary LLM call
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
 	cacheConfig          *interfaces.CacheConfig  // Prompt caching configuration (Anthropic only)
 
@@ -251,6 +252,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 		// Apply behavioral settings
 		if expandedConfig.MaxIterations != nil {
 			a.maxIterations = *expandedConfig.MaxIterations
+		}
+		if expandedConfig.DisableFinalSummary != nil {
+			a.disableFinalSummary = *expandedConfig.DisableFinalSummary
 		}
 		if expandedConfig.RequirePlanApproval != nil {
 			a.requirePlanApproval = *expandedConfig.RequirePlanApproval
@@ -555,6 +559,13 @@ func WithMCPPresets(presetNames ...string) Option {
 func WithMaxIterations(maxIterations int) Option {
 	return func(a *Agent) {
 		a.maxIterations = maxIterations
+	}
+}
+
+// WithDisableFinalSummary sets whether to disable the final summary LLM call
+func WithDisableFinalSummary(disable bool) Option {
+	return func(a *Agent) {
+		a.disableFinalSummary = disable
 	}
 }
 
@@ -1248,6 +1259,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 	}
 
 	generateOptions = append(generateOptions, interfaces.WithMaxIterations(a.maxIterations))
+	generateOptions = append(generateOptions, interfaces.WithDisableFinalSummary(a.disableFinalSummary))
 
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
@@ -2309,4 +2321,3 @@ func createImageStorageFromConfig(config *ImageStorageYAML) (storage.ImageStorag
 		return nil, fmt.Errorf("unsupported storage type: %s (only 'local' and 'gcs' are supported)", storageType)
 	}
 }
-

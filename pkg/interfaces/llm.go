@@ -28,14 +28,15 @@ type GenerateOption func(options *GenerateOptions)
 
 // GenerateOptions contains configuration for text generation
 type GenerateOptions struct {
-	LLMConfig      *LLMConfig      // LLM config for the generation
-	OrgID          string          // For multi-tenancy
-	SystemMessage  string          // System message for chat models
-	ResponseFormat *ResponseFormat // Optional expected response format
-	MaxIterations  int             // Maximum number of tool-calling iterations (0 = use default)
-	Memory         Memory          // Optional memory for storing tool calls and results
-	StreamConfig   *StreamConfig   // Optional streaming configuration
-	CacheConfig    *CacheConfig    // Optional prompt caching configuration (Anthropic only)
+	LLMConfig           *LLMConfig      // LLM config for the generation
+	OrgID               string          // For multi-tenancy
+	SystemMessage       string          // System message for chat models
+	ResponseFormat      *ResponseFormat // Optional expected response format
+	MaxIterations       int             // Maximum number of tool-calling iterations (0 = use default)
+	DisableFinalSummary bool            // When true, skip the final "provide final response" LLM call
+	Memory              Memory          // Optional memory for storing tool calls and results
+	StreamConfig        *StreamConfig   // Optional streaming configuration
+	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)
@@ -68,6 +69,13 @@ type LLMConfig struct {
 func WithMaxIterations(maxIterations int) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.MaxIterations = maxIterations
+	}
+}
+
+// WithDisableFinalSummary creates a GenerateOption to disable the final summary LLM call
+func WithDisableFinalSummary(disable bool) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.DisableFinalSummary = disable
 	}
 }
 

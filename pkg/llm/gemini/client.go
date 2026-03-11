@@ -673,6 +673,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Iterative tool calling loop
+	// Track the last response content from the tool-calling loop
+	var lastContent string
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Set generation config
 		var genConfig *genai.GenerationConfig
@@ -789,15 +792,20 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			}
 		}
 
+		// Extract text content from this iteration
+		var iterTextParts []string
+		for _, part := range candidate.Content.Parts {
+			if part.Text != "" {
+				iterTextParts = append(iterTextParts, part.Text)
+			}
+		}
+		if len(iterTextParts) > 0 {
+			lastContent = strings.Join(iterTextParts, " ")
+		}
+
 		// If no function calls, return the text response
 		if !hasFunctionCalls {
-			var textParts []string
-			for _, part := range candidate.Content.Parts {
-				if part.Text != "" {
-					textParts = append(textParts, part.Text)
-				}
-			}
-			return strings.Join(textParts, " "), nil
+			return lastContent, nil
 		}
 
 		// Process function calls
@@ -1023,6 +1031,15 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// If we've reached the maximum iterations and the model is still requesting tools,
 	// make one final call without tools to get a conclusion
+
+	// If DisableFinalSummary is enabled, return the last response from the tool-calling loop
+	if params.DisableFinalSummary {
+		c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final summary call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return lastContent, nil
+	}
+
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
@@ -1212,7 +1229,7 @@ func (c *GeminiClient) CreateImageEditSession(ctx context.Context, options *inte
 	}
 
 	c.logger.Debug(ctx, "Creating image edit session", map[string]interface{}{
-		"model":                model,
+		"model":                  model,
 		"has_system_instruction": options != nil && options.SystemInstruction != "",
 	})
 

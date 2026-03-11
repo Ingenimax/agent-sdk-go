@@ -40,6 +40,7 @@ type AgentConfig struct {
 
 	// NEW: Behavioral settings
 	MaxIterations       *int  `yaml:"max_iterations,omitempty"`
+	DisableFinalSummary *bool `yaml:"disable_final_summary,omitempty"`
 	RequirePlanApproval *bool `yaml:"require_plan_approval,omitempty"`
 
 	// NEW: Complex configuration objects
@@ -141,27 +142,27 @@ type RuntimeConfigYAML struct {
 
 // ImageGenerationYAML represents image generation configuration in YAML
 type ImageGenerationYAML struct {
-	Enabled          *bool                      `yaml:"enabled,omitempty"`
-	Provider         string                     `yaml:"provider,omitempty"` // "gemini"
-	Model            string                     `yaml:"model,omitempty"`    // e.g., "gemini-2.5-flash-image"
-	Config           map[string]interface{}     `yaml:"config,omitempty"`
-	Storage          *ImageStorageYAML          `yaml:"storage,omitempty"`
-	MultiTurnEditing *MultiTurnEditingYAML      `yaml:"multi_turn_editing,omitempty"`
+	Enabled          *bool                  `yaml:"enabled,omitempty"`
+	Provider         string                 `yaml:"provider,omitempty"` // "gemini"
+	Model            string                 `yaml:"model,omitempty"`    // e.g., "gemini-2.5-flash-image"
+	Config           map[string]interface{} `yaml:"config,omitempty"`
+	Storage          *ImageStorageYAML      `yaml:"storage,omitempty"`
+	MultiTurnEditing *MultiTurnEditingYAML  `yaml:"multi_turn_editing,omitempty"`
 }
 
 // MultiTurnEditingYAML represents multi-turn image editing configuration in YAML
 type MultiTurnEditingYAML struct {
-	Enabled            *bool  `yaml:"enabled,omitempty"`
-	Model              string `yaml:"model,omitempty"`               // e.g., "gemini-3-pro-image-preview"
-	SessionTimeout     string `yaml:"session_timeout,omitempty"`     // e.g., "30m"
-	MaxSessionsPerOrg  *int   `yaml:"max_sessions_per_org,omitempty"`
+	Enabled           *bool  `yaml:"enabled,omitempty"`
+	Model             string `yaml:"model,omitempty"`           // e.g., "gemini-3-pro-image-preview"
+	SessionTimeout    string `yaml:"session_timeout,omitempty"` // e.g., "30m"
+	MaxSessionsPerOrg *int   `yaml:"max_sessions_per_org,omitempty"`
 }
 
 // ImageStorageYAML represents image storage configuration in YAML
 type ImageStorageYAML struct {
-	Type  string                 `yaml:"type,omitempty"` // "local", "gcs"
-	Local *LocalStorageYAML      `yaml:"local,omitempty"`
-	GCS   *GCSStorageYAML        `yaml:"gcs,omitempty"`
+	Type  string            `yaml:"type,omitempty"` // "local", "gcs"
+	Local *LocalStorageYAML `yaml:"local,omitempty"`
+	GCS   *GCSStorageYAML   `yaml:"gcs,omitempty"`
 }
 
 // LocalStorageYAML represents local storage configuration in YAML

@@ -671,6 +671,15 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 	// After all tool iterations, make a final call without tools to get the synthesized answer
 	// This ensures the LLM provides a final response after processing all tool results
+
+	// If DisableFinalSummary is enabled, skip the final synthesis call
+	if params.DisableFinalSummary {
+		c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final synthesis call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return "", nil
+	}
+
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
