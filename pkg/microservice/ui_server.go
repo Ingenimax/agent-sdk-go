@@ -1215,13 +1215,27 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	// Allow multimodal input: require either input or content_parts.
+	if req.Input == "" && len(req.ContentParts) == 0 {
+		http.Error(w, "Either 'input' or 'content_parts' is required", http.StatusBadRequest)
 		return
+	}
+
+	contentParts := req.ContentParts
+	if err := validateContentParts(contentParts); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Back-compat: if both input and content_parts are provided and no text part exists, prepend input.
+	if len(contentParts) > 0 && req.Input != "" && !hasAnyTextPart(contentParts) {
+		contentParts = append([]interfaces.ContentPart{interfaces.TextPart(req.Input)}, contentParts...)
 	}
 
 	// Set up context with org ID if provided
 	ctx := r.Context()
+	if len(contentParts) > 0 {
+		ctx = interfaces.WithContextContentParts(ctx, contentParts...)
+	}
 	if req.OrgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, req.OrgID)
 	}
@@ -1232,7 +1246,11 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add user input to conversation history
-	h.addToConversationHistory("user", req.Input, map[string]interface{}{
+	historyContent := req.Input
+	if historyContent == "" && len(contentParts) > 0 {
+		historyContent = fmt.Sprintf("[multimodal: %d parts]", len(contentParts))
+	}
+	h.addToConversationHistory("user", historyContent, map[string]interface{}{
 		"conversation_id": req.ConversationID,
 		"org_id":          req.OrgID,
 	})
@@ -1310,9 +1328,20 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	// Allow multimodal input: require either input or content_parts.
+	if req.Input == "" && len(req.ContentParts) == 0 {
+		http.Error(w, "Either 'input' or 'content_parts' is required", http.StatusBadRequest)
 		return
+	}
+
+	contentParts := req.ContentParts
+	if err := validateContentParts(contentParts); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Back-compat: if both input and content_parts are provided and no text part exists, prepend input.
+	if len(contentParts) > 0 && req.Input != "" && !hasAnyTextPart(contentParts) {
+		contentParts = append([]interfaces.ContentPart{interfaces.TextPart(req.Input)}, contentParts...)
 	}
 
 	// Set up SSE headers
@@ -1323,6 +1352,9 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 
 	// Set up context with org ID if provided
 	ctx := r.Context()
+	if len(contentParts) > 0 {
+		ctx = interfaces.WithContextContentParts(ctx, contentParts...)
+	}
 	if req.OrgID != "" {
 		ctx = multitenancy.WithOrgID(ctx, req.OrgID)
 	}
@@ -1333,7 +1365,11 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Add user input to conversation history
-	h.addToConversationHistory("user", req.Input, map[string]interface{}{
+	historyContent := req.Input
+	if historyContent == "" && len(contentParts) > 0 {
+		historyContent = fmt.Sprintf("[multimodal: %d parts]", len(contentParts))
+	}
+	h.addToConversationHistory("user", historyContent, map[string]interface{}{
 		"conversation_id": req.ConversationID,
 		"org_id":          req.OrgID,
 	})

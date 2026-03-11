@@ -76,7 +76,7 @@ func TestMessageFiltering(t *testing.T) {
 			// Apply the filtering logic from the actual code
 			var filteredMessages []Message
 			for _, msg := range anthropicMessages {
-				if msg.Role != "" && strings.TrimSpace(msg.Content) != "" {
+				if msg.Role != "" && strings.TrimSpace(messageTextContent(msg)) != "" {
 					filteredMessages = append(filteredMessages, msg)
 				}
 			}
@@ -88,8 +88,9 @@ func TestMessageFiltering(t *testing.T) {
 
 			// Check the content
 			for i, msg := range filteredMessages {
-				if i < len(tt.expectedContent) && msg.Content != tt.expectedContent[i] {
-					t.Errorf("Expected message %d content %q, got %q", i, tt.expectedContent[i], msg.Content)
+				got := messageTextContent(msg)
+				if i < len(tt.expectedContent) && got != tt.expectedContent[i] {
+					t.Errorf("Expected message %d content %q, got %q", i, tt.expectedContent[i], got)
 				}
 			}
 		})
@@ -119,7 +120,7 @@ func TestEmptyContentHandling(t *testing.T) {
 			}
 
 			// Apply filtering condition
-			shouldKeep := msg.Role != "" && strings.TrimSpace(msg.Content) != ""
+			shouldKeep := msg.Role != "" && strings.TrimSpace(messageTextContent(msg)) != ""
 			shouldFilter := !shouldKeep
 
 			if shouldFilter != tt.shouldFilter {

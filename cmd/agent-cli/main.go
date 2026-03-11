@@ -129,6 +129,9 @@ type DirectExecutionConfig struct {
 	MCPConfigFile              string
 	AllowedTools               []string
 	DangerouslySkipPermissions bool
+	ImagePaths                 []string
+	ImageURLs                  []string
+	ImageDetail                string // low|high|auto (optional)
 }
 
 func hasDirectExecutionFlags() bool {
@@ -151,6 +154,21 @@ func parseDirectExecutionFlags() (*DirectExecutionConfig, error) {
 		} else if arg == "--prompt" && i+1 < len(os.Args) {
 			config.Prompt = os.Args[i+1]
 			i++ // skip next arg
+		} else if strings.HasPrefix(arg, "--image-url=") {
+			config.ImageURLs = append(config.ImageURLs, strings.TrimPrefix(arg, "--image-url="))
+		} else if arg == "--image-url" && i+1 < len(os.Args) {
+			config.ImageURLs = append(config.ImageURLs, os.Args[i+1])
+			i++
+		} else if strings.HasPrefix(arg, "--image=") {
+			config.ImagePaths = append(config.ImagePaths, strings.TrimPrefix(arg, "--image="))
+		} else if arg == "--image" && i+1 < len(os.Args) {
+			config.ImagePaths = append(config.ImagePaths, os.Args[i+1])
+			i++
+		} else if strings.HasPrefix(arg, "--image-detail=") {
+			config.ImageDetail = strings.TrimPrefix(arg, "--image-detail=")
+		} else if arg == "--image-detail" && i+1 < len(os.Args) {
+			config.ImageDetail = os.Args[i+1]
+			i++
 		} else if strings.HasPrefix(arg, "--mcp-config=") {
 			config.MCPConfigFile = strings.TrimPrefix(arg, "--mcp-config=")
 		} else if arg == "--mcp-config" && i+1 < len(os.Args) {
@@ -363,6 +381,17 @@ func runDirectAgent(directConfig *DirectExecutionConfig, mcpServers []MCPServerC
 		"prompt_length": len(directConfig.Prompt),
 	})
 
+	// Attach multimodal content parts (if any)
+	if len(directConfig.ImageURLs) > 0 || len(directConfig.ImagePaths) > 0 {
+		parts, err := buildImageContentParts(directConfig.ImageURLs, directConfig.ImagePaths, strings.TrimSpace(directConfig.ImageDetail))
+		if err != nil {
+			return err
+		}
+		if len(parts) > 0 {
+			ctx = interfaces.WithContextContentParts(ctx, parts...)
+		}
+	}
+
 	// Execute the prompt
 	response, err := agentInstance.Run(ctx, directConfig.Prompt)
 	if err != nil {
@@ -405,6 +434,9 @@ func printDirectUsage() {
 	fmt.Println()
 	fmt.Println("OPTIONS:")
 	fmt.Println("    --prompt <text>                    The prompt to execute")
+	fmt.Println("    --image <path>                    Add an image file (repeatable)")
+	fmt.Println("    --image-url <url>                 Add an image URL or data URL (repeatable)")
+	fmt.Println("    --image-detail <low|high|auto>    Optional image detail hint for vision models")
 	fmt.Println("    --mcp-config <file>               JSON file with MCP server configuration")
 	fmt.Println("    --allowedTools <tool1,tool2>      Comma-separated list of allowed tools")
 	fmt.Println("    --dangerously-skip-permissions    Skip permission checks (use with caution)")
@@ -446,8 +478,17 @@ EXAMPLES:
     # Run a simple agent
     agent-cli run "What's the weather in San Francisco?"
 
+    # Run with image URL (vision)
+    agent-cli run "What's in this image?" --image-url "https://example.com/image.png"
+
+    # Run with local image file (vision)
+    agent-cli run "What's in this image?" --image ./image.png
+
     # Direct execution with prompt
     agent-cli --prompt "What is the weather today?"
+
+    # Direct execution with image
+    agent-cli --prompt "What's in this image?" --image ./image.png
 
     # Direct execution with MCP server
     agent-cli --prompt "List my EC2 instances" \
@@ -648,7 +689,7 @@ func runAgent() {
 		return
 	}
 
-	prompt := strings.Join(os.Args[2:], " ")
+	prompt, imageURLs, imagePaths, imageDetail := parseRunMultimodalArgs(os.Args[2:])
 
 	// Remove quotes if present
 	if strings.HasPrefix(prompt, "\"") && strings.HasSuffix(prompt, "\"") {
@@ -663,6 +704,17 @@ func runAgent() {
 
 	ctx := createContext(config)
 
+	// Attach multimodal content parts (if any)
+	if len(imageURLs) > 0 || len(imagePaths) > 0 {
+		parts, err := buildImageContentParts(imageURLs, imagePaths, strings.TrimSpace(imageDetail))
+		if err != nil {
+			log.Fatalf("❌ Failed to load images: %v", err)
+		}
+		if len(parts) > 0 {
+			ctx = interfaces.WithContextContentParts(ctx, parts...)
+		}
+	}
+
 	response, err := agent.Run(ctx, prompt)
 	if err != nil {
 		log.Fatalf("❌ Agent execution failed: %v", err)
@@ -672,6 +724,33 @@ func runAgent() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println(response)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+func parseRunMultimodalArgs(args []string) (prompt string, imageURLs []string, imagePaths []string, imageDetail string) {
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case strings.HasPrefix(a, "--image-url="):
+			imageURLs = append(imageURLs, strings.TrimPrefix(a, "--image-url="))
+		case a == "--image-url" && i+1 < len(args):
+			imageURLs = append(imageURLs, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--image="):
+			imagePaths = append(imagePaths, strings.TrimPrefix(a, "--image="))
+		case a == "--image" && i+1 < len(args):
+			imagePaths = append(imagePaths, args[i+1])
+			i++
+		case strings.HasPrefix(a, "--image-detail="):
+			imageDetail = strings.TrimPrefix(a, "--image-detail=")
+		case a == "--image-detail" && i+1 < len(args):
+			imageDetail = args[i+1]
+			i++
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return strings.Join(rest, " "), imageURLs, imagePaths, imageDetail
 }
 
 func executeTask() {
@@ -768,6 +847,7 @@ func startInteractiveChat() {
 	fmt.Println("🗨️  Interactive Chat Mode")
 	fmt.Println("Type 'exit', 'quit', or 'bye' to end the session")
 	fmt.Println("Type 'help' for available commands")
+	fmt.Println("Tip: Use ':image <path>' to attach an image to your next message")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	config := loadConfig()
@@ -775,6 +855,7 @@ func startInteractiveChat() {
 	ctx := createContext(config)
 
 	reader := bufio.NewReader(os.Stdin)
+	var pendingParts []interfaces.ContentPart
 
 	for {
 		fmt.Print("\n🤖 You: ")
@@ -787,6 +868,39 @@ func startInteractiveChat() {
 		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
+		}
+
+		// Multimodal commands (prefix with ':')
+		if strings.HasPrefix(input, ":") {
+			switch {
+			case strings.HasPrefix(strings.ToLower(input), ":image "):
+				path := strings.TrimSpace(input[len(":image "):])
+				if path == "" {
+					fmt.Println("Usage: :image <path>")
+					continue
+				}
+				parts, err := buildImageContentParts(nil, []string{path}, "auto")
+				if err != nil {
+					fmt.Printf("❌ Failed to attach image: %v\n", err)
+					continue
+				}
+				pendingParts = append(pendingParts, parts...)
+				fmt.Printf("📎 Attached image (%d pending)\n", len(pendingParts))
+				continue
+
+			case strings.EqualFold(input, ":images"):
+				fmt.Printf("📎 Pending attachments: %d\n", len(pendingParts))
+				continue
+
+			case strings.EqualFold(input, ":clear-images"):
+				pendingParts = nil
+				fmt.Println("🧹 Cleared pending attachments")
+				continue
+
+			default:
+				fmt.Println("Unknown command. Type 'help' for available commands.")
+				continue
+			}
 		}
 
 		// Handle special commands
@@ -808,7 +922,14 @@ func startInteractiveChat() {
 
 		fmt.Print("🤖 Assistant: ")
 
-		response, err := agent.Run(ctx, input)
+		ctxToUse := ctx
+		if len(pendingParts) > 0 {
+			ctxToUse = interfaces.WithContextContentParts(ctxToUse, pendingParts...)
+			// Clear attachments after sending one message.
+			pendingParts = nil
+		}
+
+		response, err := agent.Run(ctxToUse, input)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
@@ -823,6 +944,9 @@ func printChatHelp() {
   help     - Show this help message
   clear    - Clear conversation history
   config   - Show current configuration
+  :image <path>      - Attach a local image to the next message
+  :images            - Show number of pending attachments
+  :clear-images      - Clear pending attachments
   exit     - Exit chat mode
   quit     - Exit chat mode
   bye      - Exit chat mode

@@ -148,8 +148,30 @@ export interface MemoryResponse {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  /**
+   * UI-only content to render in chat bubbles (optional).
+   * When present, UI should render this instead of `content`.
+   */
+  display_content?: string;
   timestamp: number;
   id?: string;
+}
+
+// Multimodal content parts (compatible with server-side `content_parts`)
+export interface ContentPart {
+  type: 'text' | 'image_url' | 'image_file' | string;
+  text?: string;
+  image_url?: ImageURL;
+  image_file?: ImageFile;
+}
+
+export interface ImageURL {
+  url: string;
+  detail?: string; // "low" | "high" | "auto"
+}
+
+export interface ImageFile {
+  file_id: string;
 }
 
 export interface StreamEventData {
@@ -177,6 +199,7 @@ export interface StreamResponse {
 
 export interface RunRequest {
   input: string;
+  content_parts?: ContentPart[];
   conversation_id?: string;
   org_id?: string;
   context?: Record<string, string>;
@@ -185,6 +208,7 @@ export interface RunRequest {
 
 export interface StreamRequest {
   input: string;
+  content_parts?: ContentPart[];
   conversation_id?: string;
   org_id?: string;
   context?: Record<string, string>;

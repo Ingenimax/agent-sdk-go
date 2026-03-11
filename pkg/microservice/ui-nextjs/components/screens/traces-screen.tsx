@@ -284,7 +284,7 @@ export function TracesScreen() {
               <select
                 className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
+                onChange={(e) => setSortBy(e.target.value as 'start_time' | 'duration_ms' | 'name')}
               >
                 <option value="start_time">Start Time</option>
                 <option value="duration_ms">Duration</option>

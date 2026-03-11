@@ -40,6 +40,10 @@ Shows how to:
 - Start/stop services programmatically
 - Monitor service health
 
+### 5. UI Multimodal Server (`ui_multimodal_server/`)
+
+演示如何启动带 **内置 UI** 的 HTTP 服务（`HTTPServerWithUI`），并包含一个 `client` 使用用例：从命令行读取图片并以 `content_parts` 调用 `/api/v1/agent/run` 验证多模态链路。
+
 ## Quick Start
 
 1. **Start a microservice:**

@@ -36,6 +36,10 @@ type GenerateOptions struct {
 	Memory         Memory          // Optional memory for storing tool calls and results
 	StreamConfig   *StreamConfig   // Optional streaming configuration
 	CacheConfig    *CacheConfig    // Optional prompt caching configuration (Anthropic only)
+
+	// ContentParts holds multimodal input parts (e.g. text + image_url).
+	// When empty, providers should fall back to prompt-only behavior.
+	ContentParts []ContentPart
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)
@@ -75,6 +79,13 @@ func WithMaxIterations(maxIterations int) GenerateOption {
 func WithMemory(memory Memory) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.Memory = memory
+	}
+}
+
+// WithContentParts sets multimodal content parts for the generation.
+func WithContentParts(parts ...ContentPart) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.ContentParts = parts
 	}
 }
 

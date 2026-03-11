@@ -22,7 +22,7 @@ func newMessageHistoryBuilder(logger logging.Logger) *messageHistoryBuilder {
 
 // buildMessages constructs OpenAI messages from memory and current prompt
 // Returns messages ready for OpenAI API calls, preserving chronological order
-func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory) []openai.ChatCompletionMessageParamUnion {
+func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory, contentParts []interfaces.ContentPart) []openai.ChatCompletionMessageParamUnion {
 	messages := []openai.ChatCompletionMessageParamUnion{}
 
 	// Add memory messages
@@ -43,7 +43,11 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 		}
 	} else {
 		// Only append current user message when memory is nil
-		messages = append(messages, openai.UserMessage(prompt))
+		if len(contentParts) > 0 {
+			messages = append(messages, b.buildMultimodalUserMessage(prompt, contentParts))
+		} else {
+			messages = append(messages, openai.UserMessage(prompt))
+		}
 	}
 
 	return messages
@@ -53,6 +57,10 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *openai.ChatCompletionMessageParamUnion {
 	switch msg.Role {
 	case interfaces.MessageRoleUser:
+		if len(msg.ContentParts) > 0 {
+			param := b.buildMultimodalUserMessage(msg.Content, msg.ContentParts)
+			return &param
+		}
 		userMsg := openai.UserMessage(msg.Content)
 		return &userMsg
 
@@ -99,4 +107,67 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *op
 	}
 
 	return nil
+}
+
+func (b *messageHistoryBuilder) buildMultimodalUserMessage(prompt string, parts []interfaces.ContentPart) openai.ChatCompletionMessageParamUnion {
+	contentItems := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts)+1)
+
+	// If prompt is provided and caller didn't include a text part, prepend it.
+	if prompt != "" {
+		hasText := false
+		for _, p := range parts {
+			if p.Type == "text" {
+				hasText = true
+				break
+			}
+		}
+		if !hasText {
+			contentItems = append(contentItems, openai.TextContentPart(prompt))
+		}
+	}
+
+	for _, part := range parts {
+		switch part.Type {
+		case "text":
+			if part.Text == "" {
+				continue
+			}
+			contentItems = append(contentItems, openai.TextContentPart(part.Text))
+		case "image_url":
+			if part.ImageURL == nil || part.ImageURL.URL == "" {
+				continue
+			}
+			imageURL := openai.ChatCompletionContentPartImageImageURLParam{
+				URL: part.ImageURL.URL,
+			}
+			if part.ImageURL.Detail != "" {
+				imageURL.Detail = part.ImageURL.Detail
+			}
+			contentItems = append(contentItems, openai.ImageContentPart(imageURL))
+		case "image_file":
+			if part.ImageFile == nil || part.ImageFile.FileID == "" {
+				continue
+			}
+			// openai-go chat completions uses content type "file" for file_id inputs.
+			// We map SDK-level "image_file" to the OpenAI "file" content part.
+			contentItems = append(contentItems, openai.FileContentPart(openai.ChatCompletionContentPartFileFileParam{
+				FileID: openai.String(part.ImageFile.FileID),
+			}))
+		default:
+			// Ignore unknown part types for forward-compatibility.
+		}
+	}
+
+	if len(contentItems) == 0 {
+		// Fallback to plain text if nothing valid was provided.
+		return openai.UserMessage(prompt)
+	}
+
+	return openai.ChatCompletionMessageParamUnion{
+		OfUser: &openai.ChatCompletionUserMessageParam{
+			Content: openai.ChatCompletionUserMessageParamContentUnion{
+				OfArrayOfContentParts: contentItems,
+			},
+		},
+	}
 }

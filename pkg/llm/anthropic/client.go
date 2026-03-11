@@ -338,7 +338,12 @@ func SupportsThinking(model string) bool {
 // Message represents a message for Anthropic API
 type Message struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	// Content can be either a plain string (text-only) or an array of content blocks
+	// (e.g. [{"type":"text","text":"..."},{"type":"image","source":{...}}]).
+	//
+	// We keep this as `any` to support multimodal input without breaking existing
+	// text-only behavior.
+	Content any `json:"content"`
 }
 
 // ToolUse represents a tool call for Anthropic API
@@ -533,7 +538,7 @@ func (c *AnthropicClient) generateInternal(ctx context.Context, prompt string, o
 
 		// Enhance the user prompt with schema information and example
 		// Using best practices from Claude documentation for consistency
-		messages[0].Content = fmt.Sprintf(`%s
+		enhanced := fmt.Sprintf(`%s
 
 You must respond with a valid JSON object that exactly follows this schema:
 %s
@@ -542,6 +547,18 @@ Example output:
 %s
 
 Return only the JSON object, with no additional text or markdown formatting.`, prompt, string(schemaJSON), string(exampleStr))
+		// If first message content is multimodal blocks, update the leading text block if possible.
+		switch v := messages[0].Content.(type) {
+		case []contentBlockParam:
+			if len(v) > 0 && v[0].Type == "text" {
+				v[0].Text = enhanced
+				messages[0].Content = v
+			} else {
+				messages[0].Content = enhanced
+			}
+		default:
+			messages[0].Content = enhanced
+		}
 	}
 
 	// Calculate maxTokens - must be greater than budget_tokens when reasoning is enabled
@@ -790,7 +807,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 	// Filter out any nil messages (from system messages being skipped) and messages with empty content
 	var filteredMessages []Message
 	for _, msg := range anthropicMessages {
-		if msg.Role != "" && strings.TrimSpace(msg.Content) != "" {
+		if msg.Role != "" && strings.TrimSpace(messageTextContent(msg)) != "" {
 			filteredMessages = append(filteredMessages, msg)
 		}
 	}

@@ -25,6 +25,17 @@ func TestMessageHistoryBuilder_BuildContents(t *testing.T) {
 			expected: 1,
 		},
 		{
+			name:   "no memory with content parts",
+			prompt: "Hello",
+			params: &interfaces.GenerateOptions{
+				ContentParts: []interfaces.ContentPart{
+					interfaces.TextPart("What is in this image?"),
+					interfaces.ImageURLPart("data:image/png;base64,AA==", "auto"),
+				},
+			},
+			expected: 1,
+		},
+		{
 			name:   "with system message",
 			prompt: "Hello",
 			params: &interfaces.GenerateOptions{

@@ -59,7 +59,7 @@ func (c *OpenAIClient) GenerateStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.ContentParts)...)
 
 		// Create stream request
 		streamParams := openai.ChatCompletionNewParams{
@@ -319,7 +319,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+			messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.ContentParts)...)
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{

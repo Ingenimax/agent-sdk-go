@@ -46,7 +46,12 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 		// Only append current user message when memory is nil
 		messages = append(messages, Message{
 			Role:    "user",
-			Content: prompt,
+			Content: func() any {
+				if len(params.ContentParts) > 0 {
+					return buildAnthropicContentFromParts(prompt, params.ContentParts)
+				}
+				return prompt
+			}(),
 		})
 	}
 
@@ -57,6 +62,12 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *Message {
 	switch msg.Role {
 	case interfaces.MessageRoleUser:
+		if len(msg.ContentParts) > 0 {
+			return &Message{
+				Role:    "user",
+				Content: buildAnthropicContentFromParts(msg.Content, msg.ContentParts),
+			}
+		}
 		return &Message{
 			Role:    "user",
 			Content: msg.Content,

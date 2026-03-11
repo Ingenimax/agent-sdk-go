@@ -26,6 +26,11 @@ type Message struct {
 	// Content is the content of the message
 	Content string
 
+	// ContentParts holds optional multimodal content parts for this message.
+	// When present, providers that support multimodal input should prefer this
+	// over plain Content.
+	ContentParts []ContentPart
+
 	// Metadata contains additional information about the message
 	Metadata map[string]interface{}
 
