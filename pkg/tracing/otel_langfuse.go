@@ -10,6 +10,7 @@ import (
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,6 +29,7 @@ type OTELLangfuseTracer struct {
 	exporter       *otlptrace.Exporter
 	enabled        bool
 	config         LangfuseConfig
+	IncludeContent bool
 }
 
 // OTELLangfuseSpan wraps an OTEL span to implement the interfaces.Span interface
@@ -69,11 +71,12 @@ func NewOTELLangfuseTracer(customConfig ...LangfuseConfig) (*OTELLangfuseTracer,
 		tracerConfig = customConfig[0]
 	} else {
 		tracerConfig = LangfuseConfig{
-			Enabled:     cfg.Tracing.Langfuse.Enabled,
-			SecretKey:   cfg.Tracing.Langfuse.SecretKey,
-			PublicKey:   cfg.Tracing.Langfuse.PublicKey,
-			Host:        cfg.Tracing.Langfuse.Host,
-			Environment: cfg.Tracing.Langfuse.Environment,
+			Enabled:        cfg.Tracing.Langfuse.Enabled,
+			SecretKey:      cfg.Tracing.Langfuse.SecretKey,
+			PublicKey:      cfg.Tracing.Langfuse.PublicKey,
+			Host:           cfg.Tracing.Langfuse.Host,
+			Environment:    cfg.Tracing.Langfuse.Environment,
+			IncludeContent: cfg.Tracing.Langfuse.IncludeContent,
 		}
 	}
 
@@ -148,7 +151,13 @@ func NewOTELLangfuseTracer(customConfig ...LangfuseConfig) (*OTELLangfuseTracer,
 		exporter:       exporter,
 		enabled:        true,
 		config:         tracerConfig,
+		IncludeContent: tracerConfig.IncludeContent,
 	}, nil
+}
+
+// ShouldIncludeContent returns whether actual prompt/response content should be included in traces
+func (t *OTELLangfuseTracer) ShouldIncludeContent() bool {
+	return t.IncludeContent
 }
 
 // StartSpan implements interfaces.Tracer
@@ -174,6 +183,11 @@ func (t *OTELLangfuseTracer) StartSpan(ctx context.Context, name string) (contex
 	}
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("langfuse.user.id", orgID))
+	}
+
+	// Add session ID from conversation context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		attrs = append(attrs, attribute.String("langfuse.session.id", conversationID))
 	}
 
 	// Add agent name if available
@@ -324,6 +338,11 @@ func (t *OTELLangfuseTracer) TraceGeneration(ctx context.Context, modelName stri
 	// Add organization ID if available
 	if orgID != "" {
 		attrs = append(attrs, attribute.String("langfuse.user.id", orgID))
+	}
+
+	// Add session ID from conversation context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		attrs = append(attrs, attribute.String("langfuse.session.id", conversationID))
 	}
 
 	// Add agent name if available
@@ -655,6 +674,11 @@ func (t *OTELLangfuseTracer) StartTraceSession(ctx context.Context, contextID st
 	// Add agent name if available
 	if agentName != "" {
 		attrs = append(attrs, attribute.String("langfuse.observation.metadata.agent_name", agentName))
+	}
+
+	// Add session ID from conversation context if available
+	if conversationID, ok := memory.GetConversationID(ctx); ok && conversationID != "" {
+		attrs = append(attrs, attribute.String("langfuse.session.id", conversationID))
 	}
 
 	// Start root OTEL span for the session

@@ -32,6 +32,10 @@ type LangfuseConfig struct {
 
 	// Environment is the environment name (e.g., "production", "staging")
 	Environment string
+
+	// IncludeContent determines whether actual prompt/response content is included in traces
+	// When false (default), only hashes are stored for privacy
+	IncludeContent bool
 }
 
 // NewLangfuseTracer creates a new Langfuse tracer (backward compatibility wrapper)
@@ -46,11 +50,12 @@ func NewLangfuseTracer(customConfig ...LangfuseConfig) (*LangfuseTracer, error) 
 		tracerConfig = customConfig[0]
 	} else {
 		tracerConfig = LangfuseConfig{
-			Enabled:     cfg.Tracing.Langfuse.Enabled,
-			SecretKey:   cfg.Tracing.Langfuse.SecretKey,
-			PublicKey:   cfg.Tracing.Langfuse.PublicKey,
-			Host:        cfg.Tracing.Langfuse.Host,
-			Environment: cfg.Tracing.Langfuse.Environment,
+			Enabled:        cfg.Tracing.Langfuse.Enabled,
+			SecretKey:      cfg.Tracing.Langfuse.SecretKey,
+			PublicKey:      cfg.Tracing.Langfuse.PublicKey,
+			Host:           cfg.Tracing.Langfuse.Host,
+			Environment:    cfg.Tracing.Langfuse.Environment,
+			IncludeContent: cfg.Tracing.Langfuse.IncludeContent,
 		}
 	}
 
