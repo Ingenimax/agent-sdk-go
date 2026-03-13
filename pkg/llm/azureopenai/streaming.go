@@ -814,6 +814,18 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 			return
 		}
 
+		// If DisableFinalSummary is enabled, skip the final synthesis call
+		if params.DisableFinalSummary {
+			c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final synthesis call", map[string]interface{}{
+				"maxIterations": maxIterations,
+			})
+			eventChan <- interfaces.StreamEvent{
+				Type:      interfaces.StreamEventMessageStop,
+				Timestamp: time.Now(),
+			}
+			return
+		}
+
 		// Final call without tools to get synthesis
 		c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 			"maxIterations": maxIterations,

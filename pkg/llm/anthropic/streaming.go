@@ -724,6 +724,14 @@ func (c *AnthropicClient) executeStreamingWithTools(
 	// After all tool iterations, make a final call without tools to get the synthesized answer
 	// This ensures the LLM provides a final response after processing all tool results
 
+	// If DisableFinalSummary is enabled, skip the final synthesis call
+	if params.DisableFinalSummary {
+		c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final synthesis call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return nil
+	}
+
 	c.logger.Info(ctx, "[LLM RESPONSE DEBUG] Making final synthesis call after tool iterations", map[string]interface{}{
 		"maxIterations":         maxIterations,
 		"totalPreviousLLMCalls": finalIterationCount,

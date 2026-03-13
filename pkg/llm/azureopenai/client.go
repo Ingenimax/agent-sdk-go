@@ -637,6 +637,9 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 	}
 
 	// Iterative tool calling loop
+	// Track the last response content from the tool-calling loop
+	var lastContent string
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Update request with current messages
 		req.Messages = messages
@@ -678,11 +681,13 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 			return "", fmt.Errorf("no completions returned")
 		}
 
+		// Capture the last content from the response
+		lastContent = strings.TrimSpace(resp.Choices[0].Message.Content)
+
 		// Check if the model wants to use tools
 		if len(resp.Choices[0].Message.ToolCalls) == 0 {
 			// No tool calls, return the response
-			content := strings.TrimSpace(resp.Choices[0].Message.Content)
-			return content, nil
+			return lastContent, nil
 		}
 
 		// The model wants to use tools
@@ -1024,6 +1029,15 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 
 	// If we've reached the maximum iterations and the model is still requesting tools,
 	// make one final call without tools to get a conclusion
+
+	// If DisableFinalSummary is enabled, return the last response from the tool-calling loop
+	if params.DisableFinalSummary {
+		c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final summary call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return lastContent, nil
+	}
+
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})

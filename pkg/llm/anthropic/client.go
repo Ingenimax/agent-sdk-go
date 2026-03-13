@@ -1080,6 +1080,9 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
 	}
 
+	// Track the last response content from the tool-calling loop
+	var lastContent string
+
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Create request
@@ -1301,6 +1304,11 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 			"iteration":  iteration + 1,
 		})
 
+		// Capture the last text content from this iteration
+		if len(textContent) > 0 {
+			lastContent = strings.Join(textContent, "\n")
+		}
+
 		// If no tool use, return the text content
 		if !hasToolUse {
 			if len(textContent) == 0 {
@@ -1370,6 +1378,15 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 	// If we've reached the maximum iterations and the model is still requesting tools,
 	// make one final call without tools to get a conclusion
+
+	// If DisableFinalSummary is enabled, return the last response from the tool-calling loop
+	if params.DisableFinalSummary {
+		c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final summary call", map[string]interface{}{
+			"maxIterations": maxIterations,
+		})
+		return lastContent, nil
+	}
+
 	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
