@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
+	"github.com/Ingenimax/agent-sdk-go/pkg/sandbox"
 )
 
 // MCPServerConfig represents a single MCP server configuration
@@ -22,6 +23,7 @@ type MCPServerConfig struct {
 	Token             string            `json:"token,omitempty" yaml:"token,omitempty"`
 	HttpTransportMode string            `json:"httpTransportMode,omitempty" yaml:"httpTransportMode,omitempty"` // "sse" or "streamable"
 	AllowedTools      []string          `json:"allowedTools,omitempty" yaml:"allowedTools,omitempty"`
+	Sandbox           *sandbox.Config   `json:"sandbox,omitempty" yaml:"sandbox,omitempty"`
 }
 
 // MCPDiscoveredServerInfo represents metadata discovered from the server at runtime

@@ -13,11 +13,11 @@ import (
 
 func TestNewClient(t *testing.T) {
 	tests := []struct {
-		name       string
-		apiKey     string
-		options    []Option
-		wantModel  string
-		wantBase   string
+		name      string
+		apiKey    string
+		options   []Option
+		wantModel string
+		wantBase  string
 	}{
 		{
 			name:      "default configuration",
