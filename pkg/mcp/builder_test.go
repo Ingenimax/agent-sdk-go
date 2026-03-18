@@ -277,7 +277,19 @@ func TestBuilder_parseServerURL(t *testing.T) {
 			expectedType: "http",
 			validateConfig: func(t *testing.T, config *LazyMCPServerConfig) {
 				assert.Equal(t, "api.example.com", config.Name)
-				assert.Equal(t, "https://api.example.com/mcp?token=secret", config.URL)
+				assert.Equal(t, "https://api.example.com/mcp", config.URL)
+				assert.Equal(t, "secret", config.Token)
+			},
+		},
+		{
+			name:         "https URL with token and transport=streamable",
+			url:          "https://api.example.com/mcp?token=secret&transport=streamable",
+			expectedType: "http",
+			validateConfig: func(t *testing.T, config *LazyMCPServerConfig) {
+				assert.Equal(t, "api.example.com", config.Name)
+				assert.Equal(t, "https://api.example.com/mcp", config.URL)
+				assert.Equal(t, "secret", config.Token)
+				assert.Equal(t, "streamable", config.HttpTransportMode)
 			},
 		},
 		{

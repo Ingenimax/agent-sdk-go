@@ -506,13 +506,15 @@ func WithMCPURLs(urls ...string) Option {
 		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
 		for _, config := range lazyConfigs {
 			agentConfig := LazyMCPConfig{
-				Name:         config.Name,
-				Type:         config.Type,
-				Command:      config.Command,
-				Args:         config.Args,
-				Env:          config.Env,
-				URL:          config.URL,
-				AllowedTools: config.AllowedTools,
+				Name:              config.Name,
+				Type:              config.Type,
+				Command:           config.Command,
+				Args:              config.Args,
+				Env:               config.Env,
+				URL:               config.URL,
+				Token:             config.Token,
+				HttpTransportMode: config.HttpTransportMode,
+				AllowedTools:      config.AllowedTools,
 			}
 			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
 		}
@@ -542,13 +544,15 @@ func WithMCPPresets(presetNames ...string) Option {
 		// Convert mcp.LazyMCPServerConfig to agent.LazyMCPConfig
 		for _, config := range lazyConfigs {
 			agentConfig := LazyMCPConfig{
-				Name:         config.Name,
-				Type:         config.Type,
-				Command:      config.Command,
-				Args:         config.Args,
-				Env:          config.Env,
-				URL:          config.URL,
-				AllowedTools: config.AllowedTools,
+				Name:              config.Name,
+				Type:              config.Type,
+				Command:           config.Command,
+				Args:              config.Args,
+				Env:               config.Env,
+				URL:               config.URL,
+				Token:             config.Token,
+				HttpTransportMode: config.HttpTransportMode,
+				AllowedTools:      config.AllowedTools,
 			}
 			a.lazyMCPConfigs = append(a.lazyMCPConfigs, agentConfig)
 		}
