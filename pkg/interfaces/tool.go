@@ -37,8 +37,8 @@ type InternalTool interface {
 
 // ParameterSpec defines the specification for a tool parameter
 type ParameterSpec struct {
-	// Type is the data type of the parameter (string, number, boolean, etc.)
-	Type string
+	// Type is the data type of the parameter (string, number, boolean, etc.) or union of types e.g. ["array", "null"]
+	Type any
 
 	// Description describes what the parameter is for
 	Description string
