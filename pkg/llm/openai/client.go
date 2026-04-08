@@ -176,7 +176,7 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 	if params.LLMConfig != nil {
 		req.Temperature = openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature))
 		// Reasoning models don't support top_p parameter
-		if !isReasoningModel(c.Model) {
+		if !isReasoningModel(c.Model) && params.LLMConfig.TopP > 0 && params.LLMConfig.TopP <= 1 {
 			req.TopP = openai.Float(params.LLMConfig.TopP)
 		}
 		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
@@ -495,7 +495,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Reasoning models don't support top_p parameter
-	if !isReasoningModel(c.Model) {
+	if !isReasoningModel(c.Model) && params.LLMConfig.TopP > 0 && params.LLMConfig.TopP <= 1 {
 		req.TopP = openai.Float(params.LLMConfig.TopP)
 	}
 
@@ -945,7 +945,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Reasoning models don't support top_p parameter
-	if !isReasoningModel(c.Model) {
+	if !isReasoningModel(c.Model) && params.LLMConfig.TopP > 0 && params.LLMConfig.TopP <= 1 {
 		finalReq.TopP = openai.Float(params.LLMConfig.TopP)
 	}
 
