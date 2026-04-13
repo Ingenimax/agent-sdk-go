@@ -101,7 +101,7 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 			for name, prop := range properties {
 				if propMap, ok := prop.(map[string]interface{}); ok {
 					paramSpec := interfaces.ParameterSpec{
-						Type:        fmt.Sprintf("%v", propMap["type"]),
+						Type:        propMap["type"],
 						Description: fmt.Sprintf("%v", propMap["description"]),
 					}
 
@@ -122,7 +122,15 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 	case *jsonschema.Schema:
 		for name, prop := range toolSchema.Properties {
 			paramSpec := interfaces.ParameterSpec{
-				Type:        prop.Type,
+				Type: func() any {
+					// Use Type if available, otherwise Types for complex types
+					if prop.Type != "" {
+						return prop.Type
+					} else if len(prop.Types) > 0 {
+						return prop.Types
+					}
+					return "string" // default to string if type is not specified
+				}(),
 				Description: prop.Description,
 			}
 

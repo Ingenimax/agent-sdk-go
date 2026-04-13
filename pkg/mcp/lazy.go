@@ -548,10 +548,10 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 	if properties, ok := schemaMap["properties"].(map[string]interface{}); ok {
 		for name, prop := range properties {
 			if propMap, ok := prop.(map[string]interface{}); ok {
-				// Handle type extraction - support complex types like anyOf
-				var paramType string
+				// Handle type extraction - support complex types like anyOf and union types
+				var paramType any
 				if typeVal, ok := propMap["type"]; ok && typeVal != nil {
-					paramType = fmt.Sprintf("%v", typeVal)
+					paramType = typeVal
 				} else if anyOf, ok := propMap["anyOf"].([]interface{}); ok && len(anyOf) > 0 {
 					// For anyOf types, use the first non-null type
 					for _, typeOption := range anyOf {
@@ -562,7 +562,7 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 							}
 						}
 					}
-					if paramType == "" {
+					if paramType == nil {
 						paramType = "string" // fallback
 					}
 				} else {
@@ -574,8 +574,8 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 					Description: fmt.Sprintf("%v", propMap["description"]),
 				}
 
-				// Handle array items
-				if paramType == "array" {
+				// Handle array items when type is array or type is union that includes array
+				if paramType == "array" || strings.Contains(fmt.Sprintf("%v", paramType), "array") {
 					if items, ok := propMap["items"]; ok {
 						if itemsMap, ok := items.(map[string]interface{}); ok {
 							if itemType, ok := itemsMap["type"].(string); ok {
