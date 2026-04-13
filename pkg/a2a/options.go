@@ -154,6 +154,18 @@ func WithBearerToken(token string) ClientOption {
 	}
 }
 
+func WithSecurityRequirements(security []a2a.SecurityRequirements) CardOption {
+	return func(b *CardBuilder) {
+		b.security = security
+	}
+}
+
+func WithNamedSecuritySchemes(schemes a2a.NamedSecuritySchemes) CardOption {
+	return func(b *CardBuilder) {
+		b.securitySchemes = schemes
+	}
+}
+
 // SendOption configures individual SendMessage / SendMessageStream calls.
 type SendOption func(*sendConfig)
 
