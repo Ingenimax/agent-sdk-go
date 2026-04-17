@@ -20,6 +20,8 @@ type CardBuilder struct {
 	outputModes      []string
 	skills           []a2a.AgentSkill
 	tools            []interfaces.Tool
+	security         []a2a.SecurityRequirements
+	securitySchemes  a2a.NamedSecuritySchemes
 }
 
 // NewCardBuilder creates a new CardBuilder with required fields.
@@ -98,6 +100,14 @@ func (b *CardBuilder) Build() *a2a.AgentCard {
 			Streaming: b.streaming,
 		},
 		Skills: skills,
+	}
+
+	if len(b.security) > 0 {
+		card.Security = b.security
+	}
+
+	if b.securitySchemes != nil {
+		card.SecuritySchemes = b.securitySchemes
 	}
 
 	if b.providerOrg != "" {

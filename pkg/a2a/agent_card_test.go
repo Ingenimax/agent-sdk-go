@@ -15,12 +15,12 @@ type mockTool struct {
 	displayName string
 }
 
-func (t *mockTool) Name() string                                             { return t.name }
-func (t *mockTool) Description() string                                      { return t.description }
-func (t *mockTool) Run(_ context.Context, _ string) (string, error)          { return "", nil }
-func (t *mockTool) Execute(_ context.Context, _ string) (string, error)      { return "", nil }
-func (t *mockTool) Parameters() map[string]interfaces.ParameterSpec          { return nil }
-func (t *mockTool) DisplayName() string                                      { return t.displayName }
+func (t *mockTool) Name() string                                        { return t.name }
+func (t *mockTool) Description() string                                 { return t.description }
+func (t *mockTool) Run(_ context.Context, _ string) (string, error)     { return "", nil }
+func (t *mockTool) Execute(_ context.Context, _ string) (string, error) { return "", nil }
+func (t *mockTool) Parameters() map[string]interfaces.ParameterSpec     { return nil }
+func (t *mockTool) DisplayName() string                                 { return t.displayName }
 
 func TestCardBuilder_Build(t *testing.T) {
 	card := NewCardBuilder("TestAgent", "A test agent", "http://localhost:9000/a2a",
@@ -143,4 +143,31 @@ func TestCardBuilder_EmptyURL(t *testing.T) {
 		}
 	}()
 	NewCardBuilder("name", "desc", "")
+}
+
+func TestCardBuilder_WithSecurity(t *testing.T) {
+
+	card := NewCardBuilder("TestAgent", "A test agent", "https://localhost:9000/a2a",
+		WithSecurityRequirements([]a2a.SecurityRequirements{
+			{
+				a2a.SecuritySchemeName("apiKey"): a2a.SecuritySchemeScopes{"read", "write"},
+			},
+		}),
+		WithNamedSecuritySchemes(a2a.NamedSecuritySchemes{
+			"apiKey": a2a.APIKeySecurityScheme{
+				Name: "Authorization",
+				In:   "header",
+			},
+		}),
+	).Build()
+
+	if len(card.Security) != 1 {
+		t.Fatalf("expected 1 security requirement, got %d", len(card.Security))
+	}
+	if card.Security[0]["apiKey"] == nil {
+		t.Errorf("expected security requirement for apiKey, got %v", card.Security[0])
+	}
+	if card.SecuritySchemes["apiKey"] == nil {
+		t.Errorf("expected security scheme for apiKey, got %v", card.SecuritySchemes["apiKey"])
+	}
 }
