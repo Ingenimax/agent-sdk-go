@@ -74,8 +74,12 @@ func main() {
 	}
 
 	defer func() {
-		mcpServer.Close()
-		serverSession.Close()
+		if err := mcpServer.Close(); err != nil {
+			log.Println("[ERROR]: Failed to close MCP server:", err)
+		}
+		if err := serverSession.Close(); err != nil {
+			log.Println("[ERROR]: Failed to close server session:", err)
+		}
 	}()
 
 	simpleResponse, err := ag.Run(ctx, "Hello from CustomTransportAgent!")
