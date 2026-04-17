@@ -649,21 +649,3 @@ func GetServerMetadataFromCache(config LazyMCPServerConfig) *interfaces.MCPServe
 	defer globalServerCache.mu.RUnlock()
 	return globalServerCache.serverMetadata[serverKey]
 }
-
-// AddServerToCache adds server to the global cache
-// This can be used by external code that creates MCP servers independently and wants to share them
-func AddServerToCache(config LazyMCPServerConfig, server interfaces.MCPServer) error {
-	serverKey := fmt.Sprintf("%s:%s:%v", config.Type, config.Name, config.Command)
-	globalServerCache.mu.Lock()
-	defer globalServerCache.mu.Unlock()
-	if _, exists := globalServerCache.servers[serverKey]; exists {
-		return fmt.Errorf("server already exists in cache with key: %s", serverKey)
-	}
-	globalServerCache.servers[serverKey] = server
-	serverInfo, err := server.GetServerInfo()
-	if err != nil {
-		return err
-	}
-	globalServerCache.serverMetadata[serverKey] = serverInfo
-	return nil
-}
