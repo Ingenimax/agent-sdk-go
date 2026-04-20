@@ -715,14 +715,12 @@ func (c *AzureOpenAIClient) GenerateWithToolsStream(
 					"result_length": len(result),
 				})
 
-				// Ensure tool call ID is not swapped with result
-				if len(toolCall.ID) > 40 {
-					c.logger.Error(ctx, "Tool call ID too long", map[string]interface{}{
-						"id":        toolCall.ID,
-						"id_length": len(toolCall.ID),
-					})
-					continue
-				}
+				// Previous `len(toolCall.ID) > 40` guard dropped the tool
+				// result silently for any provider that emits IDs longer
+				// than 40 characters (vLLM's OpenAI-compatible API uses
+				// `chatcmpl-tool-{uuid}` which is 46 chars), leaving the
+				// agent stuck in an infinite tool-call loop (#299).
+				// OpenAI spec places no 40-char bound on tool_call_id.
 
 				// Add the tool call to the tracing context
 				fmt.Printf("DEBUG AzureOpenAI: Adding tool call %s to tracing context\n", toolCallTrace.Name)
