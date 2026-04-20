@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -19,6 +20,28 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// syncBuffer is a bytes.Buffer guarded by a sync.Mutex. os/exec runs the
+// configured Stderr writer from a background goroutine, so reading from the
+// same bytes.Buffer in the parent while that goroutine is still writing is
+// a data race that the runtime flags under -race and can corrupt reads in
+// practice (issue #307).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (sb *syncBuffer) Write(p []byte) (int, error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *syncBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
 
 // MCPServerImpl is the implementation of interfaces.MCPServer using the official SDK
 type MCPServerImpl struct {
@@ -796,9 +819,11 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		}
 	}
 
-	// Capture stderr for debugging
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	// Capture stderr for debugging. Use a mutex-guarded buffer because
+	// os/exec writes stderr from a background goroutine while this code
+	// also reads via stderrBuf.String() below.
+	stderrBuf := &syncBuffer{}
+	cmd.Stderr = stderrBuf
 
 	// Create the command transport using the official SDK
 	transport := &mcp.CommandTransport{Command: cmd}
