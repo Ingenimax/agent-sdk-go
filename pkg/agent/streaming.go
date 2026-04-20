@@ -206,20 +206,12 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			return
 		}
 
-		// Collect all tools
+		// Collect all tools. a.tools is already the deduplicated union of
+		// manual tools and MCP-server tools (see initializeMCPTools);
+		// re-collecting from a.mcpServers here used to duplicate every MCP
+		// tool per run and Anthropic / other providers reject duplicate
+		// tool names (#308).
 		allTools := a.tools
-
-		// Add MCP tools if available
-		if len(a.mcpServers) > 0 {
-			mcpTools, err := a.collectMCPTools(ctx)
-			if err != nil {
-				// Log the error but continue with the agent tools
-				// Warning: Failed to collect MCP tools
-				fmt.Printf("Warning: Failed to collect MCP tools: %v\n", err)
-			} else if len(mcpTools) > 0 {
-				allTools = append(allTools, mcpTools...)
-			}
-		}
 
 		// If tools are available and plan approval is required, we can't stream execution plans yet
 		if (len(allTools) > 0) && a.requirePlanApproval {

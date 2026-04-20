@@ -942,22 +942,17 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		return response, nil
 	}
 
-	// Use pre-initialized tools (manual + MCP tools already combined during agent creation)
+	// Use pre-initialized tools (manual + MCP tools already combined during
+	// agent creation). Re-collecting MCP tools into allTools here used to
+	// double every MCP tool on subsequent runs and Anthropic / other
+	// providers reject duplicate tool names with an invalid_request_error
+	// (#308). If an MCP server exposes new tools at runtime, re-run
+	// initializeMCPTools rather than silently duplicating here.
 	allTools := a.tools
-
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log warning but continue - MCP tools are optional
-			a.logger.Warn(context.Background(), fmt.Sprintf("Failed to collect MCP tools: %v", err), nil)
-		} else if len(mcpTools) > 0 {
-			allTools = append(allTools, mcpTools...)
-		}
-	}
 
 	if len(a.lazyMCPConfigs) > 0 {
 		lazyMCPTools := a.createLazyMCPTools()
-		allTools = append(allTools, lazyMCPTools...)
+		allTools = deduplicateTools(append(allTools, lazyMCPTools...))
 	}
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
