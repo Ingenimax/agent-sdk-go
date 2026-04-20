@@ -32,6 +32,12 @@ func getJSONSchema(t reflect.Type) map[string]any {
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonTag == "-" {
+			// Field is explicitly excluded from JSON; skip it so it
+			// doesn't surface in the generated schema as a "-" property
+			// (#300).
+			continue
+		}
 		if jsonTag == "" {
 			jsonTag = field.Name
 		}
@@ -138,6 +144,10 @@ func getRequiredFields(t reflect.Type) []string {
 		field := t.Field(i)
 		if !strings.Contains(field.Tag.Get("json"), "omitempty") {
 			jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+			if jsonTag == "-" {
+				// Excluded from JSON entirely; must not be required.
+				continue
+			}
 			if jsonTag == "" {
 				jsonTag = field.Name
 			}
