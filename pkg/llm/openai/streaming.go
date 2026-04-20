@@ -646,16 +646,15 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 					"result_length": len(result),
 				})
 
-				// Ensure tool call ID is not swapped with result
-				if len(toolCall.ID) > 40 {
-					c.logger.Error(ctx, "Tool call ID too long", map[string]interface{}{
-						"id":        toolCall.ID,
-						"id_length": len(toolCall.ID),
-					})
-					continue
-				}
-
-				// Create tool message - correct parameter order: content first, then tool_call_id
+				// Create tool message - correct parameter order: content first, then tool_call_id.
+				// The previous `len(toolCall.ID) > 40` guard was a defensive check
+				// to catch an ID/result swap, but any provider that hands out IDs
+				// longer than 40 characters (vLLM's OpenAI-compatible API emits
+				// `chatcmpl-tool-{uuid}` at 46) silently dropped the tool result
+				// here, leaving the agent stuck in an infinite tool-call loop
+				// because the message history never reflected the tool output
+				// (#299). Let the upstream ToolMessage constructor accept the ID
+				// verbatim - OpenAI spec places no 40-char bound on tool_call_id.
 				toolMessage := openai.ToolMessage(result, toolCall.ID)
 				c.logger.Debug(ctx, "Created tool message", map[string]interface{}{
 					"message_type": "tool",
