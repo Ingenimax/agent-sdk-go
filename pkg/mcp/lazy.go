@@ -574,21 +574,18 @@ func (t *LazyMCPTool) Parameters() map[string]interfaces.ParameterSpec {
 					Description: fmt.Sprintf("%v", propMap["description"]),
 				}
 
-				// Handle array items when type is array or type is union that includes array
+				// Handle array items when type is array or type is union that includes array.
+				// Gemini and OpenAI reject function declarations that expose an `array`
+				// without `items`, so default to string items when the server's schema
+				// omits, malforms, or nests `items.type`.
 				if paramType == "array" || strings.Contains(fmt.Sprintf("%v", paramType), "array") {
-					if items, ok := propMap["items"]; ok {
-						if itemsMap, ok := items.(map[string]interface{}); ok {
-							if itemType, ok := itemsMap["type"].(string); ok {
-								paramSpec.Items = &interfaces.ParameterSpec{
-									Type: itemType,
-								}
-								// Handle enum for items if present
-								if enum, ok := itemsMap["enum"]; ok {
-									if enumSlice, ok := enum.([]interface{}); ok {
-										paramSpec.Items.Enum = enumSlice
-									}
-								}
-							}
+					paramSpec.Items = &interfaces.ParameterSpec{Type: "string"}
+					if itemsMap, ok := propMap["items"].(map[string]interface{}); ok {
+						if itemType, ok := itemsMap["type"].(string); ok && itemType != "" {
+							paramSpec.Items.Type = itemType
+						}
+						if enum, ok := itemsMap["enum"].([]interface{}); ok {
+							paramSpec.Items.Enum = enum
 						}
 					}
 				}
