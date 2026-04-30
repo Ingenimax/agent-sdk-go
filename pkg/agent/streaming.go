@@ -206,7 +206,10 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			return
 		}
 
-		// Collect all tools
+		// Collect all tools. initializeMCPTools already populated a.tools, so the
+		// runtime re-collect below can re-add the same tools; deduplicate after the
+		// append to keep tool names unique (LLM providers like Anthropic reject
+		// requests with duplicate tool names — see issue #308).
 		allTools := a.tools
 
 		// Add MCP tools if available
@@ -217,7 +220,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 				// Warning: Failed to collect MCP tools
 				fmt.Printf("Warning: Failed to collect MCP tools: %v\n", err)
 			} else if len(mcpTools) > 0 {
-				allTools = append(allTools, mcpTools...)
+				allTools = deduplicateTools(append(allTools, mcpTools...))
 			}
 		}
 
