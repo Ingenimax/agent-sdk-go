@@ -82,6 +82,72 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+func TestGenerate_OmitsZeroTopPByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		if _, ok := reqBody["top_p"]; ok {
+			t.Fatalf("expected top_p to be omitted when no GenerateOptions are provided")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(openai.ChatCompletion{Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok", Role: "assistant"}}}})
+	}))
+	defer server.Close()
+
+	logger := logging.New()
+	client := openai_client.NewClient("test-key",
+		openai_client.WithModel("gpt-4"),
+		openai_client.WithLogger(logger),
+	)
+	client.ChatService = openai.NewChatService(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL),
+	)
+
+	if _, err := client.Generate(context.Background(), "who are you"); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
+func TestGenerate_IncludesTopPWhenExplicitlySet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		v, ok := reqBody["top_p"].(float64)
+		if !ok {
+			t.Fatalf("expected top_p in request when explicitly set")
+		}
+		if v != 0.9 {
+			t.Fatalf("expected top_p=0.9, got %v", v)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(openai.ChatCompletion{Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok", Role: "assistant"}}}})
+	}))
+	defer server.Close()
+
+	logger := logging.New()
+	client := openai_client.NewClient("test-key",
+		openai_client.WithModel("gpt-4"),
+		openai_client.WithLogger(logger),
+	)
+	client.ChatService = openai.NewChatService(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL),
+	)
+
+	if _, err := client.Generate(context.Background(), "who are you", openai_client.WithTopP(0.9)); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
 func TestChat(t *testing.T) {
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
