@@ -140,6 +140,27 @@ func (m *TracedLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
 			span.RecordError(err)
 		}
 
+		// Mirror the streaming path: if any tool calls were collected, emit a
+		// generation span via TraceGeneration so Langfuse / OTEL backends record
+		// the call graph for non-streaming runs too (#295).
+		if toolCalls := GetToolCallsFromContext(ctx); len(toolCalls) > 0 {
+			responseText := response
+			if !m.shouldIncludeContent() {
+				responseText = "non_streaming_response"
+			}
+			if adapter, ok := m.tracer.(*OTELTracerAdapter); ok {
+				_, _ = adapter.otelTracer.TraceGeneration(ctx, model, prompt, responseText, startTime, endTime, map[string]any{ //nolint:gosec
+					"streaming": false,
+					"tools":     len(tools),
+				})
+			} else if tracer, ok := m.tracer.(*OTELLangfuseTracer); ok {
+				_, _ = tracer.TraceGeneration(ctx, model, prompt, responseText, startTime, endTime, map[string]any{ //nolint:gosec
+					"streaming": false,
+					"tools":     len(tools),
+				})
+			}
+		}
+
 		return response, err
 	}
 
