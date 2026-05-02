@@ -11,6 +11,10 @@ import (
 type MockLLMForDetailed struct {
 	responses []string
 	callCount int
+	// invokeOnly, when non-nil, restricts which tools the mock invokes during
+	// GenerateWithToolsDetailed. nil means invoke every provided tool. Use the
+	// non-nil empty slice to skip all tools.
+	invokeOnly []string
 }
 
 func (m *MockLLMForDetailed) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
@@ -48,12 +52,27 @@ func (m *MockLLMForDetailed) GenerateDetailed(ctx context.Context, prompt string
 }
 
 func (m *MockLLMForDetailed) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	// Simulate the LLM choosing to invoke each provided tool so the agent's
-	// per-invocation usage tracker observes a real call.
+	// Simulate the LLM choosing to invoke a subset of provided tools so the
+	// agent's per-invocation usage tracker observes a real call. By default
+	// we invoke every tool; if invokeOnly is set, we invoke only the named
+	// subset (still in the order they appear in tools, so tests can assert
+	// ordering when they care).
 	for _, t := range tools {
+		if m.invokeOnly != nil && !containsString(m.invokeOnly, t.Name()) {
+			continue
+		}
 		_, _ = t.Execute(ctx, "{}")
 	}
 	return m.GenerateDetailed(ctx, prompt, options...)
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MockLLMForDetailed) Name() string {
@@ -166,6 +185,37 @@ func TestAgentRunDetailedWithTools(t *testing.T) {
 	assert.Equal(t, 100, response.Usage.InputTokens)
 	assert.Equal(t, 50, response.Usage.OutputTokens)
 	assert.Equal(t, 150, response.Usage.TotalTokens)
+}
+
+// TestAgentRunDetailedRecordsOnlyInvokedTools is the regression test for #305:
+// when the agent has multiple tools available but the LLM only invokes a
+// subset, the execution summary must reflect just the invoked tools rather
+// than every tool that was offered.
+func TestAgentRunDetailedRecordsOnlyInvokedTools(t *testing.T) {
+	mockLLM := &MockLLMForDetailed{
+		responses:  []string{"Used one of the two tools"},
+		invokeOnly: []string{"called_tool"},
+	}
+
+	calledTool := &MockTool{name: "called_tool", description: "Tool the LLM invokes"}
+	skippedTool := &MockTool{name: "skipped_tool", description: "Tool the LLM ignores"}
+
+	agent, err := NewAgent(
+		WithLLM(mockLLM),
+		WithName("partial-tool-agent"),
+		WithTools(calledTool, skippedTool),
+		WithRequirePlanApproval(false),
+	)
+	assert.NoError(t, err)
+
+	response, err := agent.RunDetailed(context.Background(), "Use what you need")
+	assert.NoError(t, err)
+	assert.NotNil(t, response)
+
+	assert.Equal(t, 1, response.ExecutionSummary.ToolCalls,
+		"only the invoked tool should be counted")
+	assert.Equal(t, []string{"called_tool"}, response.ExecutionSummary.UsedTools,
+		"skipped_tool must not appear in UsedTools")
 }
 
 func TestUsageTrackerAggregation(t *testing.T) {

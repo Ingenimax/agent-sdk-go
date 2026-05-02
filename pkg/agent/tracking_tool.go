@@ -20,12 +20,16 @@ func (t *trackingTool) Description() string                           { return t
 func (t *trackingTool) Parameters() map[string]interfaces.ParameterSpec { return t.inner.Parameters() }
 
 func (t *trackingTool) Run(ctx context.Context, input string) (string, error) {
-	t.tracker.addToolCall(t.inner.Name())
+	if t.tracker != nil {
+		t.tracker.addToolCall(t.inner.Name())
+	}
 	return t.inner.Run(ctx, input)
 }
 
 func (t *trackingTool) Execute(ctx context.Context, args string) (string, error) {
-	t.tracker.addToolCall(t.inner.Name())
+	if t.tracker != nil {
+		t.tracker.addToolCall(t.inner.Name())
+	}
 	return t.inner.Execute(ctx, args)
 }
 
