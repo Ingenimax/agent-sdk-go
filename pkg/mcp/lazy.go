@@ -99,6 +99,13 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 			Token:        config.Token,
 			ProtocolType: ServerProtocolType(config.HttpTransportMode),
 		})
+	case "custom":
+		if config.CustomMCPTransport == nil {
+			return nil, fmt.Errorf("custom MCP transport is required for 'custom' server type")
+		}
+		server, err = NewCustomTransportServer(ctx, CustomTransportServerConfig{
+			Transport: config.CustomMCPTransport,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s", config.Type)
 	}
@@ -167,15 +174,16 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 
 // LazyMCPServerConfig holds configuration for creating an MCP server on demand
 type LazyMCPServerConfig struct {
-	Name              string
-	Type              string // "stdio" or "http"
-	Command           string
-	Args              []string
-	Env               []string
-	URL               string
-	Token             string   // Bearer token for HTTP authentication
-	HttpTransportMode string   // "sse" or "streamable"
-	AllowedTools      []string // List of allowed tool names for this MCP server
+	Name               string
+	Type               string // "stdio","http" or "custom"
+	Command            string
+	Args               []string
+	Env                []string
+	URL                string
+	Token              string        // Bearer token for HTTP authentication
+	HttpTransportMode  string        // "sse" or "streamable"
+	AllowedTools       []string      // List of allowed tool names for this MCP server
+	CustomMCPTransport mcp.Transport // Custom transport for "custom" server type
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
