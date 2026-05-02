@@ -172,23 +172,60 @@ func TestChat(t *testing.T) {
 }
 
 func TestGenerateWithTools(t *testing.T) {
+	// First request: model returns tool_calls. Second request (after we
+	// feed back the tool result): model returns the final answer with no
+	// further tool calls.
+	turn := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req GenerateRequest
+		assert.Equal(t, "/api/chat", r.URL.Path)
+
+		var req ChatRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
 		require.NoError(t, err)
 
-		// Check that the prompt includes tool descriptions
-		assert.Contains(t, req.Prompt, "Available tools:")
-		assert.Contains(t, req.Prompt, "- test-tool: A test tool")
+		// Tool definitions must be sent on every request.
+		require.Len(t, req.Tools, 1)
+		assert.Equal(t, "function", req.Tools[0].Type)
+		assert.Equal(t, "test-tool", req.Tools[0].Function.Name)
+		assert.Equal(t, "A test tool", req.Tools[0].Function.Description)
 
-		response := GenerateResponse{
-			Model:    "test-model",
-			Response: "I can help you with that using the available tools",
-			Done:     true,
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			// First call: model decides to invoke the tool.
+			resp = ChatResponse{
+				Model: "test-model",
+				Message: ChatMessage{
+					Role: "assistant",
+					ToolCalls: []OllamaToolCall{{
+						Function: OllamaToolCallFunction{
+							Name:      "test-tool",
+							Arguments: map[string]interface{}{"q": "hello"},
+						},
+					}},
+				},
+				Done: true,
+			}
+		case 1:
+			// Second call: conversation now includes the tool result.
+			require.GreaterOrEqual(t, len(req.Messages), 3)
+			assert.Equal(t, "tool", req.Messages[len(req.Messages)-1].Role)
+			assert.Equal(t, "tool result", req.Messages[len(req.Messages)-1].Content)
+			resp = ChatResponse{
+				Model: "test-model",
+				Message: ChatMessage{
+					Role:    "assistant",
+					Content: "I can help you with that using the available tools",
+				},
+				Done: true,
+			}
+		default:
+			t.Fatalf("unexpected extra request, turn=%d", turn)
 		}
+		turn++
 
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(resp)
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -198,22 +235,230 @@ func TestGenerateWithTools(t *testing.T) {
 		WithBaseURL(server.URL),
 	)
 
-	// Create a mock tool
 	mockTool := &mockTool{
 		name:        "test-tool",
 		description: "A test tool",
+		runResult:   "tool result",
 	}
-
-	tools := []interfaces.Tool{mockTool}
 
 	response, err := client.GenerateWithTools(
 		context.Background(),
 		"Help me with something",
-		tools,
+		[]interfaces.Tool{mockTool},
 	)
 
 	require.NoError(t, err)
 	assert.Equal(t, "I can help you with that using the available tools", response)
+	assert.Equal(t, 2, turn, "expected exactly two roundtrips")
+}
+
+// TestGenerateWithTools_NoToolCalls covers the happy path where the model
+// responds with a final answer on the first turn — no loop iterations.
+func TestGenerateWithTools_NoToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ChatResponse{
+			Model:   "test-model",
+			Message: ChatMessage{Role: "assistant", Content: "I can answer directly"},
+			Done:    true,
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	resp, err := client.GenerateWithTools(context.Background(), "hello",
+		[]interfaces.Tool{&mockTool{name: "noop", description: "noop"}})
+	require.NoError(t, err)
+	assert.Equal(t, "I can answer directly", resp)
+}
+
+// TestGenerateWithTools_MaxIterationsExceeded ensures we bound runaway
+// loops when the model keeps requesting tools.
+func TestGenerateWithTools_MaxIterationsExceeded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ChatResponse{
+			Model: "test-model",
+			Message: ChatMessage{
+				Role: "assistant",
+				ToolCalls: []OllamaToolCall{{
+					Function: OllamaToolCallFunction{Name: "noop", Arguments: map[string]interface{}{}},
+				}},
+			},
+			Done: true,
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	_, err := client.GenerateWithTools(context.Background(), "loop",
+		[]interfaces.Tool{&mockTool{name: "noop", description: "noop", runResult: "ok"}},
+		interfaces.WithMaxIterations(2),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max iterations")
+}
+
+// TestGenerateWithTools_ToolNotFound feeds an error message back to the
+// model when it hallucinates a tool name and continues the loop instead
+// of failing the whole call.
+func TestGenerateWithTools_ToolNotFound(t *testing.T) {
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ChatRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			resp = ChatResponse{Message: ChatMessage{
+				Role: "assistant",
+				ToolCalls: []OllamaToolCall{{
+					Function: OllamaToolCallFunction{Name: "ghost_tool", Arguments: map[string]interface{}{}},
+				}},
+			}, Done: true}
+		case 1:
+			require.GreaterOrEqual(t, len(req.Messages), 2)
+			last := req.Messages[len(req.Messages)-1]
+			assert.Equal(t, "tool", last.Role)
+			assert.Contains(t, last.Content, "ghost_tool")
+			assert.Contains(t, last.Content, "not found")
+			resp = ChatResponse{Message: ChatMessage{Role: "assistant", Content: "I'll skip that"}, Done: true}
+		}
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	resp, err := client.GenerateWithTools(context.Background(), "hi",
+		[]interfaces.Tool{&mockTool{name: "real_tool", description: "the real one"}})
+	require.NoError(t, err)
+	assert.Equal(t, "I'll skip that", resp)
+}
+
+// TestGenerateWithTools_PersistsToolExchangesToMemory is the regression
+// test for the #325 review BLOCKER: across multi-turn conversations the
+// tool exchange must end up in Memory so the next turn can replay it via
+// BuildInlineHistoryPrompt.
+func TestGenerateWithTools_PersistsToolExchangesToMemory(t *testing.T) {
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ChatRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			resp = ChatResponse{Message: ChatMessage{
+				Role: "assistant",
+				ToolCalls: []OllamaToolCall{{
+					Function: OllamaToolCallFunction{Name: "calc", Arguments: map[string]interface{}{"expr": "1+1"}},
+				}},
+			}, Done: true}
+		case 1:
+			resp = ChatResponse{Message: ChatMessage{Role: "assistant", Content: "the answer is 2"}, Done: true}
+		}
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	mem := newRecordingMemory()
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	_, err := client.GenerateWithTools(context.Background(), "what is 1+1",
+		[]interfaces.Tool{&mockTool{name: "calc", description: "calculator", runResult: "2"}},
+		interfaces.WithMemory(mem),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, mem.added, 2, "expected assistant tool-call message + tool result message")
+
+	asst := mem.added[0]
+	assert.Equal(t, interfaces.MessageRoleAssistant, asst.Role)
+	require.Len(t, asst.ToolCalls, 1)
+	assert.Equal(t, "calc", asst.ToolCalls[0].Name)
+	assert.Contains(t, asst.ToolCalls[0].Arguments, `"expr":"1+1"`)
+
+	tool := mem.added[1]
+	assert.Equal(t, interfaces.MessageRoleTool, tool.Role)
+	assert.Equal(t, "2", tool.Content)
+	assert.NotEmpty(t, tool.ToolCallID, "ToolCallID required for BuildInlineHistoryPrompt to render the tool message back")
+	assert.Equal(t, "calc", tool.Metadata["tool_name"])
+}
+
+// TestGenerateWithTools_ParallelCallsGetUniqueIDs covers the case where
+// the model invokes the same tool twice in a single assistant turn. Each
+// invocation must get a unique synthesized ToolCallID; otherwise the
+// memory pairing between assistant tool_call and tool result is broken.
+func TestGenerateWithTools_ParallelCallsGetUniqueIDs(t *testing.T) {
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ChatRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			// Same tool invoked twice in a single assistant message.
+			resp = ChatResponse{Message: ChatMessage{
+				Role: "assistant",
+				ToolCalls: []OllamaToolCall{
+					{Function: OllamaToolCallFunction{Name: "calc", Arguments: map[string]interface{}{"expr": "1+1"}}},
+					{Function: OllamaToolCallFunction{Name: "calc", Arguments: map[string]interface{}{"expr": "2+2"}}},
+				},
+			}, Done: true}
+		case 1:
+			resp = ChatResponse{Message: ChatMessage{Role: "assistant", Content: "done"}, Done: true}
+		}
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	mem := newRecordingMemory()
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	_, err := client.GenerateWithTools(context.Background(), "do both",
+		[]interfaces.Tool{&mockTool{name: "calc", description: "calculator", runResult: "ok"}},
+		interfaces.WithMemory(mem),
+	)
+	require.NoError(t, err)
+
+	// One assistant message + two tool result messages
+	require.Len(t, mem.added, 3)
+	asst := mem.added[0]
+	require.Len(t, asst.ToolCalls, 2)
+	assert.NotEqual(t, asst.ToolCalls[0].ID, asst.ToolCalls[1].ID,
+		"parallel calls must get unique synthesized IDs")
+
+	tool1, tool2 := mem.added[1], mem.added[2]
+	assert.Equal(t, asst.ToolCalls[0].ID, tool1.ToolCallID,
+		"first tool result ID must match first assistant tool_call ID")
+	assert.Equal(t, asst.ToolCalls[1].ID, tool2.ToolCallID,
+		"second tool result ID must match second assistant tool_call ID")
+	assert.NotEqual(t, tool1.ToolCallID, tool2.ToolCallID)
+}
+
+// recordingMemory is a minimal in-memory Memory that captures every
+// message added to it for assertion in tests.
+type recordingMemory struct {
+	added []interfaces.Message
+}
+
+func newRecordingMemory() *recordingMemory { return &recordingMemory{} }
+
+func (m *recordingMemory) AddMessage(_ context.Context, msg interfaces.Message) error {
+	m.added = append(m.added, msg)
+	return nil
+}
+
+func (m *recordingMemory) GetMessages(_ context.Context, _ ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
+	return m.added, nil
+}
+
+func (m *recordingMemory) Clear(_ context.Context) error {
+	m.added = nil
+	return nil
 }
 
 func TestListModels(t *testing.T) {
@@ -310,6 +555,7 @@ func TestName(t *testing.T) {
 type mockTool struct {
 	name        string
 	description string
+	runResult   string
 }
 
 func (t *mockTool) Name() string {
@@ -329,6 +575,9 @@ func (t *mockTool) Internal() bool {
 }
 
 func (t *mockTool) Run(ctx context.Context, input string) (string, error) {
+	if t.runResult != "" {
+		return t.runResult, nil
+	}
 	return "mock result", nil
 }
 
@@ -343,6 +592,9 @@ func (t *mockTool) Parameters() map[string]interfaces.ParameterSpec {
 }
 
 func (t *mockTool) Execute(ctx context.Context, args string) (string, error) {
+	if t.runResult != "" {
+		return t.runResult, nil
+	}
 	return "mock result", nil
 }
 
