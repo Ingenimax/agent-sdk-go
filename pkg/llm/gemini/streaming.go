@@ -392,60 +392,12 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		c.logger.Debug(ctx, "Using system message for tool streaming", map[string]interface{}{"system_message": params.SystemMessage})
 	}
 
-	// Convert tools to Gemini format - all function declarations in a single tool
-	var functionDeclarations []*genai.FunctionDeclaration
-	for _, tool := range tools {
-		functionDeclaration := &genai.FunctionDeclaration{
-			Name:        tool.Name(),
-			Description: tool.Description(),
-			Parameters: &genai.Schema{
-				Type:       genai.TypeObject,
-				Properties: make(map[string]*genai.Schema),
-				Required:   make([]string, 0),
-			},
-		}
-
-		// Convert parameters
-		for name, param := range tool.Parameters() {
-			paramSchema := &genai.Schema{
-				Description: param.Description,
-			}
-
-			// Set type
-			switch param.Type {
-			case "string":
-				paramSchema.Type = genai.TypeString
-			case "number", "integer":
-				paramSchema.Type = genai.TypeNumber
-			case "boolean":
-				paramSchema.Type = genai.TypeBoolean
-			case "array":
-				paramSchema.Type = genai.TypeArray
-			case "object":
-				paramSchema.Type = genai.TypeObject
-			}
-
-			if param.Enum != nil {
-				enumStrings := make([]string, len(param.Enum))
-				for i, e := range param.Enum {
-					enumStrings[i] = fmt.Sprintf("%v", e)
-				}
-				paramSchema.Enum = enumStrings
-			}
-
-			functionDeclaration.Parameters.Properties[name] = paramSchema
-			if param.Required {
-				functionDeclaration.Parameters.Required = append(functionDeclaration.Parameters.Required, name)
-			}
-		}
-
-		functionDeclarations = append(functionDeclarations, functionDeclaration)
-	}
-
-	// Create a single tool with all function declarations
+	// Convert tools to Gemini format - all function declarations in a single tool.
+	// Shared with the non-streaming path so array `items` and other schema
+	// details stay consistent between Ask and Stream.
 	geminiTools := []*genai.Tool{
 		{
-			FunctionDeclarations: functionDeclarations,
+			FunctionDeclarations: convertToolsToFunctionDeclarations(tools),
 		},
 	}
 

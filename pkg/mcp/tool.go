@@ -105,6 +105,19 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 						Description: fmt.Sprintf("%v", propMap["description"]),
 					}
 
+					// Array parameters must carry an items specification;
+					// downstream converters (Gemini, OpenAI) reject
+					// function declarations that expose an `array` without
+					// `items`. Default to string items when the server's
+					// schema omits or malforms it.
+					if typeStr := asString(propMap["type"]); typeStr == "array" {
+						paramSpec.Items = extractItemsFromMap(propMap["items"])
+					}
+
+					if enum, ok := propMap["enum"].([]interface{}); ok {
+						paramSpec.Enum = enum
+					}
+
 					// Check if the parameter is required
 					if required, ok := toolSchema["required"].([]interface{}); ok {
 						for _, req := range required {
@@ -134,6 +147,14 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 				Description: prop.Description,
 			}
 
+			if prop.Type == "array" {
+				paramSpec.Items = extractItemsFromSchema(prop.Items)
+			}
+
+			if len(prop.Enum) > 0 {
+				paramSpec.Enum = append(paramSpec.Enum, prop.Enum...)
+			}
+
 			if slices.Contains(toolSchema.Required, name) {
 				paramSpec.Required = true
 			}
@@ -141,6 +162,54 @@ func (t *MCPTool) Parameters() map[string]interfaces.ParameterSpec {
 		}
 	}
 	return params
+}
+
+// asString returns v as a string if it is one, empty string otherwise. Used
+// to inspect JSON Schema "type" fields, which may be a plain string or a
+// union like []string{"array","null"}; union handling is left to
+// LazyMCPTool.Parameters which has more context.
+func asString(v interface{}) string {
+	s, _ := v.(string)
+	return s
+}
+
+// extractItemsFromMap derives a ParameterSpec for an array's items from the
+// raw JSON Schema fragment at `items`. Falls back to {Type:"string"} when
+// the fragment is missing or malformed so Gemini/OpenAI accept the
+// resulting function declaration.
+func extractItemsFromMap(raw interface{}) *interfaces.ParameterSpec {
+	defaultSpec := &interfaces.ParameterSpec{Type: "string"}
+	itemsMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return defaultSpec
+	}
+	itemType, _ := itemsMap["type"].(string)
+	if itemType == "" {
+		itemType = "string"
+	}
+	spec := &interfaces.ParameterSpec{Type: itemType}
+	if enum, ok := itemsMap["enum"].([]interface{}); ok {
+		spec.Enum = enum
+	}
+	return spec
+}
+
+// extractItemsFromSchema is the *jsonschema.Schema analogue of
+// extractItemsFromMap.
+func extractItemsFromSchema(items *jsonschema.Schema) *interfaces.ParameterSpec {
+	defaultSpec := &interfaces.ParameterSpec{Type: "string"}
+	if items == nil {
+		return defaultSpec
+	}
+	itemType := items.Type
+	if itemType == "" {
+		itemType = "string"
+	}
+	spec := &interfaces.ParameterSpec{Type: itemType}
+	if len(items.Enum) > 0 {
+		spec.Enum = append(spec.Enum, items.Enum...)
+	}
+	return spec
 }
 
 // Execute executes the tool with the given arguments

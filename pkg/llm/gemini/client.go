@@ -556,85 +556,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 	_ = orgID // Mark as used to avoid linter warning
 
-	// Convert tools to Gemini format
-	geminiTools := make([]*genai.FunctionDeclaration, 0, len(tools))
-	for _, tool := range tools {
-		functionDeclaration := &genai.FunctionDeclaration{
-			Name:        tool.Name(),
-			Description: tool.Description(),
-			Parameters: &genai.Schema{
-				Type:       genai.TypeObject,
-				Properties: make(map[string]*genai.Schema),
-				Required:   make([]string, 0),
-			},
-		}
-
-		// Convert parameters
-		for name, param := range tool.Parameters() {
-			paramSchema := &genai.Schema{
-				Description: param.Description,
-			}
-
-			// Set type
-			switch param.Type {
-			case "string":
-				paramSchema.Type = genai.TypeString
-			case "number", "integer":
-				paramSchema.Type = genai.TypeNumber
-			case "boolean":
-				paramSchema.Type = genai.TypeBoolean
-			case "array":
-				paramSchema.Type = genai.TypeArray
-			case "object":
-				paramSchema.Type = genai.TypeObject
-			}
-
-			// Handle array items
-			if param.Items != nil {
-				itemSchema := &genai.Schema{}
-
-				// Set items type
-				switch param.Items.Type {
-				case "string":
-					itemSchema.Type = genai.TypeString
-				case "number", "integer":
-					itemSchema.Type = genai.TypeNumber
-				case "boolean":
-					itemSchema.Type = genai.TypeBoolean
-				case "array":
-					itemSchema.Type = genai.TypeArray
-				case "object":
-					itemSchema.Type = genai.TypeObject
-				}
-
-				// Handle items enum if present
-				if param.Items.Enum != nil {
-					enumStrings := make([]string, len(param.Items.Enum))
-					for i, e := range param.Items.Enum {
-						enumStrings[i] = fmt.Sprintf("%v", e)
-					}
-					itemSchema.Enum = enumStrings
-				}
-
-				paramSchema.Items = itemSchema
-			}
-
-			if param.Enum != nil {
-				enumStrings := make([]string, len(param.Enum))
-				for i, e := range param.Enum {
-					enumStrings[i] = fmt.Sprintf("%v", e)
-				}
-				paramSchema.Enum = enumStrings
-			}
-
-			functionDeclaration.Parameters.Properties[name] = paramSchema
-			if param.Required {
-				functionDeclaration.Parameters.Required = append(functionDeclaration.Parameters.Required, name)
-			}
-		}
-
-		geminiTools = append(geminiTools, functionDeclaration)
-	}
+	// Convert tools to Gemini format. Shared with GenerateStreamWithTools so
+	// Ask and Stream agree on schema shape, including array `items`.
+	geminiTools := convertToolsToFunctionDeclarations(tools)
 
 	// Build contents with memory and current prompt
 	contents := c.buildContentsWithMemory(ctx, prompt, params)
