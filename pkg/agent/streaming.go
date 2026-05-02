@@ -352,7 +352,10 @@ func (a *Agent) runStreamingGeneration(
 	var err error
 
 	if len(allTools) > 0 {
-		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctxWithForwarder, input, allTools, options...)
+		// Record tool invocations as the LLM actually calls them, not the
+		// full set of available tools (#305).
+		toolsForLLM := wrapToolsWithTracker(allTools, getUsageTracker(ctx))
+		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctxWithForwarder, input, toolsForLLM, options...)
 	} else {
 		llmEventChan, err = streamingLLM.GenerateStream(ctxWithForwarder, input, options...)
 	}
