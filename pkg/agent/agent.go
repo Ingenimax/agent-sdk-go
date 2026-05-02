@@ -1274,21 +1274,19 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 	tracker := getUsageTracker(ctx)
 
 	if len(tools) > 0 {
-		if tracker != nil {
-			for _, tool := range tools {
-				tracker.addToolCall(tool.Name())
-			}
-		}
+		// Record tool invocations as the LLM actually calls them, not the
+		// full set of available tools (#305).
+		toolsForLLM := wrapToolsWithTracker(tools, tracker)
 
 		if tracker != nil && tracker.detailed {
-			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, tools, generateOptions...)
+			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, toolsForLLM, generateOptions...)
 			if err != nil {
 				return "", fmt.Errorf("failed to generate response: %w", err)
 			}
 			response = llmResp.Content
 			tracker.addLLMUsage(llmResp.Usage, llmResp.Model)
 		} else {
-			response, err = a.llm.GenerateWithTools(ctx, prompt, tools, generateOptions...)
+			response, err = a.llm.GenerateWithTools(ctx, prompt, toolsForLLM, generateOptions...)
 			if err != nil {
 				return "", fmt.Errorf("failed to generate response: %w", err)
 			}

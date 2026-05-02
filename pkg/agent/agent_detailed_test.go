@@ -48,6 +48,11 @@ func (m *MockLLMForDetailed) GenerateDetailed(ctx context.Context, prompt string
 }
 
 func (m *MockLLMForDetailed) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
+	// Simulate the LLM choosing to invoke each provided tool so the agent's
+	// per-invocation usage tracker observes a real call.
+	for _, t := range tools {
+		_, _ = t.Execute(ctx, "{}")
+	}
 	return m.GenerateDetailed(ctx, prompt, options...)
 }
 
