@@ -572,6 +572,18 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			return "", fmt.Errorf("no completions returned")
 		}
 
+		// Accumulate per-iteration token usage so GenerateWithToolsDetailed
+		// can report a total that reflects every underlying call (#276).
+		if acc := getUsageAccumulator(ctx); acc != nil {
+			acc.add(
+				int(resp.Usage.PromptTokens),
+				int(resp.Usage.CompletionTokens),
+				int(resp.Usage.TotalTokens),
+				int(resp.Usage.CompletionTokensDetails.ReasoningTokens),
+				c.Model,
+			)
+		}
+
 		// Capture the last content from the response
 		lastContent = strings.TrimSpace(resp.Choices[0].Message.Content)
 
@@ -986,6 +998,16 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		return "", fmt.Errorf("no completions returned in final call")
 	}
 
+	if acc := getUsageAccumulator(ctx); acc != nil {
+		acc.add(
+			int(finalResp.Usage.PromptTokens),
+			int(finalResp.Usage.CompletionTokens),
+			int(finalResp.Usage.TotalTokens),
+			int(finalResp.Usage.CompletionTokensDetails.ReasoningTokens),
+			c.Model,
+		)
+	}
+
 	content := strings.TrimSpace(finalResp.Choices[0].Message.Content)
 	c.logger.Info(ctx, "Successfully received final response without tools", nil)
 	return content, nil
@@ -1073,22 +1095,30 @@ func (c *OpenAIClient) GenerateDetailed(ctx context.Context, prompt string, opti
 	return c.generateInternal(ctx, prompt, options...)
 }
 
-// GenerateWithToolsDetailed generates text with tools and returns detailed response information including token usage
+// GenerateWithToolsDetailed generates text with tools and returns detailed
+// response information, including token usage aggregated across every
+// underlying chat completion (each tool-loop iteration plus the final
+// summary call). Without this, RunDetailed reported zero tokens whenever
+// the agent had tools — including any MCP-equipped agent (#276).
 func (c *OpenAIClient) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	// For now, call the existing method and construct a detailed response
-	// TODO: Implement full detailed version that tracks token usage across all tool iterations
+	acc := &usageAccumulator{}
+	ctx = withUsageAccumulator(ctx, acc)
+
 	content, err := c.GenerateWithTools(ctx, prompt, tools, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Return a basic detailed response without usage information for now
-	// This will be enhanced to track usage across all tool iterations
+	usage, model, _ := acc.snapshot()
+	if model == "" {
+		model = c.Model
+	}
+
 	return &interfaces.LLMResponse{
 		Content:    content,
-		Model:      c.Model,
+		Model:      model,
 		StopReason: "",
-		Usage:      nil, // TODO: Implement token usage tracking for tool iterations
+		Usage:      usage,
 		Metadata: map[string]interface{}{
 			"provider":   "openai",
 			"tools_used": true,
