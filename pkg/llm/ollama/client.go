@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -125,14 +124,38 @@ type ChatRequest struct {
 	Model     string        `json:"model"`
 	Messages  []ChatMessage `json:"messages"`
 	Stream    bool          `json:"stream"`
+	Tools     []OllamaTool  `json:"tools,omitempty"`
 	Options   *Options      `json:"options,omitempty"`
 	Format    string        `json:"format,omitempty"`
 	KeepAlive string        `json:"keep_alive,omitempty"`
 }
 
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	ToolCalls []OllamaToolCall `json:"tool_calls,omitempty"`
+}
+
+// OllamaTool is a function declaration sent to /api/chat for native tool use.
+type OllamaTool struct {
+	Type     string         `json:"type"`
+	Function OllamaFunction `json:"function"`
+}
+
+type OllamaFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+// OllamaToolCall is a function invocation requested by the model in /api/chat.
+type OllamaToolCall struct {
+	Function OllamaToolCallFunction `json:"function"`
+}
+
+type OllamaToolCallFunction struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments"`
 }
 
 type ChatResponse struct {
@@ -215,29 +238,170 @@ Ensure your response is a valid JSON object that strictly follows the schema abo
 	return generateResp.Response, nil
 }
 
-// GenerateWithTools generates text and can use tools
+// GenerateWithTools generates text using Ollama's native /api/chat tool support.
+// The model is given the full tool list and may invoke any subset; we execute each
+// returned tool_call and feed the result back as a tool message until the model
+// returns a final answer with no further tool calls (#202).
 func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
-	// For now, Ollama doesn't support tool calling in the same way as OpenAI/Anthropic
-	// We'll implement a basic version that includes tool descriptions in the prompt
 	if len(tools) == 0 {
 		return c.Generate(ctx, prompt, options...)
 	}
 
-	// Build tool descriptions
-	var toolDescriptions []string
-	for _, tool := range tools {
-		toolDescriptions = append(toolDescriptions, fmt.Sprintf("- %s: %s", tool.Name(), tool.Description()))
+	params := &interfaces.GenerateOptions{
+		LLMConfig: &interfaces.LLMConfig{Temperature: 0.7},
+	}
+	for _, option := range options {
+		option(params)
 	}
 
-	// Create enhanced prompt with tool information
-	enhancedPrompt := fmt.Sprintf(`%s
+	// Build initial conversation. Memory history is inlined into the user
+	// prompt (same convention as Generate) so we don't need a separate
+	// per-turn history schema for the chat endpoint.
+	messages := make([]ChatMessage, 0, 4)
+	if params.SystemMessage != "" {
+		messages = append(messages, ChatMessage{Role: "system", Content: params.SystemMessage})
+	}
+	messages = append(messages, ChatMessage{
+		Role:    "user",
+		Content: c.buildPromptWithMemory(ctx, prompt, params),
+	})
 
-Available tools:
-%s
+	// Convert agent tools to Ollama function declarations
+	ollamaTools := make([]OllamaTool, 0, len(tools))
+	for _, t := range tools {
+		ollamaTools = append(ollamaTools, OllamaTool{
+			Type: "function",
+			Function: OllamaFunction{
+				Name:        t.Name(),
+				Description: t.Description(),
+				Parameters:  toolParametersToJSONSchema(t.Parameters()),
+			},
+		})
+	}
 
-Please respond to the user's request. If you need to use any tools, describe what you would do.`, prompt, strings.Join(toolDescriptions, "\n"))
+	maxIterations := params.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = 10
+	}
 
-	return c.Generate(ctx, enhancedPrompt, options...)
+	for iter := 0; iter < maxIterations; iter++ {
+		req := ChatRequest{
+			Model:    c.Model,
+			Messages: messages,
+			Stream:   false,
+			Tools:    ollamaTools,
+			Options: &Options{
+				Temperature: params.LLMConfig.Temperature,
+				TopP:        params.LLMConfig.TopP,
+				Stop:        params.LLMConfig.StopSequences,
+			},
+		}
+
+		resp, err := c.makeRequest(ctx, "/api/chat", req)
+		if err != nil {
+			return "", fmt.Errorf("failed to chat with tools: %w", err)
+		}
+
+		var chatResp ChatResponse
+		if err := json.Unmarshal(resp, &chatResp); err != nil {
+			return "", fmt.Errorf("failed to unmarshal tool-chat response: %w", err)
+		}
+
+		// No tool calls means the model produced its final answer.
+		if len(chatResp.Message.ToolCalls) == 0 {
+			return chatResp.Message.Content, nil
+		}
+
+		// Persist the assistant message that requested the tool calls.
+		messages = append(messages, chatResp.Message)
+
+		// Execute each tool call and append its result as a tool message.
+		for _, call := range chatResp.Message.ToolCalls {
+			tool := findToolByName(tools, call.Function.Name)
+			if tool == nil {
+				messages = append(messages, ChatMessage{
+					Role:    "tool",
+					Content: fmt.Sprintf("error: tool %q not found", call.Function.Name),
+				})
+				continue
+			}
+
+			argsJSON, err := json.Marshal(call.Function.Arguments)
+			if err != nil {
+				messages = append(messages, ChatMessage{
+					Role:    "tool",
+					Content: fmt.Sprintf("error: failed to encode arguments: %v", err),
+				})
+				continue
+			}
+
+			result, err := tool.Execute(ctx, string(argsJSON))
+			if err != nil {
+				messages = append(messages, ChatMessage{
+					Role:    "tool",
+					Content: fmt.Sprintf("error: %v", err),
+				})
+				continue
+			}
+
+			messages = append(messages, ChatMessage{Role: "tool", Content: result})
+		}
+	}
+
+	return "", fmt.Errorf("ollama tool loop exceeded max iterations (%d)", maxIterations)
+}
+
+// toolParametersToJSONSchema converts the SDK's ParameterSpec map into the JSON
+// Schema object Ollama expects under function.parameters.
+func toolParametersToJSONSchema(params map[string]interfaces.ParameterSpec) map[string]interface{} {
+	properties := make(map[string]interface{}, len(params))
+	required := make([]string, 0)
+	for name, spec := range params {
+		field := map[string]interface{}{}
+		if spec.Type != nil {
+			field["type"] = spec.Type
+		}
+		if spec.Description != "" {
+			field["description"] = spec.Description
+		}
+		if spec.Enum != nil {
+			field["enum"] = spec.Enum
+		}
+		if spec.Items != nil {
+			itemSchema := map[string]interface{}{}
+			if spec.Items.Type != nil {
+				itemSchema["type"] = spec.Items.Type
+			}
+			if spec.Items.Description != "" {
+				itemSchema["description"] = spec.Items.Description
+			}
+			if spec.Items.Enum != nil {
+				itemSchema["enum"] = spec.Items.Enum
+			}
+			field["items"] = itemSchema
+		}
+		properties[name] = field
+		if spec.Required {
+			required = append(required, name)
+		}
+	}
+	schema := map[string]interface{}{
+		"type":       "object",
+		"properties": properties,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+func findToolByName(tools []interfaces.Tool, name string) interfaces.Tool {
+	for _, t := range tools {
+		if t.Name() == name {
+			return t
+		}
+	}
+	return nil
 }
 
 // Chat performs a chat completion with messages

@@ -172,23 +172,60 @@ func TestChat(t *testing.T) {
 }
 
 func TestGenerateWithTools(t *testing.T) {
+	// First request: model returns tool_calls. Second request (after we
+	// feed back the tool result): model returns the final answer with no
+	// further tool calls.
+	turn := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req GenerateRequest
+		assert.Equal(t, "/api/chat", r.URL.Path)
+
+		var req ChatRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
 		require.NoError(t, err)
 
-		// Check that the prompt includes tool descriptions
-		assert.Contains(t, req.Prompt, "Available tools:")
-		assert.Contains(t, req.Prompt, "- test-tool: A test tool")
+		// Tool definitions must be sent on every request.
+		require.Len(t, req.Tools, 1)
+		assert.Equal(t, "function", req.Tools[0].Type)
+		assert.Equal(t, "test-tool", req.Tools[0].Function.Name)
+		assert.Equal(t, "A test tool", req.Tools[0].Function.Description)
 
-		response := GenerateResponse{
-			Model:    "test-model",
-			Response: "I can help you with that using the available tools",
-			Done:     true,
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			// First call: model decides to invoke the tool.
+			resp = ChatResponse{
+				Model: "test-model",
+				Message: ChatMessage{
+					Role: "assistant",
+					ToolCalls: []OllamaToolCall{{
+						Function: OllamaToolCallFunction{
+							Name:      "test-tool",
+							Arguments: map[string]interface{}{"q": "hello"},
+						},
+					}},
+				},
+				Done: true,
+			}
+		case 1:
+			// Second call: conversation now includes the tool result.
+			require.GreaterOrEqual(t, len(req.Messages), 3)
+			assert.Equal(t, "tool", req.Messages[len(req.Messages)-1].Role)
+			assert.Equal(t, "tool result", req.Messages[len(req.Messages)-1].Content)
+			resp = ChatResponse{
+				Model: "test-model",
+				Message: ChatMessage{
+					Role:    "assistant",
+					Content: "I can help you with that using the available tools",
+				},
+				Done: true,
+			}
+		default:
+			t.Fatalf("unexpected extra request, turn=%d", turn)
 		}
+		turn++
 
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(response)
+		err = json.NewEncoder(w).Encode(resp)
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -198,22 +235,21 @@ func TestGenerateWithTools(t *testing.T) {
 		WithBaseURL(server.URL),
 	)
 
-	// Create a mock tool
 	mockTool := &mockTool{
 		name:        "test-tool",
 		description: "A test tool",
+		runResult:   "tool result",
 	}
-
-	tools := []interfaces.Tool{mockTool}
 
 	response, err := client.GenerateWithTools(
 		context.Background(),
 		"Help me with something",
-		tools,
+		[]interfaces.Tool{mockTool},
 	)
 
 	require.NoError(t, err)
 	assert.Equal(t, "I can help you with that using the available tools", response)
+	assert.Equal(t, 2, turn, "expected exactly two roundtrips")
 }
 
 func TestListModels(t *testing.T) {
@@ -310,6 +346,7 @@ func TestName(t *testing.T) {
 type mockTool struct {
 	name        string
 	description string
+	runResult   string
 }
 
 func (t *mockTool) Name() string {
@@ -329,6 +366,9 @@ func (t *mockTool) Internal() bool {
 }
 
 func (t *mockTool) Run(ctx context.Context, input string) (string, error) {
+	if t.runResult != "" {
+		return t.runResult, nil
+	}
 	return "mock result", nil
 }
 
@@ -343,6 +383,9 @@ func (t *mockTool) Parameters() map[string]interfaces.ParameterSpec {
 }
 
 func (t *mockTool) Execute(ctx context.Context, args string) (string, error) {
+	if t.runResult != "" {
+		return t.runResult, nil
+	}
 	return "mock result", nil
 }
 
