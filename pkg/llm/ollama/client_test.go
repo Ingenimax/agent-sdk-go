@@ -387,6 +387,58 @@ func TestGenerateWithTools_PersistsToolExchangesToMemory(t *testing.T) {
 	assert.Equal(t, "calc", tool.Metadata["tool_name"])
 }
 
+// TestGenerateWithTools_ParallelCallsGetUniqueIDs covers the case where
+// the model invokes the same tool twice in a single assistant turn. Each
+// invocation must get a unique synthesized ToolCallID; otherwise the
+// memory pairing between assistant tool_call and tool result is broken.
+func TestGenerateWithTools_ParallelCallsGetUniqueIDs(t *testing.T) {
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req ChatRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		var resp ChatResponse
+		switch turn {
+		case 0:
+			// Same tool invoked twice in a single assistant message.
+			resp = ChatResponse{Message: ChatMessage{
+				Role: "assistant",
+				ToolCalls: []OllamaToolCall{
+					{Function: OllamaToolCallFunction{Name: "calc", Arguments: map[string]interface{}{"expr": "1+1"}}},
+					{Function: OllamaToolCallFunction{Name: "calc", Arguments: map[string]interface{}{"expr": "2+2"}}},
+				},
+			}, Done: true}
+		case 1:
+			resp = ChatResponse{Message: ChatMessage{Role: "assistant", Content: "done"}, Done: true}
+		}
+		turn++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	mem := newRecordingMemory()
+	client := NewClient(WithModel("test-model"), WithBaseURL(server.URL))
+	_, err := client.GenerateWithTools(context.Background(), "do both",
+		[]interfaces.Tool{&mockTool{name: "calc", description: "calculator", runResult: "ok"}},
+		interfaces.WithMemory(mem),
+	)
+	require.NoError(t, err)
+
+	// One assistant message + two tool result messages
+	require.Len(t, mem.added, 3)
+	asst := mem.added[0]
+	require.Len(t, asst.ToolCalls, 2)
+	assert.NotEqual(t, asst.ToolCalls[0].ID, asst.ToolCalls[1].ID,
+		"parallel calls must get unique synthesized IDs")
+
+	tool1, tool2 := mem.added[1], mem.added[2]
+	assert.Equal(t, asst.ToolCalls[0].ID, tool1.ToolCallID,
+		"first tool result ID must match first assistant tool_call ID")
+	assert.Equal(t, asst.ToolCalls[1].ID, tool2.ToolCallID,
+		"second tool result ID must match second assistant tool_call ID")
+	assert.NotEqual(t, tool1.ToolCallID, tool2.ToolCallID)
+}
+
 // recordingMemory is a minimal in-memory Memory that captures every
 // message added to it for assertion in tests.
 type recordingMemory struct {

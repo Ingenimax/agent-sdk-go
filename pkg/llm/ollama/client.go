@@ -315,14 +315,25 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 		// Persist the assistant message that requested the tool calls.
 		messages = append(messages, chatResp.Message)
 
+		// Synthesize one ID per tool_call so the same tool invoked twice
+		// in a single turn doesn't collide on a shared "ollama:<name>" key.
+		// IDs are stable for the duration of the loop iteration; they're
+		// persisted on both the assistant ToolCall and the corresponding
+		// tool-result message so consumers can pair them later.
+		callIDs := make([]string, len(chatResp.Message.ToolCalls))
+		for idx, call := range chatResp.Message.ToolCalls {
+			callIDs[idx] = fmt.Sprintf("ollama:%s:%d:%d", call.Function.Name, iter, idx)
+		}
+
 		// Mirror the assistant tool-call message into Memory so subsequent
 		// agent turns can see the tool exchanges (matches OpenAI client
 		// convention; addresses the #325 review BLOCKER on memory loss).
 		if params.Memory != nil {
 			toolCallSummaries := make([]interfaces.ToolCall, 0, len(chatResp.Message.ToolCalls))
-			for _, call := range chatResp.Message.ToolCalls {
+			for idx, call := range chatResp.Message.ToolCalls {
 				argsBytes, _ := json.Marshal(call.Function.Arguments)
 				toolCallSummaries = append(toolCallSummaries, interfaces.ToolCall{
+					ID:        callIDs[idx],
 					Name:      call.Function.Name,
 					Arguments: string(argsBytes),
 				})
@@ -335,12 +346,13 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 
 		// Execute each tool call and append its result as a tool message.
-		for _, call := range chatResp.Message.ToolCalls {
+		for idx, call := range chatResp.Message.ToolCalls {
+			callID := callIDs[idx]
 			tool := findToolByName(tools, call.Function.Name)
 			if tool == nil {
 				errMsg := fmt.Sprintf("error: tool %q not found", call.Function.Name)
 				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
-				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
+				persistToolResultMessage(ctx, params.Memory, callID, call.Function.Name, errMsg)
 				continue
 			}
 
@@ -348,7 +360,7 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 			if err != nil {
 				errMsg := fmt.Sprintf("error: failed to encode arguments: %v", err)
 				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
-				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
+				persistToolResultMessage(ctx, params.Memory, callID, call.Function.Name, errMsg)
 				continue
 			}
 
@@ -356,12 +368,12 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 			if err != nil {
 				errMsg := fmt.Sprintf("error: %v", err)
 				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
-				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
+				persistToolResultMessage(ctx, params.Memory, callID, call.Function.Name, errMsg)
 				continue
 			}
 
 			messages = append(messages, ChatMessage{Role: "tool", Content: result})
-			persistToolResultMessage(ctx, params.Memory, call.Function.Name, result)
+			persistToolResultMessage(ctx, params.Memory, callID, call.Function.Name, result)
 		}
 	}
 
@@ -425,18 +437,19 @@ func findToolByName(tools []interfaces.Tool, name string) interfaces.Tool {
 }
 
 // persistToolResultMessage records a tool result message in Memory so the
-// next agent turn can replay the tool exchange. Ollama's wire format
-// doesn't carry tool-call IDs, so we synthesize one from the tool name —
-// BuildInlineHistoryPrompt requires a non-empty ToolCallID to render the
-// message back into the inlined history on the next turn.
-func persistToolResultMessage(ctx context.Context, mem interfaces.Memory, toolName, content string) {
+// next agent turn can replay the tool exchange. callID is synthesized by
+// the caller per invocation (not per tool name) so the same tool called
+// twice in one assistant turn doesn't share an ID. BuildInlineHistoryPrompt
+// requires a non-empty ToolCallID to render the message back into the
+// inlined history on the next turn.
+func persistToolResultMessage(ctx context.Context, mem interfaces.Memory, callID, toolName, content string) {
 	if mem == nil {
 		return
 	}
 	_ = mem.AddMessage(ctx, interfaces.Message{
 		Role:       interfaces.MessageRoleTool,
 		Content:    content,
-		ToolCallID: "ollama:" + toolName,
+		ToolCallID: callID,
 		Metadata: map[string]interface{}{
 			"tool_name": toolName,
 		},
