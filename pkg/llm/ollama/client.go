@@ -315,36 +315,53 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 		// Persist the assistant message that requested the tool calls.
 		messages = append(messages, chatResp.Message)
 
+		// Mirror the assistant tool-call message into Memory so subsequent
+		// agent turns can see the tool exchanges (matches OpenAI client
+		// convention; addresses the #325 review BLOCKER on memory loss).
+		if params.Memory != nil {
+			toolCallSummaries := make([]interfaces.ToolCall, 0, len(chatResp.Message.ToolCalls))
+			for _, call := range chatResp.Message.ToolCalls {
+				argsBytes, _ := json.Marshal(call.Function.Arguments)
+				toolCallSummaries = append(toolCallSummaries, interfaces.ToolCall{
+					Name:      call.Function.Name,
+					Arguments: string(argsBytes),
+				})
+			}
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:      interfaces.MessageRoleAssistant,
+				Content:   chatResp.Message.Content,
+				ToolCalls: toolCallSummaries,
+			})
+		}
+
 		// Execute each tool call and append its result as a tool message.
 		for _, call := range chatResp.Message.ToolCalls {
 			tool := findToolByName(tools, call.Function.Name)
 			if tool == nil {
-				messages = append(messages, ChatMessage{
-					Role:    "tool",
-					Content: fmt.Sprintf("error: tool %q not found", call.Function.Name),
-				})
+				errMsg := fmt.Sprintf("error: tool %q not found", call.Function.Name)
+				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
+				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
 				continue
 			}
 
 			argsJSON, err := json.Marshal(call.Function.Arguments)
 			if err != nil {
-				messages = append(messages, ChatMessage{
-					Role:    "tool",
-					Content: fmt.Sprintf("error: failed to encode arguments: %v", err),
-				})
+				errMsg := fmt.Sprintf("error: failed to encode arguments: %v", err)
+				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
+				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
 				continue
 			}
 
 			result, err := tool.Execute(ctx, string(argsJSON))
 			if err != nil {
-				messages = append(messages, ChatMessage{
-					Role:    "tool",
-					Content: fmt.Sprintf("error: %v", err),
-				})
+				errMsg := fmt.Sprintf("error: %v", err)
+				messages = append(messages, ChatMessage{Role: "tool", Content: errMsg})
+				persistToolResultMessage(ctx, params.Memory, call.Function.Name, errMsg)
 				continue
 			}
 
 			messages = append(messages, ChatMessage{Role: "tool", Content: result})
+			persistToolResultMessage(ctx, params.Memory, call.Function.Name, result)
 		}
 	}
 
@@ -363,6 +380,9 @@ func toolParametersToJSONSchema(params map[string]interfaces.ParameterSpec) map[
 		}
 		if spec.Description != "" {
 			field["description"] = spec.Description
+		}
+		if spec.Default != nil {
+			field["default"] = spec.Default
 		}
 		if spec.Enum != nil {
 			field["enum"] = spec.Enum
@@ -402,6 +422,25 @@ func findToolByName(tools []interfaces.Tool, name string) interfaces.Tool {
 		}
 	}
 	return nil
+}
+
+// persistToolResultMessage records a tool result message in Memory so the
+// next agent turn can replay the tool exchange. Ollama's wire format
+// doesn't carry tool-call IDs, so we synthesize one from the tool name —
+// BuildInlineHistoryPrompt requires a non-empty ToolCallID to render the
+// message back into the inlined history on the next turn.
+func persistToolResultMessage(ctx context.Context, mem interfaces.Memory, toolName, content string) {
+	if mem == nil {
+		return
+	}
+	_ = mem.AddMessage(ctx, interfaces.Message{
+		Role:       interfaces.MessageRoleTool,
+		Content:    content,
+		ToolCallID: "ollama:" + toolName,
+		Metadata: map[string]interface{}{
+			"tool_name": toolName,
+		},
+	})
 }
 
 // Chat performs a chat completion with messages
