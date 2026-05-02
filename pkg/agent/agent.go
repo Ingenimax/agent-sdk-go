@@ -21,6 +21,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/mcp"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
+	"github.com/Ingenimax/agent-sdk-go/pkg/sandbox"
 	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/imagegen"
@@ -40,8 +41,9 @@ type LazyMCPConfig struct {
 	URL               string
 	Token             string // Bearer token for HTTP authentication
 	Tools             []LazyMCPToolConfig
-	HttpTransportMode string   // "sse" or "streamable"
-	AllowedTools      []string // List of allowed tool names for this MCP server
+	HttpTransportMode string                  // "sse" or "streamable"
+	AllowedTools      []string                // List of allowed tool names for this MCP server
+	Executor          sandbox.CommandExecutor // Optional sandbox executor
 }
 
 // LazyMCPToolConfig holds configuration for a lazy MCP tool
@@ -102,6 +104,9 @@ type Agent struct {
 	// Custom function fields
 	customRunFunc       CustomRunFunction       // Custom run function to replace default behavior
 	customRunStreamFunc CustomRunStreamFunction // Custom stream function to replace default streaming behavior
+
+	// Sandbox executor for containerized MCP command execution
+	sandbox sandbox.CommandExecutor
 }
 
 // Option represents an option for configuring an agent
@@ -619,6 +624,14 @@ func WithCustomRunFunction(fn CustomRunFunction) Option {
 func WithCustomRunStreamFunction(fn CustomRunStreamFunction) Option {
 	return func(a *Agent) {
 		a.customRunStreamFunc = fn
+	}
+}
+
+// WithSandbox sets the sandbox executor for containerized MCP command execution.
+// When set, all MCP stdio server commands will run through this executor.
+func WithSandbox(executor sandbox.CommandExecutor) Option {
+	return func(a *Agent) {
+		a.sandbox = executor
 	}
 }
 
@@ -1152,6 +1165,12 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 			Token:             config.Token,
 			HttpTransportMode: config.HttpTransportMode,
 			AllowedTools:      config.AllowedTools,
+			Executor:          config.Executor,
+		}
+
+		// Propagate agent-level sandbox if the individual config doesn't have one
+		if config.Executor == nil && a.sandbox != nil {
+			lazyServerConfig.Executor = a.sandbox
 		}
 
 		// If no specific tools are defined, discover all tools from the server

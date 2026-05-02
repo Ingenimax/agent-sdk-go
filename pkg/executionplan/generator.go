@@ -10,10 +10,10 @@ import (
 
 // Generator handles generation of execution plans
 type Generator struct {
-	llm                 interfaces.LLM
-	tools               []interfaces.Tool
-	systemPrompt        string
-	requireApproval     bool
+	llm             interfaces.LLM
+	tools           []interfaces.Tool
+	systemPrompt    string
+	requireApproval bool
 }
 
 // NewGenerator creates a new execution plan generator
@@ -25,7 +25,6 @@ func NewGenerator(llm interfaces.LLM, tools []interfaces.Tool, systemPrompt stri
 		requireApproval: requireApproval,
 	}
 }
-
 
 // GenerateExecutionPlan generates an execution plan based on the user input
 func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*ExecutionPlan, error) {

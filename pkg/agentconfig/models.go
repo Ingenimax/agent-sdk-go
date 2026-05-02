@@ -46,16 +46,16 @@ type ConfigurationResponse struct {
 // AgentConfigResponse represents a resolved agent configuration from the service
 type AgentConfigResponse struct {
 	AgentConfig struct {
-		ID               string    `json:"id"`
-		AgentName        string    `json:"agent_name"`
-		Environment      string    `json:"environment"`
-		DisplayName      string    `json:"display_name"`
-		Description      string    `json:"description"`
-		Goal             string    `json:"goal"`
-		SystemPrompt     string    `json:"system_prompt"`
-		SchemaVersion    string    `json:"schema_version"`
-		CreatedAt        time.Time `json:"created_at"`
-		UpdatedAt        time.Time `json:"updated_at"`
+		ID            string    `json:"id"`
+		AgentName     string    `json:"agent_name"`
+		Environment   string    `json:"environment"`
+		DisplayName   string    `json:"display_name"`
+		Description   string    `json:"description"`
+		Goal          string    `json:"goal"`
+		SystemPrompt  string    `json:"system_prompt"`
+		SchemaVersion string    `json:"schema_version"`
+		CreatedAt     time.Time `json:"created_at"`
+		UpdatedAt     time.Time `json:"updated_at"`
 	} `json:"agent_config"`
 	GeneratedYAML     string            `json:"generated_yaml"`     // YAML generated from structured data
 	ResolvedYAML      string            `json:"resolved_yaml"`      // YAML with variables resolved

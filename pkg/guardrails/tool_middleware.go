@@ -6,6 +6,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
+// Compile-time assertion that ToolMiddleware implements interfaces.Tool.
+var _ interfaces.Tool = (*ToolMiddleware)(nil)
+
 // ToolMiddleware implements middleware for tool calls
 type ToolMiddleware struct {
 	tool     interfaces.Tool
@@ -45,6 +48,29 @@ func (m *ToolMiddleware) Run(ctx context.Context, input string) (string, error) 
 
 	// Call the underlying tool
 	output, err := m.tool.Run(ctx, processedInput)
+	if err != nil {
+		return "", err
+	}
+
+	// Process response through guardrails
+	processedOutput, err := m.pipeline.ProcessResponse(ctx, output)
+	if err != nil {
+		return "", err
+	}
+
+	return processedOutput, nil
+}
+
+// Execute executes the tool with the given arguments, applying guardrails
+func (m *ToolMiddleware) Execute(ctx context.Context, args string) (string, error) {
+	// Process request through guardrails
+	processedInput, err := m.pipeline.ProcessRequest(ctx, args)
+	if err != nil {
+		return "", err
+	}
+
+	// Call the underlying tool
+	output, err := m.tool.Execute(ctx, processedInput)
 	if err != nil {
 		return "", err
 	}

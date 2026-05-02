@@ -514,8 +514,8 @@ func TestNilConfigMerge(t *testing.T) {
 // TestDeepCopyComplexPointers verifies deep copying of complex pointer fields
 func TestDeepCopyComplexPointers(t *testing.T) {
 	primary := &agent.AgentConfig{
-		Role:              "Primary",
-		MaxIterations:     intPtr(5),
+		Role:                "Primary",
+		MaxIterations:       intPtr(5),
 		RequirePlanApproval: boolPtr(true),
 		StreamConfig: &agent.StreamConfigYAML{
 			BufferSize:          intPtr(100),

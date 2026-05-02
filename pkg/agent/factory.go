@@ -75,7 +75,7 @@ type CreateAgentConfig struct {
 	AllowFallback      bool
 	CacheTimeout       time.Duration
 	EnableEnvOverrides bool
-	Verbose           bool
+	Verbose            bool
 
 	// Agent options
 	MaxIterations       *int
@@ -97,8 +97,8 @@ func NewAgentFromCreateConfig(ctx context.Context, config CreateAgentConfig) (*A
 
 	// Otherwise, use the agentconfig package
 	// Since we can't import it due to cycles, provide guidance
-	return nil, fmt.Errorf("for remote/dual configuration loading, use:\n" +
-		"import \"github.com/Ingenimax/agent-sdk-go/pkg/agentconfig\"\n" +
+	return nil, fmt.Errorf("for remote/dual configuration loading, use:\n"+
+		"import \"github.com/Ingenimax/agent-sdk-go/pkg/agentconfig\"\n"+
 		"agent, err := agentconfig.LoadAgentAuto(ctx, %q, %q)", config.AgentName, config.Environment)
 }
 
