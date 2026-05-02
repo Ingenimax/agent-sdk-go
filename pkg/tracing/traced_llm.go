@@ -140,6 +140,33 @@ func (m *TracedLLM) GenerateWithTools(ctx context.Context, prompt string, tools 
 			span.RecordError(err)
 		}
 
+		// Mirror the streaming path: if any tool calls were collected, emit a
+		// generation span via TraceGeneration so Langfuse / OTEL backends record
+		// the call graph for non-streaming runs too (#295).
+		if toolCalls := GetToolCallsFromContext(ctx); len(toolCalls) > 0 {
+			responseText := response
+			if !m.shouldIncludeContent() {
+				responseText = "<redacted>"
+			}
+			metadata := map[string]any{
+				"streaming": false,
+				"tools":     len(tools),
+			}
+			// Stamp the error so downstream backends can distinguish a
+			// failed generation from a successful one with empty content.
+			if err != nil {
+				metadata["error"] = err.Error()
+				if responseText == "" {
+					responseText = "<error>"
+				}
+			}
+			if adapter, ok := m.tracer.(*OTELTracerAdapter); ok {
+				_, _ = adapter.otelTracer.TraceGeneration(ctx, model, prompt, responseText, startTime, endTime, metadata) //nolint:gosec
+			} else if tracer, ok := m.tracer.(*OTELLangfuseTracer); ok {
+				_, _ = tracer.TraceGeneration(ctx, model, prompt, responseText, startTime, endTime, metadata) //nolint:gosec
+			}
+		}
+
 		return response, err
 	}
 
