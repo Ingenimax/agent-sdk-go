@@ -10,7 +10,7 @@ import (
 // NewResponseFormat creates a ResponseFormat from a struct type
 func NewResponseFormat(v interface{}) *interfaces.ResponseFormat {
 	t := reflect.TypeOf(v)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -38,7 +38,7 @@ func getJSONSchema(t reflect.Type) map[string]any {
 
 		fieldType := field.Type
 		// Handle pointer types by getting the underlying element type
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 
@@ -60,7 +60,7 @@ func getJSONSchema(t reflect.Type) map[string]any {
 			// Handle arrays/slices with items property
 			itemType := fieldType.Elem()
 			// Handle pointer element types in slices
-			if itemType.Kind() == reflect.Ptr {
+			if itemType.Kind() == reflect.Pointer {
 				itemType = itemType.Elem()
 			}
 
@@ -106,7 +106,7 @@ func getJSONSchema(t reflect.Type) map[string]any {
 
 func getJSONType(t reflect.Type) string {
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		return getJSONType(t.Elem())
 	}
 
