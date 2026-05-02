@@ -75,7 +75,10 @@ func (b *Builder) WithHealthCheck(enabled bool) *Builder {
 // - stdio://command/path/to/executable
 // - http://localhost:8080/mcp
 // - https://api.example.com/mcp?token=xxx
+// - https://api.example.com/mcp?token=xxx&transport=streamable  (or transport=sse)
 // - mcp://preset-name (for presets)
+//
+// For HTTP URLs, optional query params: token (auth), transport (sse or streamable).
 func (b *Builder) AddServer(urlStr string) *Builder {
 	server, config, err := b.parseServerURL(urlStr)
 	if err != nil {
@@ -244,12 +247,25 @@ func (b *Builder) parseServerURL(urlStr string) (interfaces.MCPServer, *LazyMCPS
 		return nil, config, nil
 
 	case "http", "https":
-		// Format: http://host:port/path?token=xxx
+		// Format: http://host:port/path?token=xxx[&transport=streamable|sse]
+		// transport: "streamable" or "sse"; if omitted, default is SSE with fallback to streamable
 		name := u.Host
+		q := u.Query()
+		token := q.Get("token")
+		transport := strings.ToLower(strings.TrimSpace(q.Get("transport")))
+		q.Del("transport")
+		q.Del("token")
+		u.RawQuery = q.Encode()
 		config := &LazyMCPServerConfig{
-			Name: name,
-			Type: "http",
-			URL:  urlStr,
+			Name:              name,
+			Type:              "http",
+			URL:               u.String(),
+			Token:             token,
+			HttpTransportMode: transport,
+		}
+		// Normalize so only "sse" or "streamable" are set; anything else stays empty (default)
+		if transport != "sse" && transport != "streamable" {
+			config.HttpTransportMode = ""
 		}
 		return nil, config, nil
 
@@ -290,18 +306,10 @@ func (b *Builder) initializeServer(ctx context.Context, config LazyMCPServerConf
 			BackoffMultiplier: b.retryOptions.BackoffMultiplier,
 		})
 	case "http":
-		// Extract token from URL if present
-		u, _ := url.Parse(config.URL)
-		token := u.Query().Get("token")
-
-		// Remove token from URL before creating server
-		q := u.Query()
-		q.Del("token")
-		u.RawQuery = q.Encode()
-
+		// URL is already clean (token/transport stripped in parseServerURL); use config.Token
 		server, err = NewHTTPServerWithRetry(ctx, HTTPServerConfig{
-			BaseURL:      u.String(),
-			Token:        token,
+			BaseURL:      config.URL,
+			Token:        config.Token,
 			Logger:       b.logger,
 			ProtocolType: ServerProtocolType(config.HttpTransportMode),
 		}, &RetryConfig{

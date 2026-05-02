@@ -6,7 +6,7 @@ This package provides integration with the [Model Context Protocol (MCP)](https:
 
 The MCP integration allows agents to:
 
-1. Connect to MCP servers using different transports (stdio, HTTP)
+1. Connect to MCP servers using different transports (stdio, HTTP SSE, HTTP Streamable)
 2. List and use tools provided by MCP servers
 3. Convert MCP tools to agent tools
 
@@ -86,7 +86,20 @@ for _, tool := range tools {
 The MCP integration supports different transports for connecting to MCP servers:
 
 - **stdio**: For local MCP servers that communicate over standard input/output
-- **HTTP**: For remote MCP servers that communicate over HTTP
+- **HTTP**: For remote MCP servers (SSE or Streamable HTTP)
+
+### Simple URL format (WithMCPURLs / Builder.AddServer)
+
+HTTP server URLs can include optional query parameters:
+
+- **token** – Auth token (sent as header and query when calling the server)
+- **transport** – `sse` or `streamable` to force the transport; if omitted, the client tries SSE first then falls back to Streamable HTTP on failure
+
+Examples:
+
+- `http://localhost:8000/mcp?token=secret`
+- `https://api.example.com/mcp?token=xxx&transport=streamable`
+- `https://api.example.com/mcp?token=xxx&transport=sse`
 
 ## Implementation Details
 
