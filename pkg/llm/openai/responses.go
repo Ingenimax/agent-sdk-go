@@ -14,7 +14,10 @@ import (
 )
 
 func (c *OpenAIClient) shouldUseResponsesAPI(params *interfaces.GenerateOptions, tools []interfaces.Tool) bool {
-	return isReasoningModel(c.Model) && (len(tools) > 0 || params.ResponseFormat != nil)
+	if params != nil && len(params.FileInputs) > 0 {
+		return true
+	}
+	return c.useResponsesAPI
 }
 
 func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt string, tools []interfaces.Tool, params *interfaces.GenerateOptions) (*interfaces.LLMResponse, error) {
@@ -84,7 +87,7 @@ func (c *OpenAIClient) newResponseRequest(prompt string, params *interfaces.Gene
 	if params.SystemMessage != "" {
 		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseMessage("system", params.SystemMessage)})
 	}
-	input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseMessage("user", prompt)})
+	input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseUserMessage(prompt, params.FileInputs)})
 
 	req := responses.ResponseNewParams{
 		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
@@ -120,6 +123,39 @@ func responseMessage(role, content string) *responses.EasyInputMessageParam {
 		Role: responses.EasyInputMessageRole(role),
 		Content: responses.EasyInputMessageContentUnionParam{
 			OfString: param.NewOpt(content),
+		},
+	}
+}
+
+func responseUserMessage(prompt string, files []interfaces.FileInput) *responses.EasyInputMessageParam {
+	if len(files) == 0 {
+		return responseMessage("user", prompt)
+	}
+
+	content := responses.ResponseInputMessageContentListParam{
+		responses.ResponseInputContentUnionParam{OfInputText: &responses.ResponseInputTextParam{Text: prompt}},
+	}
+	for _, file := range files {
+		inputFile := responses.ResponseInputFileParam{}
+		if file.FileID != "" {
+			inputFile.FileID = param.NewOpt(file.FileID)
+		}
+		if file.FileURL != "" {
+			inputFile.FileURL = param.NewOpt(file.FileURL)
+		}
+		if file.FileData != "" {
+			inputFile.FileData = param.NewOpt(file.FileData)
+		}
+		if file.Filename != "" {
+			inputFile.Filename = param.NewOpt(file.Filename)
+		}
+		content = append(content, responses.ResponseInputContentUnionParam{OfInputFile: &inputFile})
+	}
+
+	return &responses.EasyInputMessageParam{
+		Role: responses.EasyInputMessageRoleUser,
+		Content: responses.EasyInputMessageContentUnionParam{
+			OfInputItemContentList: content,
 		},
 	}
 }

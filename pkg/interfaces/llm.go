@@ -37,6 +37,16 @@ type GenerateOptions struct {
 	Memory              Memory          // Optional memory for storing tool calls and results
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
+	FileInputs          []FileInput     // Optional file inputs for providers that support them
+}
+
+// FileInput describes a file passed directly to the model input.
+// Exactly one of FileID, FileURL, or FileData should be set.
+type FileInput struct {
+	FileID   string
+	FileURL  string
+	FileData string
+	Filename string
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -35,6 +36,7 @@ type OpenAIClient struct {
 	baseURL         string
 	logger          logging.Logger
 	retryExecutor   *retry.Executor
+	useResponsesAPI bool
 }
 
 // Option represents an option for configuring the OpenAI client
@@ -102,6 +104,15 @@ func WithBaseURL(baseURL string) Option {
 		c.Client = openai.NewClient(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
 		c.ChatService = openai.NewChatService(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
 		c.ResponseService = openai.NewClient(option.WithAPIKey(c.apiKey), option.WithBaseURL(baseURL))
+	}
+}
+
+// WithResponsesAPI routes Generate and GenerateWithTools calls through OpenAI's
+// Responses API. It is opt-in so existing Chat Completions users keep the same
+// behavior unless they explicitly enable it.
+func WithResponsesAPI(enabled bool) Option {
+	return func(c *OpenAIClient) {
+		c.useResponsesAPI = enabled
 	}
 }
 
@@ -1097,6 +1108,38 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 			options.LLMConfig = &interfaces.LLMConfig{}
 		}
 		options.LLMConfig.Reasoning = reasoning
+	}
+}
+
+// WithFileID attaches an already-uploaded OpenAI file to the model input.
+func WithFileID(fileID string) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, interfaces.FileInput{FileID: fileID})
+	}
+}
+
+// WithFileURL attaches an externally reachable file URL to the model input.
+// OpenAI supports file URLs through the Responses API.
+func WithFileURL(fileURL string) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, interfaces.FileInput{FileURL: fileURL})
+	}
+}
+
+// WithFileData attaches inline file bytes to the model input as a data URL.
+func WithFileData(filename, mimeType string, data []byte) interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		options.FileInputs = append(options.FileInputs, interfaces.FileInput{
+			Filename: filename,
+			FileData: fmt.Sprintf(
+				"data:%s;base64,%s",
+				mimeType,
+				base64.StdEncoding.EncodeToString(data),
+			),
+		})
 	}
 }
 

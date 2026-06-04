@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -653,6 +654,7 @@ func TestReasoningModelUsesResponsesAPIWithToolsAndStructuredOutput(t *testing.T
 	client := openai_client.NewClient("test-key",
 		openai_client.WithBaseURL(server.URL),
 		openai_client.WithModel("gpt-5-mini"),
+		openai_client.WithResponsesAPI(true),
 		openai_client.WithLogger(logging.New()),
 	)
 
@@ -679,6 +681,141 @@ func TestReasoningModelUsesResponsesAPIWithToolsAndStructuredOutput(t *testing.T
 	}
 	if requestCount != 2 {
 		t.Fatalf("expected 2 responses requests, got %d", requestCount)
+	}
+}
+
+func TestResponsesAPIIsOptInForExistingFlows(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/responses" {
+			t.Fatalf("did not expect default request to use /responses")
+		}
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("expected /chat/completions endpoint, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: `{"answer":"ok"}`, Role: "assistant"}}},
+		})
+	}))
+	defer server.Close()
+
+	client := openai_client.NewClient("test-key",
+		openai_client.WithBaseURL(server.URL),
+		openai_client.WithModel("gpt-5-mini"),
+		openai_client.WithLogger(logging.New()),
+	)
+
+	format := interfaces.ResponseFormat{
+		Type:   interfaces.ResponseFormatJSON,
+		Name:   "answer",
+		Schema: interfaces.JSONSchema{"type": "object"},
+	}
+
+	resp, err := client.GenerateWithTools(context.Background(), "test", []interfaces.Tool{
+		&mockTool{name: "test_tool_1", description: "Test tool 1"},
+	}, openai_client.WithReasoning("low"), openai_client.WithResponseFormat(format))
+	if err != nil {
+		t.Fatalf("GenerateWithTools failed: %v", err)
+	}
+	if resp != `{"answer":"ok"}` {
+		t.Fatalf("expected chat completion response, got %s", resp)
+	}
+}
+
+func TestFileInputsUseResponsesAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("expected /responses endpoint, got %s", r.URL.Path)
+		}
+
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		input := reqBody["input"].([]interface{})
+		message := input[0].(map[string]interface{})
+		content := message["content"].([]interface{})
+		if content[0].(map[string]interface{})["type"] != "input_text" {
+			t.Fatalf("expected input_text first, got %v", content[0])
+		}
+		fileByID := content[1].(map[string]interface{})
+		if fileByID["type"] != "input_file" || fileByID["file_id"] != "file_123" {
+			t.Fatalf("expected file_id input_file, got %v", fileByID)
+		}
+		fileByURL := content[2].(map[string]interface{})
+		if fileByURL["type"] != "input_file" || fileByURL["file_url"] != "https://example.com/report.pdf" {
+			t.Fatalf("expected file_url input_file, got %v", fileByURL)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"resp_1",
+			"object":"response",
+			"created_at":0,
+			"model":"gpt-4o-mini",
+			"status":"completed",
+			"output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"done","annotations":[]}]}],
+			"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	client := openai_client.NewClient("test-key",
+		openai_client.WithBaseURL(server.URL),
+		openai_client.WithModel("gpt-4o-mini"),
+		openai_client.WithLogger(logging.New()),
+	)
+
+	resp, err := client.Generate(context.Background(), "Summarize these files.",
+		openai_client.WithFileID("file_123"),
+		openai_client.WithFileURL("https://example.com/report.pdf"),
+	)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if resp != "done" {
+		t.Fatalf("expected response, got %s", resp)
+	}
+}
+
+func TestUploadUserData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/files" {
+			t.Fatalf("expected /files endpoint, got %s", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1024); err != nil {
+			t.Fatalf("failed to parse multipart form: %v", err)
+		}
+		if r.FormValue("purpose") != "user_data" {
+			t.Fatalf("expected purpose user_data, got %s", r.FormValue("purpose"))
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("expected file form field: %v", err)
+		}
+		defer file.Close()
+		if header.Filename != "notes.txt" {
+			t.Fatalf("expected filename notes.txt, got %s", header.Filename)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"file_123","object":"file","bytes":5,"created_at":0,"filename":"notes.txt","purpose":"user_data","status":"processed"}`))
+	}))
+	defer server.Close()
+
+	client := openai_client.NewClient("test-key",
+		openai_client.WithBaseURL(server.URL),
+		openai_client.WithLogger(logging.New()),
+	)
+
+	fileID, err := client.UploadUserData(context.Background(), strings.NewReader("hello"), "notes.txt", "text/plain")
+	if err != nil {
+		t.Fatalf("UploadUserData failed: %v", err)
+	}
+	if fileID != "file_123" {
+		t.Fatalf("expected file_123, got %s", fileID)
 	}
 }
 
