@@ -588,6 +588,100 @@ func TestReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestReasoningModelUsesResponsesAPIWithToolsAndStructuredOutput(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if r.URL.Path != "/responses" {
+			t.Fatalf("expected /responses endpoint, got %s", r.URL.Path)
+		}
+
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		if requestCount == 1 {
+			reasoning := reqBody["reasoning"].(map[string]interface{})
+			if reasoning["effort"] != "low" {
+				t.Fatalf("expected reasoning effort low, got %v", reasoning["effort"])
+			}
+
+			tools := reqBody["tools"].([]interface{})
+			if len(tools) != 1 || tools[0].(map[string]interface{})["type"] != "function" {
+				t.Fatalf("expected function tool in request, got %v", tools)
+			}
+
+			text := reqBody["text"].(map[string]interface{})
+			format := text["format"].(map[string]interface{})
+			if format["type"] != "json_schema" || format["name"] != "answer" {
+				t.Fatalf("expected json_schema response format, got %v", format)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id":"resp_1",
+				"object":"response",
+				"created_at":0,
+				"model":"gpt-5-mini",
+				"status":"completed",
+				"output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"test_tool_1","arguments":"{\"param\":\"x\"}","status":"completed"}],
+				"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3,"output_tokens_details":{"reasoning_tokens":1}}
+			}`))
+			return
+		}
+
+		input := reqBody["input"].([]interface{})
+		lastInput := input[len(input)-1].(map[string]interface{})
+		if lastInput["type"] != "function_call_output" || lastInput["call_id"] != "call_1" {
+			t.Fatalf("expected function_call_output for second request, got %v", lastInput)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"resp_2",
+			"object":"response",
+			"created_at":0,
+			"model":"gpt-5-mini",
+			"status":"completed",
+			"output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"{\"answer\":\"ok\"}","annotations":[]}]}],
+			"usage":{"input_tokens":4,"output_tokens":5,"total_tokens":9,"output_tokens_details":{"reasoning_tokens":2}}
+		}`))
+	}))
+	defer server.Close()
+
+	client := openai_client.NewClient("test-key",
+		openai_client.WithBaseURL(server.URL),
+		openai_client.WithModel("gpt-5-mini"),
+		openai_client.WithLogger(logging.New()),
+	)
+
+	format := interfaces.ResponseFormat{
+		Type: interfaces.ResponseFormatJSON,
+		Name: "answer",
+		Schema: interfaces.JSONSchema{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"answer": map[string]interface{}{"type": "string"},
+			},
+			"required": []string{"answer"},
+		},
+	}
+
+	resp, err := client.GenerateWithTools(context.Background(), "test", []interfaces.Tool{
+		&mockTool{name: "test_tool_1", description: "Test tool 1"},
+	}, openai_client.WithReasoning("low"), openai_client.WithResponseFormat(format))
+	if err != nil {
+		t.Fatalf("GenerateWithTools failed: %v", err)
+	}
+	if resp != `{"answer":"ok"}` {
+		t.Fatalf("expected structured response, got %s", resp)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected 2 responses requests, got %d", requestCount)
+	}
+}
+
 // mockMemory is a simple in-memory implementation for testing
 type mockMemory struct {
 	messages []interfaces.Message

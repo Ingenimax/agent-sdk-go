@@ -147,6 +147,9 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 	for _, option := range options {
 		option(params)
 	}
+	if c.shouldUseResponsesAPI(params, nil) {
+		return c.generateWithResponsesAPI(ctx, prompt, nil, params)
+	}
 
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
@@ -414,6 +417,13 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 			FrequencyPenalty: 0.0,
 			PresencePenalty:  0.0,
 		}
+	}
+	if c.shouldUseResponsesAPI(params, tools) {
+		response, err := c.generateWithResponsesAPI(ctx, prompt, tools, params)
+		if err != nil {
+			return "", err
+		}
+		return response.Content, nil
 	}
 
 	// Set default max iterations if not provided
