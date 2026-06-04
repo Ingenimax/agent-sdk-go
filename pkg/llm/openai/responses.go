@@ -13,14 +13,84 @@ import (
 	"github.com/openai/openai-go/v2/shared"
 )
 
-func (c *OpenAIClient) shouldUseResponsesAPI(params *interfaces.GenerateOptions, tools []interfaces.Tool) bool {
+func (c *OpenAIClient) shouldUseResponsesAPI(params *interfaces.GenerateOptions, _ []interfaces.Tool) bool {
 	if params != nil && len(params.FileInputs) > 0 {
 		return true
 	}
 	return c.useResponsesAPI
 }
 
+func validateResponsesAPIOptions(params *interfaces.GenerateOptions) error {
+	if params == nil {
+		return nil
+	}
+
+	if params.Memory != nil {
+		return fmt.Errorf("openai responses api does not support memory in this SDK path yet; remove WithMemory or disable WithResponsesAPI")
+	}
+
+	if params.ResponseFormat != nil {
+		if params.ResponseFormat.Name == "" {
+			return fmt.Errorf("openai responses api response format requires a non-empty name")
+		}
+		if len(params.ResponseFormat.Schema) == 0 {
+			return fmt.Errorf("openai responses api response format requires a non-empty schema")
+		}
+	}
+
+	if params.LLMConfig != nil {
+		unsupported := []string{}
+		if params.LLMConfig.FrequencyPenalty != 0 {
+			unsupported = append(unsupported, "frequency_penalty")
+		}
+		if params.LLMConfig.PresencePenalty != 0 {
+			unsupported = append(unsupported, "presence_penalty")
+		}
+		if len(params.LLMConfig.StopSequences) > 0 {
+			unsupported = append(unsupported, "stop_sequences")
+		}
+		if len(unsupported) > 0 {
+			return fmt.Errorf("openai responses api does not support %s in this SDK path", strings.Join(unsupported, ", "))
+		}
+	}
+
+	for i, file := range params.FileInputs {
+		sources := 0
+		if file.FileID != "" {
+			sources++
+		}
+		if file.FileURL != "" {
+			sources++
+		}
+		if file.FileData != "" {
+			sources++
+		}
+		if sources != 1 {
+			return fmt.Errorf("openai file input %d must set exactly one of FileID, FileURL, or FileData", i)
+		}
+		if file.FileData != "" && file.Filename == "" {
+			return fmt.Errorf("openai file input %d with FileData requires Filename", i)
+		}
+	}
+
+	return nil
+}
+
+func validateOpenAIStreamingOptions(params *interfaces.GenerateOptions, useResponsesAPI bool) error {
+	if useResponsesAPI {
+		return fmt.Errorf("openai responses api streaming is not supported in this SDK path yet; use Generate or disable WithResponsesAPI")
+	}
+	if params != nil && len(params.FileInputs) > 0 {
+		return fmt.Errorf("openai file inputs are not supported with streaming; use Generate or GenerateWithTools")
+	}
+	return nil
+}
+
 func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt string, tools []interfaces.Tool, params *interfaces.GenerateOptions) (*interfaces.LLMResponse, error) {
+	if err := validateResponsesAPIOptions(params); err != nil {
+		return nil, err
+	}
+
 	req := c.newResponseRequest(prompt, params)
 	if len(tools) > 0 {
 		req.Tools = buildResponseTools(tools)

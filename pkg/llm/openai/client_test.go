@@ -748,6 +748,10 @@ func TestFileInputsUseResponsesAPI(t *testing.T) {
 		if fileByURL["type"] != "input_file" || fileByURL["file_url"] != "https://example.com/report.pdf" {
 			t.Fatalf("expected file_url input_file, got %v", fileByURL)
 		}
+		fileData := content[3].(map[string]interface{})
+		if fileData["type"] != "input_file" || fileData["filename"] != "notes.txt" || !strings.HasPrefix(fileData["file_data"].(string), "data:text/plain;base64,") {
+			t.Fatalf("expected file_data input_file, got %v", fileData)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -771,6 +775,7 @@ func TestFileInputsUseResponsesAPI(t *testing.T) {
 	resp, err := client.Generate(context.Background(), "Summarize these files.",
 		openai_client.WithFileID("file_123"),
 		openai_client.WithFileURL("https://example.com/report.pdf"),
+		openai_client.WithFileData("notes.txt", "text/plain", []byte("hello")),
 	)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -817,6 +822,77 @@ func TestUploadUserData(t *testing.T) {
 	if fileID != "file_123" {
 		t.Fatalf("expected file_123, got %s", fileID)
 	}
+}
+
+func TestResponsesAPIValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  *openai_client.OpenAIClient
+		options []interfaces.GenerateOption
+		wantErr string
+	}{
+		{
+			name:   "file input requires exactly one source",
+			client: openai_client.NewClient("test-key", openai_client.WithModel("gpt-4o-mini")),
+			options: []interfaces.GenerateOption{
+				func(options *interfaces.GenerateOptions) {
+					options.FileInputs = append(options.FileInputs, interfaces.FileInput{FileID: "file_123", FileURL: "https://example.com/report.pdf"})
+				},
+			},
+			wantErr: "exactly one of FileID, FileURL, or FileData",
+		},
+		{
+			name:   "file data requires filename",
+			client: openai_client.NewClient("test-key", openai_client.WithModel("gpt-4o-mini")),
+			options: []interfaces.GenerateOption{
+				openai_client.WithFileData("", "text/plain", []byte("hello")),
+			},
+			wantErr: "with FileData requires Filename",
+		},
+		{
+			name:   "responses api rejects unsupported stop sequences",
+			client: openai_client.NewClient("test-key", openai_client.WithResponsesAPI(true)),
+			options: []interfaces.GenerateOption{
+				openai_client.WithStopSequences([]string{"END"}),
+			},
+			wantErr: "does not support stop_sequences",
+		},
+		{
+			name:   "responses api rejects memory",
+			client: openai_client.NewClient("test-key", openai_client.WithResponsesAPI(true)),
+			options: []interfaces.GenerateOption{
+				interfaces.WithMemory(&mockMemory{}),
+			},
+			wantErr: "does not support memory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.client.Generate(context.Background(), "test", tt.options...)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestStreamingValidationErrors(t *testing.T) {
+	t.Run("responses api streaming is explicit error", func(t *testing.T) {
+		client := openai_client.NewClient("test-key", openai_client.WithResponsesAPI(true))
+		_, err := client.GenerateStream(context.Background(), "test")
+		if err == nil || !strings.Contains(err.Error(), "responses api streaming is not supported") {
+			t.Fatalf("expected responses streaming error, got %v", err)
+		}
+	})
+
+	t.Run("file inputs are not silently ignored in streaming", func(t *testing.T) {
+		client := openai_client.NewClient("test-key")
+		_, err := client.GenerateStream(context.Background(), "test", openai_client.WithFileID("file_123"))
+		if err == nil || !strings.Contains(err.Error(), "file inputs are not supported with streaming") {
+			t.Fatalf("expected file input streaming error, got %v", err)
+		}
+	})
 }
 
 // mockMemory is a simple in-memory implementation for testing

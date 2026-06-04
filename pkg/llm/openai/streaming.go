@@ -28,6 +28,9 @@ func (c *OpenAIClient) GenerateStream(
 	for _, option := range options {
 		option(params)
 	}
+	if err := validateOpenAIStreamingOptions(params, c.useResponsesAPI); err != nil {
+		return nil, err
+	}
 
 	// Check for organization ID in context
 	defaultOrgID := "default"
@@ -269,6 +272,9 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 	for _, option := range options {
 		option(params)
+	}
+	if err := validateOpenAIStreamingOptions(params, c.useResponsesAPI); err != nil {
+		return nil, err
 	}
 
 	// Set default max iterations if not provided
