@@ -134,7 +134,7 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	}
 
 	// Add thinking configuration if supported and enabled
-	if SupportsThinking(c.model) && c.thinkingConfig != nil {
+	if c.thinkingConfig != nil {
 		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
 			config.ThinkingConfig = &genai.ThinkingConfig{
 				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
@@ -761,7 +761,7 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 	})
 
 	// Add thinking configuration if supported and enabled
-	if SupportsThinking(c.model) && c.thinkingConfig != nil {
+	if c.thinkingConfig != nil {
 		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
 			config.ThinkingConfig = &genai.ThinkingConfig{
 				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
