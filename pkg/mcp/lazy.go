@@ -37,7 +37,7 @@ var globalServerCache = &LazyMCPServerCache{
 
 // getOrCreateServer gets an existing server or creates a new one
 func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config LazyMCPServerConfig) (interfaces.MCPServer, error) {
-	serverKey := fmt.Sprintf("%s:%s:%v", config.Type, config.Name, config.Command)
+	serverKey := fmt.Sprintf("%s:%s:%v:%s", config.Type, config.Name, config.Command, config.CustomTransportType)
 
 	// Try to get existing server (read lock)
 	cache.mu.RLock()
@@ -56,48 +56,78 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 		return server, nil
 	}
 
-	// Log environment variables being passed (masking sensitive values)
-	envDebug := make(map[string]string)
-	for _, envVar := range config.Env {
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) == 2 {
-			key := parts[0]
-			value := parts[1]
-			// Mask sensitive values (show first 10 chars for debugging)
-			if len(value) > 10 {
-				envDebug[key] = value[:10] + "..."
-			} else if value == "" {
-				envDebug[key] = "<EMPTY>"
-			} else {
-				envDebug[key] = value
-			}
-		}
+	serverLogger := config.Logger
+	if serverLogger == nil {
+		serverLogger = logging.New()
 	}
-
-	cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
-		"server_name": config.Name,
-		"server_type": config.Type,
-		"command":     config.Command,
-		"args":        config.Args,
-		"env_count":   len(config.Env),
-		"env_vars":    envDebug,
-	})
 
 	var server interfaces.MCPServer
 	var err error
 
 	switch config.Type {
 	case "stdio":
+		// Log environment variables being passed (masking sensitive values)
+		envDebug := make(map[string]string)
+		for _, envVar := range config.Env {
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 {
+				key := parts[0]
+				value := parts[1]
+				// Mask sensitive values (show first 10 chars for debugging)
+				if len(value) > 10 {
+					envDebug[key] = value[:10] + "..."
+				} else if value == "" {
+					envDebug[key] = "<EMPTY>"
+				} else {
+					envDebug[key] = value
+				}
+			}
+		}
+
+		cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
+			"server_name": config.Name,
+			"server_type": config.Type,
+			"command":     config.Command,
+			"args":        config.Args,
+			"env_count":   len(config.Env),
+			"env_vars":    envDebug,
+		})
 		server, err = NewStdioServer(ctx, StdioServerConfig{
 			Command: config.Command,
 			Args:    config.Args,
 			Env:     config.Env,
+			Logger:  serverLogger,
 		})
 	case "http":
+		cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
+			"server_name":    config.Name,
+			"server_type":    config.Type,
+			"transport_mode": config.HttpTransportMode,
+		})
 		server, err = NewHTTPServer(ctx, HTTPServerConfig{
 			BaseURL:      config.URL,
 			Token:        config.Token,
 			ProtocolType: ServerProtocolType(config.HttpTransportMode),
+			Logger:       serverLogger,
+		})
+	case "custom":
+		if config.CustomMCPTransport == nil {
+			return nil, fmt.Errorf("custom MCP transport is required for 'custom' server type")
+		}
+
+		if config.CustomTransportType == "" {
+			return nil, fmt.Errorf("custom transport type is required for 'custom' server type")
+		}
+
+		cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
+			"server_name":           config.Name,
+			"server_type":           config.Type,
+			"custom_transport_type": config.CustomTransportType,
+		})
+		server, err = NewCustomTransportServer(ctx, CustomTransportServerConfig{
+			Transport:     config.CustomMCPTransport,
+			Logger:        serverLogger,
+			TransportType: config.CustomTransportType,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s", config.Type)
@@ -167,15 +197,18 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 
 // LazyMCPServerConfig holds configuration for creating an MCP server on demand
 type LazyMCPServerConfig struct {
-	Name              string
-	Type              string // "stdio" or "http"
-	Command           string
-	Args              []string
-	Env               []string
-	URL               string
-	Token             string   // Bearer token for HTTP authentication
-	HttpTransportMode string   // "sse" or "streamable"
-	AllowedTools      []string // List of allowed tool names for this MCP server
+	Name                string
+	Type                string // "stdio","http" or "custom"
+	Command             string
+	Args                []string
+	Env                 []string
+	URL                 string
+	Token               string         // Bearer token for HTTP authentication
+	HttpTransportMode   string         // "sse" or "streamable"
+	AllowedTools        []string       // List of allowed tool names for this MCP server
+	CustomMCPTransport  mcp.Transport  // Custom transport for "custom" server type
+	Logger              logging.Logger // Optional logger for server initialization
+	CustomTransportType string         // Type of custom transport (e.g. "websocket", "kafka")
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
@@ -192,14 +225,19 @@ type LazyMCPTool struct {
 
 // NewLazyMCPTool creates a new lazy MCP tool
 func NewLazyMCPTool(name, description string, schema interface{}, config LazyMCPServerConfig) interfaces.Tool {
-	return &LazyMCPTool{
+	tool := &LazyMCPTool{
 		name:         name,
 		description:  description,
 		schema:       nil, // Will be discovered dynamically
 		schemaLoaded: false,
 		serverConfig: config,
-		logger:       logging.New(),
 	}
+	if config.Logger != nil {
+		tool.logger = config.Logger
+	} else {
+		tool.logger = logging.New()
+	}
+	return tool
 }
 
 // Name returns the name of the tool
