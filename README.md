@@ -1063,3 +1063,106 @@ For more detailed information, you can also refer to the following documents:
 - [Execution Plan](docs/execution_plan.md)
 - [Guardrails](docs/guardrails.md)
 - [MCP](docs/mcp.md)
+
+## Frequently Asked Questions (FAQ)
+
+### What is Agent Go SDK?
+
+Agent Go SDK is a powerful Go framework for building production-ready AI agents. It provides memory management, tool execution, multi-LLM support, and enterprise features in a flexible, extensible architecture.
+
+### What are the core capabilities?
+
+| Feature | Description |
+|---------|-------------|
+| Multi-Model Intelligence | OpenAI, Anthropic, Google Vertex AI (Gemini) |
+| Modular Tool Ecosystem | Plug-and-play tools for web search, data retrieval |
+| Advanced Memory Management | Buffer and vector-based retrieval options |
+| MCP Integration | HTTP and stdio transports support |
+| Token Usage Tracking | Built-in counting for cost monitoring |
+
+### What enterprise features are available?
+
+| Feature | Description |
+|---------|-------------|
+| Built-in Guardrails | Safety mechanisms for responsible AI |
+| Complete Observability | Integrated tracing and logging |
+| Enterprise Multi-tenancy | Isolated resources for organizations |
+
+### What are the prerequisites?
+
+- Go 1.23+
+- Redis (optional, for distributed memory)
+
+### How do I install Agent Go SDK?
+
+**As a Go library:**
+```bash
+go get github.com/Ingenimax/agent-sdk-go
+```
+
+**As a CLI tool:**
+```bash
+go install github.com/Ingenimax/agent-sdk-go/cmd/agent-cli@latest
+```
+
+Or download pre-built binaries from [GitHub Releases](https://github.com/Ingenimax/agent-sdk-go/releases).
+
+### How do I use the CLI?
+
+```bash
+# Initialize configuration
+agent-cli init
+
+# Set environment variables
+export OPENAI_API_KEY=your_api_key
+
+# Run a query
+agent-cli run "What's the weather in San Francisco?"
+
+# Start interactive chat
+agent-cli chat
+```
+
+### What development features are available?
+
+| Feature | Description |
+|---------|-------------|
+| Structured Task Framework | Plan, approve, execute multi-step operations |
+| Declarative Configuration | YAML definitions for agents and tasks |
+| Zero-Effort Bootstrapping | Auto-generate configs from system prompts |
+
+### What LLM models are supported?
+
+| Provider | Models |
+|----------|--------|
+| OpenAI | GPT series |
+| Anthropic | Claude series |
+| Google Vertex AI | Gemini models |
+
+### How do I configure environment?
+
+Create `.env` file:
+```bash
+cp env.example .env
+# Edit with your API keys
+```
+
+### Where can I find documentation?
+
+📖 **Full documentation**: [docs.goagents.dev](https://docs.goagents.dev/)
+
+### Is Agent Go SDK free to use?
+
+Agent Go SDK is open-source. Check repository for license details.
+
+### How can I contribute?
+
+Contributions welcome via GitHub issues and pull requests.
+
+### Where can I get help?
+
+| Resource | Link |
+|----------|------|
+| Documentation | [docs.goagents.dev](https://docs.goagents.dev/) |
+| Discord | [Join Community](https://discord.com/invite/MjJbDG2nQZ) |
+| GitHub | [Ingenimax/agent-sdk-go](https://github.com/Ingenimax/agent-sdk-go) |
