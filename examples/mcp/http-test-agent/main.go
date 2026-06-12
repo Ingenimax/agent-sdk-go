@@ -12,13 +12,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"github.com/joho/godotenv"
 )
 
-// MCP server URL for testing (token in query string).
-
 func main() {
-	godotenv.Load()
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 	mcpServerURL := os.Getenv("MCP_SERVER_URL")
