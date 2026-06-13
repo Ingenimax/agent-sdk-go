@@ -684,45 +684,6 @@ func TestReasoningModelUsesResponsesAPIWithToolsAndStructuredOutput(t *testing.T
 	}
 }
 
-func TestResponsesAPIIsOptInForExistingFlows(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/responses" {
-			t.Fatalf("did not expect default request to use /responses")
-		}
-		if r.URL.Path != "/chat/completions" {
-			t.Fatalf("expected /chat/completions endpoint, got %s", r.URL.Path)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(openai.ChatCompletion{
-			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: `{"answer":"ok"}`, Role: "assistant"}}},
-		})
-	}))
-	defer server.Close()
-
-	client := openai_client.NewClient("test-key",
-		openai_client.WithBaseURL(server.URL),
-		openai_client.WithModel("gpt-5-mini"),
-		openai_client.WithLogger(logging.New()),
-	)
-
-	format := interfaces.ResponseFormat{
-		Type:   interfaces.ResponseFormatJSON,
-		Name:   "answer",
-		Schema: interfaces.JSONSchema{"type": "object"},
-	}
-
-	resp, err := client.GenerateWithTools(context.Background(), "test", []interfaces.Tool{
-		&mockTool{name: "test_tool_1", description: "Test tool 1"},
-	}, openai_client.WithReasoning("low"), openai_client.WithResponseFormat(format))
-	if err != nil {
-		t.Fatalf("GenerateWithTools failed: %v", err)
-	}
-	if resp != `{"answer":"ok"}` {
-		t.Fatalf("expected chat completion response, got %s", resp)
-	}
-}
-
 func TestFileInputsUseResponsesAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
