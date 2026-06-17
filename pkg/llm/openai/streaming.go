@@ -28,6 +28,9 @@ func (c *OpenAIClient) GenerateStream(
 	for _, option := range options {
 		option(params)
 	}
+	if err := validateOpenAIStreamingOptions(params, c.useResponsesAPI); err != nil {
+		return nil, err
+	}
 
 	// Check for organization ID in context
 	defaultOrgID := "default"
@@ -269,6 +272,19 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 	for _, option := range options {
 		option(params)
+	}
+	if err := validateOpenAIStreamingOptions(params, c.useResponsesAPI); err != nil {
+		return nil, err
+	}
+
+	// Route reasoning + tools through /v1/responses: Chat Completions 400s when
+	// reasoning_effort and tools are sent together for gpt-5 reasoning models.
+	if shouldUseResponsesAPI(c.Model, params.LLMConfig.Reasoning, len(tools)) {
+		c.logger.Debug(ctx, "Routing streaming tools call to Responses API for reasoning model", map[string]interface{}{
+			"model":            c.Model,
+			"reasoning_effort": params.LLMConfig.Reasoning,
+		})
+		return c.generateWithToolsResponsesStream(ctx, prompt, tools, params), nil
 	}
 
 	// Set default max iterations if not provided

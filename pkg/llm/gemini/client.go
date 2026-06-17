@@ -411,8 +411,8 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 			}
 		}
 
-		// Add thinking configuration if supported and enabled
-		if SupportsThinking(c.model) && c.thinkingConfig != nil {
+		// Thinking config (client-level), not gated on a model allowlist.
+		if c.thinkingConfig != nil {
 			if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
 				config.ThinkingConfig = &genai.ThinkingConfig{
 					IncludeThoughts: c.thinkingConfig.IncludeThoughts,
@@ -689,6 +689,21 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 			}
 			if genConfig.ResponseSchema != nil {
 				config.ResponseSchema = genConfig.ResponseSchema
+			}
+		}
+
+		// Thinking config (client-level), not gated on a model allowlist.
+		if c.thinkingConfig != nil {
+			if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
+				config.ThinkingConfig = &genai.ThinkingConfig{
+					IncludeThoughts: c.thinkingConfig.IncludeThoughts,
+					ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
+				}
+
+				c.logger.Debug(ctx, "Enabled thinking configuration with tools", map[string]interface{}{
+					"includeThoughts": c.thinkingConfig.IncludeThoughts,
+					"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
+				})
 			}
 		}
 
@@ -1039,6 +1054,16 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 		if genConfig.ResponseSchema != nil {
 			config.ResponseSchema = genConfig.ResponseSchema
+		}
+	}
+
+	// Thinking config on the post-tool synthesis call so reasoning isn't dropped on the final answer.
+	if c.thinkingConfig != nil {
+		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
+			config.ThinkingConfig = &genai.ThinkingConfig{
+				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
+				ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
+			}
 		}
 	}
 
