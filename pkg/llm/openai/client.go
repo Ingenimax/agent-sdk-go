@@ -333,7 +333,12 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 	req := openai.ChatCompletionNewParams{
 		Model:       openai.ChatModel(c.Model),
 		Messages:    chatMessages,
-		Temperature: openai.Float(c.getTemperatureForModel(params.Temperature)),
+	}
+
+	// Only set temperature for non-reasoning models. Reasoning models (o1, o3)
+	// require temperature=1 and reject the parameter if explicitly set.
+	if !isReasoningModel(c.Model) {
+		req.Temperature = openai.Float(c.getTemperatureForModel(params.Temperature))
 	}
 
 	// Only send penalties when explicitly set. Some OpenAI-compatible
@@ -346,8 +351,10 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		req.PresencePenalty = openai.Float(params.PresencePenalty)
 	}
 
-	// Reasoning models don't support top_p parameter
-	if !isReasoningModel(c.Model) {
+	// Reasoning models don't support top_p parameter. Only send when non-zero
+	// and within valid range [0, 1] to avoid 400 errors on OpenAI-compatible
+	// providers (e.g. xAI Grok) that reject unsupported parameters.
+	if !isReasoningModel(c.Model) && params.TopP > 0 && params.TopP <= 1 {
 		req.TopP = openai.Float(params.TopP)
 	}
 
@@ -522,10 +529,9 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		req.TopP = openai.Float(params.LLMConfig.TopP)
 	}
 
-	// Only set ParallelToolCalls for non-reasoning models
-	if !isReasoningModel(c.Model) {
-		req.ParallelToolCalls = openai.Bool(true)
-	}
+	// ParallelToolCalls is not sent. Streaming path (streaming.go) omits it,
+	// and many OpenAI-compatible providers (e.g. xAI Grok) reject the field
+	// entirely. To maintain compatibility, we match the streaming behavior.
 
 	if len(params.LLMConfig.StopSequences) > 0 {
 		req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
