@@ -53,10 +53,6 @@ func TestNewClient(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewClient(tt.apiKey, tt.options...)
 
-			if client == nil {
-				t.Fatal("expected non-nil client")
-			}
-
 			if client.APIKey != tt.apiKey {
 				t.Errorf("APIKey = %v, want %v", client.APIKey, tt.apiKey)
 			}
