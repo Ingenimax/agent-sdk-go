@@ -83,7 +83,9 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 		return nil, fmt.Errorf("failed to read credentials file %s: %w", credentialsPath, err)
 	}
 
-	credentials, err := google.CredentialsFromJSON(ctx, credentialsJSON, "https://www.googleapis.com/auth/cloud-platform")
+	credentials, err := google.CredentialsFromJSONWithParams(ctx, credentialsJSON, google.CredentialsParams{
+		Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load credentials from %s: %w", credentialsPath, err)
 	}
@@ -112,13 +114,17 @@ func NewVertexConfigWithCredentialsContent(ctx context.Context, region, projectI
 	}
 
 	// Try to parse credentials as JSON first
-	credentials, err := google.CredentialsFromJSON(ctx, []byte(credentialsContent), "https://www.googleapis.com/auth/cloud-platform")
+	credentials, err := google.CredentialsFromJSONWithParams(ctx, []byte(credentialsContent), google.CredentialsParams{
+		Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
 	if err != nil {
 		// If JSON parsing fails, try base64 decoding first
 		decodedContent, decodeErr := base64.StdEncoding.DecodeString(credentialsContent)
 		if decodeErr == nil {
 			// Successfully decoded, try parsing the decoded content as JSON
-			credentials, err = google.CredentialsFromJSON(ctx, decodedContent, "https://www.googleapis.com/auth/cloud-platform")
+			credentials, err = google.CredentialsFromJSONWithParams(ctx, decodedContent, google.CredentialsParams{
+				Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to load credentials from decoded base64 content: %w", err)
 			}
