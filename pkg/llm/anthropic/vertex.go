@@ -12,9 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/auth"
+	"cloud.google.com/go/auth/credentials"
+	"cloud.google.com/go/auth/oauth2adapt"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 // VertexConfig contains configuration for Google Vertex AI
@@ -24,7 +26,7 @@ type VertexConfig struct {
 	Region      string
 	AccessToken string
 	TokenSource oauth2.TokenSource
-	Credentials *google.Credentials
+	Credentials *auth.Credentials
 
 	regions            []string
 	currentRegionIndex int
@@ -40,8 +42,10 @@ func NewVertexConfig(ctx context.Context, region, projectID string) (*VertexConf
 		return nil, fmt.Errorf("projectID is required for Vertex AI")
 	}
 
-	// Find default credentials
-	credentials, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	// Detect Application Default Credentials
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to find default credentials: %w", err)
 	}
@@ -50,8 +54,8 @@ func NewVertexConfig(ctx context.Context, region, projectID string) (*VertexConf
 		Enabled:     true,
 		ProjectID:   projectID,
 		Region:      region,
-		TokenSource: credentials.TokenSource,
-		Credentials: credentials,
+		TokenSource: oauth2adapt.TokenSourceFromTokenProvider(creds),
+		Credentials: creds,
 	}
 	config.parseRegions()
 	return config, nil
@@ -83,7 +87,10 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 		return nil, fmt.Errorf("failed to read credentials file %s: %w", credentialsPath, err)
 	}
 
-	credentials, err := google.CredentialsFromJSON(ctx, credentialsJSON, "https://www.googleapis.com/auth/cloud-platform")
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		CredentialsJSON: credentialsJSON,
+		Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load credentials from %s: %w", credentialsPath, err)
 	}
@@ -92,8 +99,8 @@ func NewVertexConfigWithCredentials(ctx context.Context, region, projectID, cred
 		Enabled:     true,
 		ProjectID:   projectID,
 		Region:      region,
-		TokenSource: credentials.TokenSource,
-		Credentials: credentials,
+		TokenSource: oauth2adapt.TokenSourceFromTokenProvider(creds),
+		Credentials: creds,
 	}
 	config.parseRegions()
 	return config, nil
@@ -112,13 +119,19 @@ func NewVertexConfigWithCredentialsContent(ctx context.Context, region, projectI
 	}
 
 	// Try to parse credentials as JSON first
-	credentials, err := google.CredentialsFromJSON(ctx, []byte(credentialsContent), "https://www.googleapis.com/auth/cloud-platform")
+	creds, err := credentials.DetectDefault(&credentials.DetectOptions{
+		CredentialsJSON: []byte(credentialsContent),
+		Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+	})
 	if err != nil {
 		// If JSON parsing fails, try base64 decoding first
 		decodedContent, decodeErr := base64.StdEncoding.DecodeString(credentialsContent)
 		if decodeErr == nil {
 			// Successfully decoded, try parsing the decoded content as JSON
-			credentials, err = google.CredentialsFromJSON(ctx, decodedContent, "https://www.googleapis.com/auth/cloud-platform")
+			creds, err = credentials.DetectDefault(&credentials.DetectOptions{
+				CredentialsJSON: decodedContent,
+				Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to load credentials from decoded base64 content: %w", err)
 			}
@@ -132,8 +145,8 @@ func NewVertexConfigWithCredentialsContent(ctx context.Context, region, projectI
 		Enabled:     true,
 		ProjectID:   projectID,
 		Region:      region,
-		TokenSource: credentials.TokenSource,
-		Credentials: credentials,
+		TokenSource: oauth2adapt.TokenSourceFromTokenProvider(creds),
+		Credentials: creds,
 	}
 	config.parseRegions()
 	return config, nil
