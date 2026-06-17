@@ -179,8 +179,15 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 		if !isReasoningModel(c.Model) && params.LLMConfig.TopP > 0 && params.LLMConfig.TopP <= 1 {
 			req.TopP = openai.Float(params.LLMConfig.TopP)
 		}
-		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
-		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
+		// Only send penalties when explicitly set. Some OpenAI-compatible
+		// providers (e.g. xAI Grok reasoning models) reject the parameters
+		// outright, returning a 400 even for a 0 value.
+		if params.LLMConfig.FrequencyPenalty != 0 {
+			req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
+		}
+		if params.LLMConfig.PresencePenalty != 0 {
+			req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
+		}
 		if len(params.LLMConfig.StopSequences) > 0 {
 			req.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: params.LLMConfig.StopSequences}
 		}
@@ -324,11 +331,19 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 
 	// Create chat request
 	req := openai.ChatCompletionNewParams{
-		Model:            openai.ChatModel(c.Model),
-		Messages:         chatMessages,
-		Temperature:      openai.Float(c.getTemperatureForModel(params.Temperature)),
-		FrequencyPenalty: openai.Float(params.FrequencyPenalty),
-		PresencePenalty:  openai.Float(params.PresencePenalty),
+		Model:       openai.ChatModel(c.Model),
+		Messages:    chatMessages,
+		Temperature: openai.Float(c.getTemperatureForModel(params.Temperature)),
+	}
+
+	// Only send penalties when explicitly set. Some OpenAI-compatible
+	// providers (e.g. xAI Grok reasoning models) reject the parameters
+	// outright, returning a 400 even for a 0 value.
+	if params.FrequencyPenalty != 0 {
+		req.FrequencyPenalty = openai.Float(params.FrequencyPenalty)
+	}
+	if params.PresencePenalty != 0 {
+		req.PresencePenalty = openai.Float(params.PresencePenalty)
 	}
 
 	// Reasoning models don't support top_p parameter
@@ -486,12 +501,20 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	req := openai.ChatCompletionNewParams{
-		Model:            openai.ChatModel(c.Model),
-		Messages:         messages,
-		Tools:            openaiTools,
-		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
-		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
-		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+		Model:       openai.ChatModel(c.Model),
+		Messages:    messages,
+		Tools:       openaiTools,
+		Temperature: openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
+	}
+
+	// Only send penalties when explicitly set. Some OpenAI-compatible
+	// providers (e.g. xAI Grok reasoning models) reject the parameters
+	// outright, returning a 400 even for a 0 value.
+	if params.LLMConfig.FrequencyPenalty != 0 {
+		req.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
+	}
+	if params.LLMConfig.PresencePenalty != 0 {
+		req.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
 	}
 
 	// Reasoning models don't support top_p parameter
@@ -948,12 +971,20 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Create a final request without tools to force the LLM to provide a conclusion
 	finalReq := openai.ChatCompletionNewParams{
-		Model:            openai.ChatModel(c.Model),
-		Messages:         messages,
-		Tools:            nil, // No tools for final call
-		Temperature:      openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
-		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
-		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
+		Model:       openai.ChatModel(c.Model),
+		Messages:    messages,
+		Tools:       nil, // No tools for final call
+		Temperature: openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
+	}
+
+	// Only send penalties when explicitly set. Some OpenAI-compatible
+	// providers (e.g. xAI Grok reasoning models) reject the parameters
+	// outright, returning a 400 even for a 0 value.
+	if params.LLMConfig.FrequencyPenalty != 0 {
+		finalReq.FrequencyPenalty = openai.Float(params.LLMConfig.FrequencyPenalty)
+	}
+	if params.LLMConfig.PresencePenalty != 0 {
+		finalReq.PresencePenalty = openai.Float(params.LLMConfig.PresencePenalty)
 	}
 
 	// Reasoning models don't support top_p parameter
