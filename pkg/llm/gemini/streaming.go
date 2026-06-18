@@ -369,6 +369,11 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 	// Track captured content for final iteration replay if filtering is enabled
 	var capturedContentEvents []interfaces.StreamEvent
+	// Track whether any tool was actually executed across iterations. Used to
+	// decide whether an iteration that returns no tool calls and no content
+	// should fall through to the final-synthesis call (forcing the model to
+	// answer from tool results) instead of returning an empty response.
+	var executedAnyTool bool
 	// Build tool map for quick lookup
 	toolMap := make(map[string]interfaces.Tool)
 	for _, tool := range tools {
@@ -466,6 +471,18 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 
 		// If no tool calls, we're done with the iteration loop
 		if len(toolCalls) == 0 {
+			// The model produced no content AND no tool call, but tools ran in
+			// an earlier iteration: the model ended the turn without
+			// synthesizing the tool results into an answer (observed with
+			// Gemini on large tool outputs, where it emits a function call and
+			// then an empty candidate). Returning here yields an empty
+			// response even though the conversation holds tool results. Break
+			// instead so the final-call-without-tools below forces a textual
+			// answer. The maxIterations-exhaustion path already relies on that
+			// same synthesis call.
+			if !hasContent && executedAnyTool {
+				break
+			}
 			// No tool calls means we have received the final response content
 			// If content was filtered (captured), we need to replay it now
 			if shouldFilter && len(iterationContentEvents) > 0 {
@@ -479,6 +496,8 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 			}
 			return "", nil
 		}
+
+		executedAnyTool = true
 
 		// Execute tools and add results to conversation
 		c.logger.Info(ctx, "Processing tool calls in streaming", map[string]interface{}{
@@ -632,7 +651,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		return "", nil
 	}
 
-	c.logger.Info(ctx, "Maximum iterations reached, making final call without tools", map[string]interface{}{
+	c.logger.Info(ctx, "Tool loop ended, making final call without tools to synthesize answer", map[string]interface{}{
 		"maxIterations": maxIterations,
 	})
 
