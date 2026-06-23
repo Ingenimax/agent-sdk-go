@@ -43,8 +43,9 @@ const (
 	ModelGemini25FlashImage = "gemini-2.5-flash-image"
 
 	// Gemini 3.x text models
-	ModelGemini35Flash = "gemini-3.5-flash"
-	ModelGemini35Pro   = "gemini-3.5-pro"
+	ModelGemini35Flash       = "gemini-3.5-flash"
+	ModelGemini31ProPreview  = "gemini-3.1-pro-preview"
+	ModelGemini3FlashPreview = "gemini-3-flash-preview"
 
 	// Multi-turn image editing models (Nano Banana Pro)
 	ModelGemini3ProImagePreview = "gemini-3-pro-image-preview"

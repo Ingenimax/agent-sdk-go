@@ -297,7 +297,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportedOutputFormats: []string{"png", "jpeg"},
 			SupportedImageSizes:    []string{"1K", "2K"},
 		}
-	case ModelGemini35Flash, ModelGemini35Pro:
+	case ModelGemini35Flash, ModelGemini31ProPreview, ModelGemini3FlashPreview:
 		maxThinking := int32(24576)
 		return ModelCapabilities{
 			SupportsStreaming:   true,
@@ -306,7 +306,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsAudio:       true,
 			SupportsThinking:    true,
 			MaxInputTokens:      1048576,
-			MaxOutputTokens:     8192,
+			MaxOutputTokens:     65536,
 			MaxThinkingTokens:   &maxThinking,
 			SupportedMimeTypes: []string{
 				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
@@ -343,6 +343,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 		// Gemini 3.x models not explicitly listed above default to thinking-enabled
 		// so thought_signature is handled correctly in tool loops.
 		if strings.HasPrefix(model, "gemini-3") {
+			maxThinking := int32(24576)
 			return ModelCapabilities{
 				SupportsStreaming:   true,
 				SupportsToolCalling: true,
@@ -350,10 +351,14 @@ func GetModelCapabilities(model string) ModelCapabilities {
 				SupportsAudio:       true,
 				SupportsThinking:    true,
 				MaxInputTokens:      1048576,
-				MaxOutputTokens:     8192,
-				MaxThinkingTokens:   nil,
+				MaxOutputTokens:     65536,
+				MaxThinkingTokens:   &maxThinking,
 				SupportedMimeTypes: []string{
-					"text/plain",
+					"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
+					"audio/wav", "audio/mp3", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac",
+					"video/mp4", "video/mpeg", "video/mov", "video/avi", "video/flv", "video/mpv", "video/webm", "video/wmv", "video/3gpp",
+					"text/plain", "text/html", "text/css", "text/javascript", "application/x-javascript", "text/x-typescript",
+					"application/pdf",
 				},
 			}
 		}
