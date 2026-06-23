@@ -1,6 +1,9 @@
 package gemini
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ReasoningMode defines the reasoning approach for the model
 type ReasoningMode string
@@ -260,15 +263,15 @@ func GetModelCapabilities(model string) ModelCapabilities {
 		}
 	case ModelGemini20FlashPreviewImageGen:
 		return ModelCapabilities{
-			SupportsStreaming:        true,
-			SupportsToolCalling:      true,
-			SupportsVision:           true,
-			SupportsAudio:            false,
-			SupportsThinking:         false,   // 2.0 and 1.5 models don't support thinking
-			SupportsImageGeneration:  true,    // Can generate images
-			MaxInputTokens:           1048576, // 1M tokens
-			MaxOutputTokens:          8192,
-			MaxThinkingTokens:        nil,
+			SupportsStreaming:       true,
+			SupportsToolCalling:     true,
+			SupportsVision:          true,
+			SupportsAudio:           false,
+			SupportsThinking:        false,   // 2.0 and 1.5 models don't support thinking
+			SupportsImageGeneration: true,    // Can generate images
+			MaxInputTokens:          1048576, // 1M tokens
+			MaxOutputTokens:         8192,
+			MaxThinkingTokens:       nil,
 			SupportedMimeTypes: []string{
 				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
 				"text/plain",
@@ -282,8 +285,8 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsVision:                true,  // Can accept images as input for image-to-image
 			SupportsAudio:                 false,
 			SupportsThinking:              false,
-			SupportsImageGeneration:       true,  // Primary purpose: generate images
-			SupportsMultiTurnImageEditing: true,  // Supports chat-based image editing
+			SupportsImageGeneration:       true, // Primary purpose: generate images
+			SupportsMultiTurnImageEditing: true, // Supports chat-based image editing
 			MaxInputTokens:                32768,
 			MaxOutputTokens:               8192,
 			MaxThinkingTokens:             nil,
@@ -294,6 +297,25 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportedOutputFormats: []string{"png", "jpeg"},
 			SupportedImageSizes:    []string{"1K", "2K"},
 		}
+	case ModelGemini35Flash, ModelGemini35Pro:
+		maxThinking := int32(24576)
+		return ModelCapabilities{
+			SupportsStreaming:   true,
+			SupportsToolCalling: true,
+			SupportsVision:      true,
+			SupportsAudio:       true,
+			SupportsThinking:    true,
+			MaxInputTokens:      1048576,
+			MaxOutputTokens:     8192,
+			MaxThinkingTokens:   &maxThinking,
+			SupportedMimeTypes: []string{
+				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
+				"audio/wav", "audio/mp3", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac",
+				"video/mp4", "video/mpeg", "video/mov", "video/avi", "video/flv", "video/mpv", "video/webm", "video/wmv", "video/3gpp",
+				"text/plain", "text/html", "text/css", "text/javascript", "application/x-javascript", "text/x-typescript",
+				"application/pdf",
+			},
+		}
 	case ModelGemini3ProImagePreview:
 		// Nano Banana Pro - Google's most advanced image generation and editing model
 		return ModelCapabilities{
@@ -301,9 +323,9 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportsToolCalling:           false, // Image gen models typically don't support tools
 			SupportsVision:                true,  // Can accept images as input
 			SupportsAudio:                 false,
-			SupportsThinking:              true,  // Uses "Thinking" for complex instructions
+			SupportsThinking:              true, // Uses "Thinking" for complex instructions
 			SupportsImageGeneration:       true,
-			SupportsMultiTurnImageEditing: true,  // Primary feature: multi-turn image editing
+			SupportsMultiTurnImageEditing: true, // Primary feature: multi-turn image editing
 			MaxInputTokens:                32768,
 			MaxOutputTokens:               8192,
 			MaxThinkingTokens:             nil,
@@ -318,6 +340,23 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportedImageSizes:    []string{"1K", "2K", "4K"},
 		}
 	default:
+		// Gemini 3.x models not explicitly listed above default to thinking-enabled
+		// so thought_signature is handled correctly in tool loops.
+		if strings.HasPrefix(model, "gemini-3") {
+			return ModelCapabilities{
+				SupportsStreaming:   true,
+				SupportsToolCalling: true,
+				SupportsVision:      true,
+				SupportsAudio:       true,
+				SupportsThinking:    true,
+				MaxInputTokens:      1048576,
+				MaxOutputTokens:     8192,
+				MaxThinkingTokens:   nil,
+				SupportedMimeTypes: []string{
+					"text/plain",
+				},
+			}
+		}
 		// Return default capabilities for unknown models
 		return ModelCapabilities{
 			SupportsStreaming:   true,

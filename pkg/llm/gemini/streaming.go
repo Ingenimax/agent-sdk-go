@@ -499,6 +499,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 				args = make(map[string]interface{})
 			}
 			assistantMessage.Parts = append(assistantMessage.Parts, &genai.Part{
+				ThoughtSignature: toolCall.ThoughtSignature,
 				FunctionCall: &genai.FunctionCall{
 					Name: toolCall.Name,
 					Args: args,
@@ -795,9 +796,10 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 					// This is a tool call - capture it
 					argsBytes, _ := json.Marshal(part.FunctionCall.Args)
 					toolCall := interfaces.ToolCall{
-						ID:        fmt.Sprintf("gemini_tool_%s", part.FunctionCall.Name),
-						Name:      part.FunctionCall.Name,
-						Arguments: string(argsBytes),
+						ID:               fmt.Sprintf("gemini_tool_%s", part.FunctionCall.Name),
+						Name:             part.FunctionCall.Name,
+						Arguments:        string(argsBytes),
+						ThoughtSignature: part.ThoughtSignature,
 					}
 					toolCalls = append(toolCalls, toolCall)
 

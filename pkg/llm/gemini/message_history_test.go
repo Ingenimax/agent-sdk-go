@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -89,5 +90,69 @@ func TestMessageHistoryBuilder_BuildContents(t *testing.T) {
 				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
 			}
 		})
+	}
+}
+
+func TestConvertMemoryMessage_PreservesThoughtSignature(t *testing.T) {
+	logger := logging.New()
+	builder := newMessageHistoryBuilder(logger)
+
+	sig := []byte("test-thought-signature-bytes")
+
+	msg := interfaces.Message{
+		Role:    interfaces.MessageRoleAssistant,
+		Content: "",
+		ToolCalls: []interfaces.ToolCall{
+			{
+				ID:               "call_1",
+				Name:             "get_weather",
+				Arguments:        `{"location":"NYC"}`,
+				ThoughtSignature: sig,
+			},
+		},
+	}
+
+	content := builder.convertMemoryMessage(msg)
+	if content == nil {
+		t.Fatal("expected non-nil content for assistant message with tool calls")
+	}
+	if content.Role != "model" {
+		t.Fatalf("expected role 'model', got %q", content.Role)
+	}
+	if len(content.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(content.Parts))
+	}
+
+	part := content.Parts[0]
+	if part.FunctionCall == nil {
+		t.Fatal("expected FunctionCall to be set")
+	}
+	if part.FunctionCall.Name != "get_weather" {
+		t.Errorf("expected function name 'get_weather', got %q", part.FunctionCall.Name)
+	}
+	if !bytes.Equal(part.ThoughtSignature, sig) {
+		t.Errorf("ThoughtSignature not preserved: got %v, want %v", part.ThoughtSignature, sig)
+	}
+}
+
+func TestConvertMemoryMessage_NilSignatureOmitted(t *testing.T) {
+	logger := logging.New()
+	builder := newMessageHistoryBuilder(logger)
+
+	msg := interfaces.Message{
+		Role: interfaces.MessageRoleAssistant,
+		ToolCalls: []interfaces.ToolCall{
+			{ID: "call_1", Name: "search", Arguments: `{}`},
+		},
+	}
+
+	content := builder.convertMemoryMessage(msg)
+	if content == nil {
+		t.Fatal("expected non-nil content")
+	}
+
+	part := content.Parts[0]
+	if part.ThoughtSignature != nil {
+		t.Errorf("expected nil ThoughtSignature for tool call without signature, got %v", part.ThoughtSignature)
 	}
 }

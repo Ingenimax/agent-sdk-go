@@ -84,6 +84,7 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *ge
 					args = make(map[string]interface{})
 				}
 				parts = append(parts, &genai.Part{
+					ThoughtSignature: toolCall.ThoughtSignature,
 					FunctionCall: &genai.FunctionCall{
 						Name: toolCall.Name,
 						Args: args,
