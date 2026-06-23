@@ -311,7 +311,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 			SupportedMimeTypes: []string{
 				"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
 				"audio/wav", "audio/mp3", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac",
-				"video/mp4", "video/mpeg", "video/mov", "video/avi", "video/flv", "video/mpv", "video/webm", "video/wmv", "video/3gpp",
+				"video/mp4", "video/mpeg", "video/quicktime", "video/avi", "video/x-flv", "video/mpg", "video/webm", "video/wmv", "video/3gpp",
 				"text/plain", "text/html", "text/css", "text/javascript", "application/x-javascript", "text/x-typescript",
 				"application/pdf",
 			},
@@ -356,7 +356,7 @@ func GetModelCapabilities(model string) ModelCapabilities {
 				SupportedMimeTypes: []string{
 					"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif",
 					"audio/wav", "audio/mp3", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac",
-					"video/mp4", "video/mpeg", "video/mov", "video/avi", "video/flv", "video/mpv", "video/webm", "video/wmv", "video/3gpp",
+					"video/mp4", "video/mpeg", "video/quicktime", "video/avi", "video/x-flv", "video/mpg", "video/webm", "video/wmv", "video/3gpp",
 					"text/plain", "text/html", "text/css", "text/javascript", "application/x-javascript", "text/x-typescript",
 					"application/pdf",
 				},
