@@ -2,6 +2,10 @@ coverage:
   precision: 2
   round: down
   range: "70...100"
+  patch:
+    default:
+      target: 70%
+      threshold: 10%
 
 comment:
   layout: ""
