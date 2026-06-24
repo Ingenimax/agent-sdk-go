@@ -42,6 +42,11 @@ const (
 	// Image generation models
 	ModelGemini25FlashImage = "gemini-2.5-flash-image"
 
+	// Gemini 3.x text models
+	ModelGemini35Flash       = "gemini-3.5-flash"
+	ModelGemini31ProPreview  = "gemini-3.1-pro-preview"
+	ModelGemini3FlashPreview = "gemini-3-flash-preview"
+
 	// Multi-turn image editing models (Nano Banana Pro)
 	ModelGemini3ProImagePreview = "gemini-3-pro-image-preview"
 
@@ -786,8 +791,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 						Role:    "assistant",
 						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
-							Name:      functionCall.Name,
-							Arguments: "{}",
+							Name:             functionCall.Name,
+							Arguments:        "{}",
+							ThoughtSignature: part.ThoughtSignature,
 						}},
 					})
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -871,8 +877,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 						Role:    "assistant",
 						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
-							Name:      functionCall.Name,
-							Arguments: string(argsBytes),
+							Name:             functionCall.Name,
+							Arguments:        string(argsBytes),
+							ThoughtSignature: part.ThoughtSignature,
 						}},
 					})
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{
@@ -888,8 +895,9 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 						Role:    "assistant",
 						Content: "",
 						ToolCalls: []interfaces.ToolCall{{
-							Name:      functionCall.Name,
-							Arguments: string(argsBytes),
+							Name:             functionCall.Name,
+							Arguments:        string(argsBytes),
+							ThoughtSignature: part.ThoughtSignature,
 						}},
 					})
 					_ = params.Memory.AddMessage(ctx, interfaces.Message{

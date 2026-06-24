@@ -405,6 +405,40 @@ func TestUnknownModelCapabilities(t *testing.T) {
 	assert.Equal(t, []string{"text/plain"}, capabilities.SupportedMimeTypes)
 }
 
+func TestGemini3Capabilities(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+	}{
+		{"flash stable", ModelGemini35Flash},
+		{"pro preview", ModelGemini31ProPreview},
+		{"flash preview", ModelGemini3FlashPreview},
+		{"unlisted gemini-3 prefix", "gemini-3.9-experimental"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caps := GetModelCapabilities(tt.model)
+
+			assert.True(t, caps.SupportsStreaming)
+			assert.True(t, caps.SupportsToolCalling)
+			assert.True(t, caps.SupportsVision)
+			assert.True(t, caps.SupportsAudio)
+			assert.True(t, caps.SupportsThinking, "Gemini 3.x must enable thinking for thought_signature handling")
+			assert.Equal(t, 1048576, caps.MaxInputTokens)
+			assert.Equal(t, 65536, caps.MaxOutputTokens)
+
+			if assert.NotNil(t, caps.MaxThinkingTokens, "thinking-enabled models must expose a thinking budget") {
+				assert.Equal(t, int32(24576), *caps.MaxThinkingTokens)
+			}
+
+			assert.Contains(t, caps.SupportedMimeTypes, "application/pdf")
+			assert.Contains(t, caps.SupportedMimeTypes, "video/quicktime")
+			assert.NotContains(t, caps.SupportedMimeTypes, "video/mpv", "video/mpv is not a valid Gemini MIME type")
+		})
+	}
+}
+
 // Test thinking-related functionality
 func TestSupportsThinking(t *testing.T) {
 	tests := []struct {

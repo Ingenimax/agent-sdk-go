@@ -38,11 +38,12 @@ type Message struct {
 
 // ToolCall represents a tool call made by the assistant
 type ToolCall struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	Internal    bool   `json:"internal,omitempty"`
-	Arguments   string `json:"arguments"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name,omitempty"`
+	Internal         bool   `json:"internal,omitempty"`
+	Arguments        string `json:"arguments"`
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 // Memory represents a memory store for agent conversations
