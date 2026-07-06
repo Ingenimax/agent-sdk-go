@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -76,6 +77,34 @@ func TestInferenceConfigTemperatureZeroIsExplicit(t *testing.T) {
 	}
 	if aws.ToFloat32(ic.Temperature) != 0 {
 		t.Fatalf("Temperature = %v, want 0", aws.ToFloat32(ic.Temperature))
+	}
+}
+
+func TestStripSamplingParams(t *testing.T) {
+	ic := &types.InferenceConfiguration{Temperature: aws.Float32(0), TopP: aws.Float32(0.9)}
+	if !stripSamplingParams(ic) {
+		t.Fatal("expected stripSamplingParams to report a change")
+	}
+	if ic.Temperature != nil || ic.TopP != nil {
+		t.Fatalf("expected Temperature/TopP cleared, got %+v", ic)
+	}
+	if stripSamplingParams(ic) {
+		t.Fatal("expected no-op on an already-stripped config")
+	}
+	if stripSamplingParams(nil) {
+		t.Fatal("expected no-op on nil config")
+	}
+}
+
+func TestSamplingParamDeprecatedError(t *testing.T) {
+	if !samplingParamDeprecatedError(fmt.Errorf("ValidationException: `temperature` is deprecated for this model.")) {
+		t.Fatal("expected match on deprecated-temperature message")
+	}
+	if samplingParamDeprecatedError(fmt.Errorf("some other error")) {
+		t.Fatal("expected no match on unrelated error")
+	}
+	if samplingParamDeprecatedError(nil) {
+		t.Fatal("expected no match on nil error")
 	}
 }
 

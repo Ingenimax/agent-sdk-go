@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -278,7 +279,45 @@ func (c *Client) GenerateWithToolsDetailed(ctx context.Context, prompt string, t
 }
 
 // converse runs a single Converse call with optional retry.
+// converse runs a Converse call, transparently retrying once without
+// temperature/topP if the model rejects them outright. Some newer models
+// (e.g. Claude Opus 4.7+) return a 400 ValidationException for any explicit
+// sampling params — even the default value — and require InferenceConfig to
+// omit them entirely, so there is no fixed value that works for every model.
 func (c *Client) converse(ctx context.Context, input *bedrockruntime.ConverseInput) (*bedrockruntime.ConverseOutput, error) {
+	out, err := c.converseOnce(ctx, input)
+	if err != nil && samplingParamDeprecatedError(err) && stripSamplingParams(input.InferenceConfig) {
+		c.logger.Warn(ctx, "Bedrock model rejected temperature/topP as deprecated, retrying without them", map[string]interface{}{
+			"model": c.Model,
+		})
+		out, err = c.converseOnce(ctx, input)
+	}
+	return out, err
+}
+
+// samplingParamDeprecatedError reports whether err is the Bedrock
+// ValidationException some models return when the request includes
+// temperature or topP at all (e.g. "`temperature` is deprecated for this
+// model.").
+func samplingParamDeprecatedError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "is deprecated for this model")
+}
+
+// stripSamplingParams clears Temperature/TopP from cfg in place, reporting
+// whether either was actually set — so the caller only retries when the
+// retry would produce a different request.
+func stripSamplingParams(cfg *types.InferenceConfiguration) bool {
+	if cfg == nil {
+		return false
+	}
+	changed := cfg.Temperature != nil || cfg.TopP != nil
+	cfg.Temperature = nil
+	cfg.TopP = nil
+	return changed
+}
+
+// converseOnce runs a single Converse call with optional retry.
+func (c *Client) converseOnce(ctx context.Context, input *bedrockruntime.ConverseInput) (*bedrockruntime.ConverseOutput, error) {
 	var out *bedrockruntime.ConverseOutput
 	op := func() error {
 		var err error
