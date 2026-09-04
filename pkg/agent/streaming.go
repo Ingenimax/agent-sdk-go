@@ -10,7 +10,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
 // sendEvent pushes an AgentStreamEvent onto eventChan while respecting
@@ -65,13 +64,9 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// Track execution start time
 		startTime := time.Now()
 
-		// Inject agent name into context for tracing span naming
-		ctx = tracing.WithAgentName(ctx, a.name)
-
-		// If orgID is set on the agent, add it to the context
-		if a.orgID != "" {
-			ctx = multitenancy.WithOrgID(ctx, a.orgID)
-		}
+		// Stamp identity before the span starts so the span is named correctly.
+		// beginRun applies it again idempotently.
+		ctx = a.applyRunIdentity(ctx)
 
 		// Create usage tracker for detailed metrics collection
 		tracker := newUsageTracker(true)
@@ -139,34 +134,20 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			}()
 		}
 
-		// Add user message to memory
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: input,
-			}); err != nil {
-				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-					Type:      interfaces.AgentEventError,
-					Error:     fmt.Errorf("failed to add user message to memory: %w", err),
-					Timestamp: time.Now(),
-				})
-				return
-			}
-		}
-
-		// Apply guardrails to input if available
-		processedInput := input
-		if a.guardrails != nil {
-			guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-			if err != nil {
-				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-					Type:      interfaces.AgentEventError,
-					Error:     fmt.Errorf("guardrails error: %w", err),
-					Timestamp: time.Now(),
-				})
-				return
-			}
-			processedInput = guardedInput
+		// Apply input guardrails and persist the resulting user message. See
+		// beginRun: guardrails must run before the memory write, because the
+		// providers build their request from memory rather than from the prompt
+		// argument.
+		var processedInput string
+		var preambleErr error
+		ctx, processedInput, preambleErr = a.beginRun(ctx, input)
+		if preambleErr != nil {
+			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
+				Type:      interfaces.AgentEventError,
+				Error:     preambleErr,
+				Timestamp: time.Now(),
+			})
+			return
 		}
 
 		// Check if the input is related to an existing plan
@@ -221,23 +202,11 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			return
 		}
 
-		// Collect all tools. initializeMCPTools already populated a.tools, so the
-		// runtime re-collect below can re-add the same tools; deduplicate after the
-		// append to keep tool names unique (LLM providers like Anthropic reject
-		// requests with duplicate tool names — see issue #308).
-		allTools := a.tools
-
-		// Add MCP tools if available
-		if len(a.mcpServers) > 0 {
-			mcpTools, err := a.collectMCPTools(ctx)
-			if err != nil {
-				// Log the error but continue with the agent tools
-				// Warning: Failed to collect MCP tools
-				fmt.Printf("Warning: Failed to collect MCP tools: %v\n", err)
-			} else if len(mcpTools) > 0 {
-				allTools = deduplicateTools(append(allTools, mcpTools...))
-			}
-		}
+		// Shared with the sync path. This block previously omitted lazy MCP
+		// tools, so an agent configured with them saw a different tool set
+		// depending on whether it was streamed, and it reported collection
+		// failures via fmt.Printf rather than the agent's logger.
+		allTools := a.assembleTools(ctx)
 
 		// If tools are available and plan approval is required, we can't stream execution plans yet
 		if (len(allTools) > 0) && a.requirePlanApproval {

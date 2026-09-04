@@ -24,7 +24,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/imagegen"
-	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 
 	// Import storage backends for side-effect registration
 	_ "github.com/Ingenimax/agent-sdk-go/pkg/storage/local"
@@ -901,11 +900,7 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 }
 
 func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string, error) {
-	ctx = tracing.WithAgentName(ctx, a.name)
-
-	if a.orgID != "" {
-		ctx = multitenancy.WithOrgID(ctx, a.orgID)
-	}
+	ctx = a.applyRunIdentity(ctx)
 
 	var span interfaces.Span
 	if a.tracer != nil {
@@ -913,21 +908,10 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		defer span.End()
 	}
 
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add user message to memory: %w", err)
-		}
-	}
-
-	if a.guardrails != nil {
-		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		input = guardedInput
+	var err error
+	ctx, input, err = a.beginRun(ctx, input)
+	if err != nil {
+		return "", err
 	}
 
 	taskID, action, planInput := a.extractPlanAction(input)
@@ -950,26 +934,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		return response, nil
 	}
 
-	// Use pre-initialized tools (manual + MCP tools already combined during agent creation).
-	// initializeMCPTools already populated a.tools, so re-collecting here can append duplicates;
-	// always run the merged slice through deduplicateTools to defend against that and against
-	// MCP servers re-listing tools they already exposed at startup.
-	allTools := a.tools
-
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log warning but continue - MCP tools are optional
-			a.logger.Warn(ctx, fmt.Sprintf("Failed to collect MCP tools: %v", err), nil)
-		} else if len(mcpTools) > 0 {
-			allTools = deduplicateTools(append(allTools, mcpTools...))
-		}
-	}
-
-	if len(a.lazyMCPConfigs) > 0 {
-		lazyMCPTools := a.createLazyMCPTools()
-		allTools = deduplicateTools(append(allTools, lazyMCPTools...))
-	}
+	allTools := a.assembleTools(ctx)
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
 		return a.runWithExecutionPlan(ctx, input, a.planGeneratorFor(allTools))
