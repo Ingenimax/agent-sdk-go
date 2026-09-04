@@ -75,6 +75,7 @@ type Agent struct {
 	requirePlanApproval  bool                     // New field to control whether execution plans require approval
 	planStore            *executionplan.Store     // Store for execution plans
 	planGenerator        *executionplan.Generator // Generator for execution plans
+	toolPipeline         []ToolDecorator          // Ordered per-tool decorators; see decorateTools
 	planExecutor         *executionplan.Executor  // Executor for execution plans
 	generatedAgentConfig *AgentConfig
 	generatedTaskConfigs TaskConfigs
@@ -702,7 +703,10 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
 	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt, agent.requirePlanApproval)
-	agent.planExecutor = executionplan.NewExecutor(allTools)
+	// The execution-plan executor calls tool.Execute directly, bypassing the
+	// provider tool loop entirely. requirePlanApproval defaults to true, so this
+	// is the SDK's default path and must see the same decorators.
+	agent.planExecutor = executionplan.NewExecutor(agent.decorateTools(allTools, nil))
 
 	return agent, nil
 }
@@ -1282,7 +1286,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 	if len(tools) > 0 {
 		// Record tool invocations as the LLM actually calls them, not the
 		// full set of available tools (#305).
-		toolsForLLM := wrapToolsWithTracker(tools, tracker)
+		toolsForLLM := a.decorateTools(tools, tracker)
 
 		if tracker != nil && tracker.detailed {
 			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, toolsForLLM, generateOptions...)

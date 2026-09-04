@@ -15,8 +15,8 @@ type trackingTool struct {
 	tracker *usageTracker
 }
 
-func (t *trackingTool) Name() string                                  { return t.inner.Name() }
-func (t *trackingTool) Description() string                           { return t.inner.Description() }
+func (t *trackingTool) Name() string                                    { return t.inner.Name() }
+func (t *trackingTool) Description() string                             { return t.inner.Description() }
 func (t *trackingTool) Parameters() map[string]interfaces.ParameterSpec { return t.inner.Parameters() }
 
 func (t *trackingTool) Run(ctx context.Context, input string) (string, error) {
@@ -35,19 +35,19 @@ func (t *trackingTool) Execute(ctx context.Context, args string) (string, error)
 
 // DisplayName forwards to the inner tool when it implements ToolWithDisplayName.
 func (t *trackingTool) DisplayName() string {
-	if d, ok := t.inner.(interfaces.ToolWithDisplayName); ok {
-		return d.DisplayName()
-	}
-	return t.inner.Name()
+	name, _ := ForwardOptionalToolInterfaces(t.inner)
+	return name
 }
 
 // Internal forwards to the inner tool when it implements InternalTool.
 func (t *trackingTool) Internal() bool {
-	if i, ok := t.inner.(interfaces.InternalTool); ok {
-		return i.Internal()
-	}
-	return false
+	_, internal := ForwardOptionalToolInterfaces(t.inner)
+	return internal
 }
+
+// Unwrap returns the tool this decorator wraps, satisfying ToolUnwrapper so
+// callers can recover concrete type identity that wrapping erases.
+func (t *trackingTool) Unwrap() interfaces.Tool { return t.inner }
 
 // wrapToolsWithTracker wraps each tool so its invocation is recorded with the
 // tracker. Returns the original slice unchanged when tracker is nil.
