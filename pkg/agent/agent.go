@@ -1764,7 +1764,7 @@ func (a *Agent) GetAllConversations(ctx context.Context) ([]string, error) {
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetAllConversations(ctx)
 	}
 
@@ -1779,7 +1779,7 @@ func (a *Agent) GetConversationMessages(ctx context.Context, conversationID stri
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetConversationMessages(ctx, conversationID)
 	}
 
@@ -1794,7 +1794,7 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetMemoryStatistics(ctx)
 	}
 
