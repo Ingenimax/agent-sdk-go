@@ -87,11 +87,13 @@ type StreamConfigYAML struct {
 }
 
 // CacheConfigYAML represents prompt caching configuration in YAML (Anthropic only)
+// The cache_ttl key is no longer read: extended (1h) cache TTL requires an
+// anthropic-beta header this client does not send, so it never took effect.
+// Existing configs carrying it continue to load; the key is ignored.
 type CacheConfigYAML struct {
-	CacheSystemMessage *bool   `yaml:"cache_system_message,omitempty"`
-	CacheTools         *bool   `yaml:"cache_tools,omitempty"`
-	CacheConversation  *bool   `yaml:"cache_conversation,omitempty"`
-	CacheTTL           *string `yaml:"cache_ttl,omitempty"`
+	CacheSystemMessage *bool `yaml:"cache_system_message,omitempty"`
+	CacheTools         *bool `yaml:"cache_tools,omitempty"`
+	CacheConversation  *bool `yaml:"cache_conversation,omitempty"`
 }
 
 // LLMConfigYAML represents LLM configuration in YAML
@@ -758,9 +760,6 @@ func convertCacheConfigYAMLToInterface(cfg *CacheConfigYAML) *interfaces.CacheCo
 	}
 	if cfg.CacheConversation != nil {
 		cc.CacheConversation = *cfg.CacheConversation
-	}
-	if cfg.CacheTTL != nil {
-		cc.CacheTTL = *cfg.CacheTTL
 	}
 	return cc
 }

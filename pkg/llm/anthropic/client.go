@@ -466,18 +466,6 @@ func WithCacheConversation() interfaces.GenerateOption {
 	}
 }
 
-// WithCacheTTL creates a GenerateOption to set the cache duration.
-// Valid values are "5m" (default, 5 minutes) or "1h" (1 hour).
-// The 1-hour cache has additional cost but is useful for longer sessions.
-func WithCacheTTL(ttl string) interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if options.CacheConfig == nil {
-			options.CacheConfig = &interfaces.CacheConfig{}
-		}
-		options.CacheConfig.CacheTTL = ttl
-	}
-}
-
 // Generate generates text from a prompt
 func (c *AnthropicClient) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
 	response, err := c.generateInternal(ctx, prompt, options...)
