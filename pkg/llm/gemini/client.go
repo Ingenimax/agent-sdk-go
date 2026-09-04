@@ -606,6 +606,13 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	var lastContent string
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Stop between iterations when the caller has gone. Without this the loop
+		// runs to maxIterations regardless, and a tool that ignores its own
+		// context keeps executing after the run was cancelled.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+
 		// Set generation config
 		var genConfig *genai.GenerationConfig
 		if params.LLMConfig != nil {

@@ -225,6 +225,13 @@ func (c *Client) GenerateWithToolsDetailed(ctx context.Context, prompt string, t
 	var totalIn, totalOut int32
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Stop between iterations when the caller has gone. Without this the loop
+		// runs to maxIterations regardless, and a tool that ignores its own
+		// context keeps executing after the run was cancelled.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		input := &bedrockruntime.ConverseInput{
 			ModelId:         aws.String(c.Model),
 			Messages:        messages,

@@ -1073,6 +1073,13 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 
 	// Iterative tool calling loop
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Stop between iterations when the caller has gone. Without this the loop
+		// runs to maxIterations regardless, and a tool that ignores its own
+		// context keeps executing after the run was cancelled.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+
 		// Create request
 		req := CompletionRequest{
 			Model:       c.Model,
