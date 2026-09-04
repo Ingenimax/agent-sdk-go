@@ -6,50 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 )
-
-// concurrentStubLLM is a minimal interfaces.LLM that is safe to call from many
-// goroutines at once, so any race the detector reports comes from the Agent
-// rather than from the test double.
-type concurrentStubLLM struct{}
-
-func (*concurrentStubLLM) Name() string            { return "concurrent-stub" }
-func (*concurrentStubLLM) SupportsStreaming() bool { return false }
-
-func (*concurrentStubLLM) Generate(context.Context, string, ...interfaces.GenerateOption) (string, error) {
-	return "ok", nil
-}
-
-func (*concurrentStubLLM) GenerateWithTools(context.Context, string, []interfaces.Tool, ...interfaces.GenerateOption) (string, error) {
-	return "ok", nil
-}
-
-func (*concurrentStubLLM) GenerateDetailed(context.Context, string, ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return &interfaces.LLMResponse{Content: "ok", Model: "concurrent-stub"}, nil
-}
-
-func (*concurrentStubLLM) GenerateWithToolsDetailed(context.Context, string, []interfaces.Tool, ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return &interfaces.LLMResponse{Content: "ok", Model: "concurrent-stub"}, nil
-}
-
-// concurrentStubTool exists only so that len(allTools) > 0, which together with
-// the default requirePlanApproval=true selects the execution-plan path.
-type concurrentStubTool struct{ name string }
-
-func (t *concurrentStubTool) Name() string        { return t.name }
-func (t *concurrentStubTool) Description() string { return "stub tool for concurrency tests" }
-
-func (t *concurrentStubTool) Parameters() map[string]interfaces.ParameterSpec {
-	return map[string]interfaces.ParameterSpec{
-		"query": {Type: "string", Description: "anything", Required: false},
-	}
-}
-
-func (t *concurrentStubTool) Run(context.Context, string) (string, error) { return "stub", nil }
-
-func (t *concurrentStubTool) Execute(context.Context, string) (string, error) { return "stub", nil }
 
 // TestAgentRunIsSafeForConcurrentUse guards against reintroducing mutation of
 // shared Agent state from inside the run path.
@@ -72,9 +31,9 @@ func (t *concurrentStubTool) Execute(context.Context, string) (string, error) { 
 // with -race to be meaningful; CI does.
 func TestAgentRunIsSafeForConcurrentUse(t *testing.T) {
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("concurrency-agent"),
-		WithTools(&concurrentStubTool{name: "stub_tool"}),
+		WithTools(&testutil.FakeTool{ToolName: "stub_tool"}),
 		// requirePlanApproval is deliberately left at its default (true) so the
 		// execution-plan path -- the one that used to race -- is exercised.
 	)
@@ -112,9 +71,9 @@ func TestAgentRunIsSafeForConcurrentUse(t *testing.T) {
 // an interleaving.
 func TestAgentPlanGeneratorNotMutatedByRun(t *testing.T) {
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("plan-generator-agent"),
-		WithTools(&concurrentStubTool{name: "stub_tool"}),
+		WithTools(&testutil.FakeTool{ToolName: "stub_tool"}),
 	)
 	if err != nil {
 		t.Fatalf("NewAgent() error = %v", err)

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
@@ -100,7 +101,7 @@ func TestDecorateToolsAppliesPipelineInOrder(t *testing.T) {
 	second := recordingDecorator{label: "second", log: &log, mu: &mu}
 
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("pipeline-agent"),
 		WithTools(&namedTool{name: "leaf", displayName: "Leaf"}),
 		WithToolDecorator(first.decorate),
@@ -147,7 +148,7 @@ func TestDecorateToolsKeepsTrackerInnermost(t *testing.T) {
 	tracker := newUsageTracker(true)
 
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("tracker-order-agent"),
 		WithTools(&namedTool{name: "leaf"}),
 		WithToolDecorator(func(toolSet []interfaces.Tool) []interfaces.Tool {
@@ -184,7 +185,7 @@ func TestUnwrapToolRecoversConcreteType(t *testing.T) {
 	leaf := &namedTool{name: "leaf", displayName: "Leaf", internal: true}
 
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("unwrap-agent"),
 		WithTools(leaf),
 		WithToolDecorator(func(toolSet []interfaces.Tool) []interfaces.Tool {
@@ -219,7 +220,7 @@ func TestDecoratedToolsForwardOptionalInterfaces(t *testing.T) {
 	leaf := &namedTool{name: "leaf", displayName: "Human Readable", internal: true}
 
 	agent, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("forwarding-agent"),
 		WithTools(leaf),
 		WithToolDecorator(func(toolSet []interfaces.Tool) []interfaces.Tool {
@@ -266,7 +267,7 @@ func TestExecutionPlanExecutorSeesDecorators(t *testing.T) {
 	var mu sync.Mutex
 
 	_, err := NewAgent(
-		WithLLM(&concurrentStubLLM{}),
+		WithLLM(testutil.NewFakeLLM()),
 		WithName("plan-executor-agent"),
 		WithTools(&namedTool{name: "leaf"}),
 		WithToolDecorator(func(toolSet []interfaces.Tool) []interfaces.Tool {
