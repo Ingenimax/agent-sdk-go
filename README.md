@@ -42,6 +42,32 @@ Join our Discord server to collaborate, share what you're building, and get comm
 Highlights from the current development line. Full details, including every
 breaking change and its migration path, are in **[docs/upgrading.md](docs/upgrading.md)**.
 
+Most of this line is corrective — several features were not doing what they
+claimed. That is reflected below: the removals and fixes are listed because they
+change behaviour you may be relying on, not because they are achievements.
+
+### New API at a glance
+
+| API | What it gives you |
+| --- | --- |
+| `agent.WithToolDecorator(d)` | Interpose on every tool call — audit, deny, rewrite, time |
+| `agent.ToolDecorator` | The decorator signature: `func([]interfaces.Tool) []interfaces.Tool` |
+| `agent.UnwrapTool(t)` | Recover the concrete tool underneath a decorator chain |
+| `agent.ForwardOptionalToolInterfaces(t)` | Forward `DisplayName`/`Internal` when writing a decorator |
+| `interfaces.AsConversationMemory(m)` | Ask for conversation ops, seeing through decorators |
+| `interfaces.AsAdminConversationMemory(m)` | Same, for cross-org operations |
+| `interfaces.UnwrapMemory(m)` | The innermost `Memory` in a decorator chain |
+| `interfaces.MemoryUnwrapper` | Implement on your own `Memory` decorators |
+| `tools.WithSubAgentContext(ctx, parent, sub)` | Record a sub-agent invocation and its depth |
+| `tools.GetRecursionDepth(ctx)` | Current sub-agent recursion depth |
+| `tools.IsSubAgentCall(ctx)` | Whether this run is nested inside another agent |
+| `tools.ValidateRecursionDepth(ctx)` | Error once `tools.MaxRecursionDepth` is exceeded |
+| `agentconfig.WithLocalPath(path)` | Load config from a specific file |
+
+The `pkg/tools` sub-agent helpers already existed unexported; they are now public
+and are the counter the recursion guard actually enforces. The identically-named
+functions in `pkg/agent` delegate to them.
+
 ### 🔐 Remote configuration loading removed
 
 `pkg/agentconfig` used to fetch agent YAML over HTTP and unmarshal it straight
