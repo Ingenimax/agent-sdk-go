@@ -155,28 +155,26 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	ctx = context.WithValue(ctx, parentAgentKey, "main")
 	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
 
-	// Check if parent context has a deadline that would expire before our timeout
-	var cancel context.CancelFunc
+	// Bound the sub-agent by its own timeout, but always keep it a child of the
+	// caller's context so cancelling the parent run cancels the sub-agent too.
+	//
+	// This previously called context.WithoutCancel when the parent deadline was
+	// shorter than at.timeout, in order to "extend" the sub-agent's budget. That
+	// also severed cancellation propagation, which the comment did not say: with
+	// the default 30 minute timeout, cancelling a parent run left the sub-agent
+	// running for up to half an hour, still writing into shared memory, long
+	// after the caller had gone. A sub-agent outliving the run that spawned it is
+	// never what the caller asked for, so the parent deadline now wins.
 	parentDeadline, hasDeadline := ctx.Deadline()
-	desiredDeadline := time.Now().Add(at.timeout)
-
-	if hasDeadline && parentDeadline.Before(desiredDeadline) {
-		// Parent context has a shorter deadline - we need to extend it
-		// Create a new context that preserves values but has our longer timeout
-		at.logger.Warn(ctx, "Parent context has shorter deadline, extending timeout for sub-agent", map[string]interface{}{
+	if hasDeadline && parentDeadline.Before(time.Now().Add(at.timeout)) {
+		at.logger.Warn(ctx, "Parent deadline is earlier than the sub-agent timeout; the parent deadline applies", map[string]interface{}{
 			"parent_deadline": parentDeadline.Format(time.RFC3339),
 			"desired_timeout": at.timeout.String(),
 			"sub_agent":       agentName,
 		})
-
-		// Use context.WithoutCancel to remove parent's deadline while preserving values
-		// This is available in Go 1.21+, otherwise we need to manually copy values
-		newCtx := context.WithoutCancel(ctx)
-		ctx, cancel = context.WithTimeout(newCtx, at.timeout)
-	} else {
-		// Parent context doesn't have a shorter deadline, use normal timeout
-		ctx, cancel = context.WithTimeout(ctx, at.timeout)
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, at.timeout)
 	defer cancel()
 
 	// Log sub-agent invocation with debug details

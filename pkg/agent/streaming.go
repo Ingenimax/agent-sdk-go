@@ -192,7 +192,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 		// Check if the user is asking about the agent's role or identity
 		if a.systemPrompt != "" && a.isAskingAboutRole(processedInput) {
-			response := a.generateRoleResponse()
+			response := a.generateRoleResponse(ctx)
 
 			// Add the role response to memory if available
 			if a.memory != nil {

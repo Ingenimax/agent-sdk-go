@@ -932,7 +932,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
-		response := a.generateRoleResponse()
+		response := a.generateRoleResponse(ctx)
 
 		if a.memory != nil {
 			if err := a.memory.AddMessage(ctx, interfaces.Message{
@@ -956,7 +956,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		mcpTools, err := a.collectMCPTools(ctx)
 		if err != nil {
 			// Log warning but continue - MCP tools are optional
-			a.logger.Warn(context.Background(), fmt.Sprintf("Failed to collect MCP tools: %v", err), nil)
+			a.logger.Warn(ctx, fmt.Sprintf("Failed to collect MCP tools: %v", err), nil)
 		} else if len(mcpTools) > 0 {
 			allTools = deduplicateTools(append(allTools, mcpTools...))
 		}
@@ -1601,8 +1601,14 @@ func (a *Agent) isAskingAboutRole(input string) bool {
 	return false
 }
 
-// generateRoleResponse creates a response based on the agent's system prompt
-func (a *Agent) generateRoleResponse() string {
+// generateRoleResponse creates a response based on the agent's system prompt.
+//
+// ctx is threaded through so this call is cancellable. It previously used
+// context.Background(), making it the one LLM call on a normal run path that
+// ignored caller cancellation entirely -- and it is reached whenever a
+// system prompt is set and the input looks like a question about the agent's
+// role, so it is not a rare path.
+func (a *Agent) generateRoleResponse(ctx context.Context) string {
 	// If the prompt is empty, return a generic response
 	if a.systemPrompt == "" || a.llm == nil {
 		return "I'm an AI assistant designed to help you with various tasks and answer your questions. How can I assist you today?"
@@ -1638,7 +1644,7 @@ Response:`, agentName, a.systemPrompt, agentName)
 	generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
 
 	// Generate the response
-	response, err := a.llm.Generate(context.Background(), prompt, generateOptions...)
+	response, err := a.llm.Generate(ctx, prompt, generateOptions...)
 	if err != nil {
 		// Fallback to a simple response in case of errors
 		if a.name != "" {
