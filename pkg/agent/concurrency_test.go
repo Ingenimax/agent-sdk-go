@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 )
 
 // concurrentStubLLM is a minimal interfaces.LLM that is safe to call from many
@@ -131,5 +132,57 @@ func TestAgentPlanGeneratorNotMutatedByRun(t *testing.T) {
 	if agent.planGenerator != before {
 		t.Error("Agent.planGenerator was reassigned by Run; it must be written " +
 			"once at construction and read-only thereafter, or concurrent runs race on it")
+	}
+}
+
+// TestRecursionDepthIsASingleCounter guards against reintroducing a second set
+// of sub-agent context keys.
+//
+// pkg/agent used to declare `type ContextKey string` with the same string
+// values as the unexported keys in pkg/tools. Go context keys compare by type
+// AND value, so those were two distinct key sets backing two independent
+// counters. Depth recorded through pkg/agent was invisible to the guard in
+// pkg/tools that actually runs before a sub-agent is invoked, so the recursion
+// limit could be exceeded without ever tripping.
+func TestRecursionDepthIsASingleCounter(t *testing.T) {
+	ctx := context.Background()
+
+	if got := GetRecursionDepth(ctx); got != 0 {
+		t.Fatalf("fresh context depth = %d, want 0", got)
+	}
+
+	// Record depth through the pkg/agent API...
+	ctx = WithSubAgentContext(ctx, "parent", "child")
+
+	// ...and observe it through the pkg/tools API, which owns the live guard.
+	if got := tools.GetRecursionDepth(ctx); got != 1 {
+		t.Errorf("depth recorded via agent.WithSubAgentContext is %d when read through "+
+			"tools.GetRecursionDepth, want 1: the two packages are using different context keys, "+
+			"so the recursion guard cannot see depth recorded by the agent package", got)
+	}
+
+	if !IsSubAgentCall(ctx) {
+		t.Error("IsSubAgentCall should be true after WithSubAgentContext")
+	}
+
+	// And the reverse direction, so neither package can drift alone.
+	ctx = tools.WithSubAgentContext(ctx, "child", "grandchild")
+	if got := GetRecursionDepth(ctx); got != 2 {
+		t.Errorf("depth recorded via tools.WithSubAgentContext is %d when read through "+
+			"agent.GetRecursionDepth, want 2", got)
+	}
+}
+
+// TestValidateRecursionDepthUsesTheSharedLimit asserts the depth check trips
+// against the same counter the guard increments.
+func TestValidateRecursionDepthUsesTheSharedLimit(t *testing.T) {
+	ctx := context.Background()
+	for i := 0; i <= MaxRecursionDepth; i++ {
+		ctx = tools.WithSubAgentContext(ctx, "parent", "child")
+	}
+
+	if err := ValidateRecursionDepth(ctx); err == nil {
+		t.Errorf("ValidateRecursionDepth returned nil at depth %d, want an error above %d",
+			GetRecursionDepth(ctx), MaxRecursionDepth)
 	}
 }

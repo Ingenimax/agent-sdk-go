@@ -435,3 +435,65 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 func WithStreamForwarder(ctx context.Context, forwarder interfaces.StreamForwarder) context.Context {
 	return context.WithValue(ctx, interfaces.StreamForwarderKey, forwarder)
 }
+
+// The exported helpers below make pkg/tools the single owner of sub-agent
+// context keys.
+//
+// pkg/agent previously declared its own `type ContextKey string` with the same
+// string values ("recursion_depth", "sub_agent_name", ...). Go context keys
+// compare by type AND value, so those were a completely separate set of keys:
+// two independent recursion counters that could not observe each other. The
+// live guard is the one in this package, reached through AgentTool.Execute;
+// the pkg/agent copy was exercised only by a test and by
+// examples/subagents/depth_validation, which therefore demonstrated a recursion
+// guard that did not protect anything. pkg/agent now delegates here, since it
+// already imports pkg/tools and the dependency cannot run the other way.
+
+// WithSubAgentContext records a sub-agent invocation on ctx, incrementing the
+// recursion depth.
+func WithSubAgentContext(ctx context.Context, parentAgent, subAgentName string) context.Context {
+	return withSubAgentContext(ctx, parentAgent, subAgentName)
+}
+
+// GetRecursionDepth returns the current sub-agent recursion depth.
+func GetRecursionDepth(ctx context.Context) int {
+	return getRecursionDepth(ctx)
+}
+
+// GetSubAgentName returns the name of the sub-agent being invoked, or "".
+func GetSubAgentName(ctx context.Context) string {
+	if name, ok := ctx.Value(subAgentNameKey).(string); ok {
+		return name
+	}
+	return ""
+}
+
+// GetParentAgent returns the name of the invoking parent agent, or "".
+func GetParentAgent(ctx context.Context) string {
+	if parent, ok := ctx.Value(parentAgentKey).(string); ok {
+		return parent
+	}
+	return ""
+}
+
+// GetInvocationID returns the invocation ID for this sub-agent call, or "".
+func GetInvocationID(ctx context.Context) string {
+	if id, ok := ctx.Value(invocationIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// IsSubAgentCall reports whether ctx is inside a sub-agent invocation.
+func IsSubAgentCall(ctx context.Context) bool {
+	return GetRecursionDepth(ctx) > 0
+}
+
+// ValidateRecursionDepth reports an error when the sub-agent recursion depth
+// has exceeded MaxRecursionDepth.
+func ValidateRecursionDepth(ctx context.Context) error {
+	if depth := GetRecursionDepth(ctx); depth > MaxRecursionDepth {
+		return fmt.Errorf("maximum recursion depth %d exceeded (current: %d)", MaxRecursionDepth, depth)
+	}
+	return nil
+}
