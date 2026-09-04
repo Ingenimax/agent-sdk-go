@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
@@ -22,19 +23,11 @@ func ExampleBasicUsage() {
 	fmt.Printf("Agent loaded from source: %s\n", agentInstance.GetConfig().ConfigSource.Type)
 }
 
-// ExampleExplicitSources shows how to force specific configuration sources
+// ExampleExplicitSources shows how to load from a specific configuration file
 func ExampleExplicitSources() {
 	ctx := context.Background()
 
-	// Example 2: Force remote configuration only
-	remoteAgent, err := LoadAgentFromRemote(ctx, "research-assistant", "production")
-	if err != nil {
-		log.Printf("Remote loading failed: %v", err)
-		// Handle fallback or error
-		return
-	}
-
-	// Example 3: Force local configuration only
+	// Load from the conventional local locations
 	localAgent, err := LoadAgentFromLocal(ctx, "research-assistant", "production")
 	if err != nil {
 		log.Printf("Local loading failed: %v", err)
@@ -42,8 +35,17 @@ func ExampleExplicitSources() {
 		return
 	}
 
-	fmt.Printf("Remote agent loaded from: %s\n", remoteAgent.GetConfig().ConfigSource.Source)
+	// Or point at an explicit file
+	pinnedConfig, err := LoadAgentConfig(ctx, "research-assistant", "production",
+		WithLocalPath("./configs/research-assistant.yaml"),
+	)
+	if err != nil {
+		log.Printf("Loading from explicit path failed: %v", err)
+		return
+	}
+
 	fmt.Printf("Local agent loaded from: %s\n", localAgent.GetConfig().ConfigSource.Source)
+	fmt.Printf("Pinned config loaded from: %s\n", pinnedConfig.ConfigSource.Source)
 }
 
 // ExampleConfigurationPreview shows how to preview configurations without creating agents
@@ -68,10 +70,10 @@ func ExampleAdvancedOptions() {
 
 	// Load with custom options
 	loadOptions := []LoadOption{
-		WithLocalFallback("./configs/research.yaml"), // Specific fallback file
-		WithCache(10 * time.Minute),                  // Longer cache
-		WithEnvOverrides(),                           // Enable env var overrides
-		WithVerbose(),                               // Enable logging
+		WithLocalPath("./configs/research.yaml"), // Specific config file
+		WithCache(10 * time.Minute),              // Longer cache
+		WithEnvOverrides(),                       // Enable env var overrides
+		WithVerbose(),                            // Enable logging
 	}
 
 	// Agent options for customization
@@ -115,7 +117,7 @@ func ExampleErrorHandling() {
 	agentInstance, err := LoadAgentAuto(ctx, "nonexistent-agent", "production")
 	if err != nil {
 		// Check if it's a specific error type
-		if err.Error() == "failed to load agent config from any source" {
+		if strings.Contains(err.Error(), "failed to load agent config") {
 			log.Printf("Agent not found in any configuration source")
 			// Try creating a default agent or prompt user
 		} else {
