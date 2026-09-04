@@ -322,3 +322,20 @@ func main() {
 
 // WeatherTool implementation (as shown in the custom tool example)
 ```
+
+## Interposing on tool calls
+
+To audit, deny, rewrite or time **every** tool call an agent makes — without
+touching any LLM provider — register a decorator on the agent's tool pipeline:
+
+```go
+agent, err := agent.NewAgent(
+    agent.WithLLM(llm),
+    agent.WithTools(searchTool, deployTool),
+    agent.WithToolDecorator(auditing),
+)
+```
+
+See [Tool pipeline](tool-pipeline.md) for how to write one, how ordering works,
+and why decorating the tool slice is the only interposition point that reaches
+every provider.

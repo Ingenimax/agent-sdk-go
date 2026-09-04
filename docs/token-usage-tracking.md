@@ -293,3 +293,34 @@ Based on this analysis, our implementation should:
 ---
 
 *This plan addresses GitHub Issue #166: "[FEATURE] Show token usage"*
+## Execution summary
+
+`AgentResponse.ExecutionSummary` accompanies the token counts:
+
+| Field | Meaning |
+| --- | --- |
+| `LLMCalls` | Number of LLM invocations in the run |
+| `ToolCalls` | Number of tool **invocations** |
+| `SubAgentCalls` | Number of sub-agent invocations |
+| `ExecutionTimeMs` | Wall-clock duration |
+| `UsedTools` | Distinct tool names, deduplicated |
+| `UsedSubAgents` | Distinct sub-agent names |
+
+`ToolCalls` counts calls; `UsedTools` is the distinct set. Calling one tool
+forty times gives `ToolCalls == 40` and `len(UsedTools) == 1`.
+
+> **Changed:** `ToolCalls` previously incremented only the first time a given
+> tool was seen, making it always exactly `len(UsedTools)`. Dashboards reading
+> this field will show higher, correct numbers after upgrading. See
+> [Upgrading](upgrading.md#executionsummarytoolcalls-counts-calls-not-distinct-tools).
+
+Usage is only recorded when the run is started through `RunDetailed`; the plain
+`Run` path does not populate these fields.
+
+## Where tool calls are recorded
+
+Tool invocations are counted by a decorator wrapped around each tool, applied
+innermost in the [tool pipeline](tool-pipeline.md). It records a call when the
+tool is actually invoked, not when it is merely offered to the model — and it
+sits beneath any decorator that can deny a call, so a denied call is not counted
+as executed.

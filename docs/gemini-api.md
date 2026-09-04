@@ -32,7 +32,7 @@ The Gemini client in the Agent SDK for Go provides a unified interface for inter
 ### Prerequisites
 
 1. **API Key**: Obtain your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. **Go Version**: Go 1.24+ required
+2. **Go Version**: Go 1.26+ required
 3. **Dependencies**: The SDK automatically includes required Google API dependencies
 
 ### Environment Setup

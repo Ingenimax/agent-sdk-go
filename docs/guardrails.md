@@ -20,6 +20,38 @@ You can also specify a configuration file:
 export GUARDRAILS_CONFIG_PATH=/path/to/guardrails.yaml
 ```
 
+## When guardrails run
+
+Input guardrails run **before** the user message is written to memory, and the
+guarded text is what gets persisted and sent to the model. An input your
+guardrail rejects is not written to memory at all.
+
+That ordering is load-bearing. The LLM providers build their request from
+memory, not from the value returned by `ProcessInput` — for example
+`pkg/llm/openai/message_history.go` appends the prompt argument only when memory
+is `nil`:
+
+```go
+} else {
+    // Only append current user message when memory is nil
+    messages = append(messages, openai.UserMessage(prompt))
+}
+```
+
+> **Changed:** both run paths previously wrote the raw input to memory and only
+> then called `ProcessInput`, assigning the result to a local variable the
+> providers never read. With memory configured — the normal case — **the model
+> was shown the unguarded input and input guardrails had no effect at all.**
+> After upgrading you may see rejections fire for the first time. See
+> [Upgrading](upgrading.md#input-guardrails-now-actually-apply).
+
+### Known limitation: streaming output
+
+`ProcessOutput` runs only on the synchronous path. **Output guardrails do not
+apply to streamed responses.** If you depend on output filtering, do not use
+`RunStream` until this is addressed; guarding incremental deltas requires a
+design decision that has not been made.
+
 ## Using Guardrails with an Agent
 
 To use guardrails with an agent, pass them to the `WithGuardrails` option:
