@@ -968,8 +968,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
-		return a.runWithExecutionPlan(ctx, input)
+		return a.runWithExecutionPlan(ctx, input, a.planGeneratorFor(allTools))
 	}
 
 	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, allTools)
@@ -1451,10 +1450,30 @@ func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (string, error)
 	return fmt.Sprintf("Current plan status: %s\n\n%s", status, formattedPlan), nil
 }
 
-// runWithExecutionPlan runs the agent with an execution plan
-func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string, error) {
+// planGeneratorFor returns an execution-plan generator scoped to one run.
+//
+// Tools are not fully known at construction time -- MCP servers are contacted
+// per run and lazy MCP tools are materialised per run -- so the generator has
+// to be built from the tool set this run actually assembled. It is returned
+// rather than stored on the Agent: writing a.planGenerator from inside the run
+// path raced with concurrent runs reading it, and did so on the default
+// configuration, since requirePlanApproval defaults to true and sub-agents are
+// shared *Agent pointers.
+func (a *Agent) planGeneratorFor(allTools []interfaces.Tool) *executionplan.Generator {
+	return executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
+}
+
+// runWithExecutionPlan runs the agent with an execution plan.
+//
+// gen is the run-scoped generator from planGeneratorFor. When nil, the
+// construction-time generator is used.
+func (a *Agent) runWithExecutionPlan(ctx context.Context, input string, gen *executionplan.Generator) (string, error) {
+	if gen == nil {
+		gen = a.planGenerator
+	}
+
 	// Generate an execution plan
-	plan, err := a.planGenerator.GenerateExecutionPlan(ctx, input)
+	plan, err := gen.GenerateExecutionPlan(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate execution plan: %w", err)
 	}

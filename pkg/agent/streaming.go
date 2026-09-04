@@ -242,7 +242,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// If tools are available and plan approval is required, we can't stream execution plans yet
 		if (len(allTools) > 0) && a.requirePlanApproval {
 			// For now, fall back to non-streaming execution plan generation
-			result, err := a.runWithExecutionPlan(ctx, processedInput)
+			result, err := a.runWithExecutionPlan(ctx, processedInput, a.planGeneratorFor(allTools))
 			if err != nil {
 				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
