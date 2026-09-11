@@ -1204,6 +1204,7 @@ For more detailed information, you can also refer to the following documents:
 - [Configuration Loader](docs/unified-config-loader.md)
 - [Configuration Merge](docs/config-merge.md)
 - [Sub-Agents](docs/subagents.md)
+- [Multi-Agent Patterns](docs/multi-agent.md) - sequential, parallel, loop, graph
 - [Token Usage Tracking](docs/token-usage-tracking.md)
 - [Development](docs/development.md)
 - [Upgrading](docs/upgrading.md) - breaking changes and migration paths
