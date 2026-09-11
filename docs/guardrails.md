@@ -45,12 +45,41 @@ is `nil`:
 > After upgrading you may see rejections fire for the first time. See
 > [Upgrading](upgrading.md#input-guardrails-now-actually-apply).
 
-### Known limitation: streaming output
+### Known limitation: output guardrails run on one path in five
 
-`ProcessOutput` runs only on the synchronous path. **Output guardrails do not
-apply to streamed responses.** If you depend on output filtering, do not use
-`RunStream` until this is addressed; guarding incremental deltas requires a
-design decision that has not been made.
+**`ProcessOutput` has exactly one call site in the entire module**, in
+`runWithoutExecutionPlanWithToolsTracked` (`pkg/agent/agent.go:1287`). Five
+terminal paths can return a response, and only that one reaches it:
+
+| Path | `ProcessOutput` runs? |
+| --- | --- |
+| `runWithoutExecutionPlanWithToolsTracked` | **yes** |
+| `runWithExecutionPlan` — **the default whenever tools are present** | no |
+| `generateRoleResponse` (role/identity questions) | no |
+| `handlePlanAction` (plan approve/modify/cancel) | no |
+| `RunStream` / `runLocalStream` | no |
+
+The second row is the one that matters: `requirePlanApproval` defaults to
+`true` (`agent.go:632`), so an agent configured with tools takes the
+execution-plan path by default, and output guardrails never run.
+
+**Do not rely on output guardrails today.** Setting
+`agent.WithRequirePlanApproval(false)` and avoiding `RunStream` gets you the one
+path that works, but that is a workaround, not a fix.
+
+> An earlier version of this page said `ProcessOutput` "runs only on the
+> synchronous path". That was wrong and understated the gap — most of the
+> synchronous path does not reach it either.
+
+### Known limitation: custom run functions bypass guardrails entirely
+
+`agent.WithCustomRunFunction` and `agent.WithCustomRunStreamFunction` are
+checked **before** the shared run preamble (`agent.go:838`, `streaming.go:33`).
+An agent configured with either gets **no input guardrails, no memory write and
+no tracing** — the custom function's output is returned verbatim.
+
+If you use a custom run function and need guardrails, call
+`ProcessInput`/`ProcessOutput` yourself inside it.
 
 ## Using Guardrails with an Agent
 

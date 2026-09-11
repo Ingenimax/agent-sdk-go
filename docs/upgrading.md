@@ -117,9 +117,16 @@ memory at all.
 You may see previously-hidden guardrail rejections start firing after
 upgrading. That is the feature working.
 
-**Known remaining gap:** `guardrails.ProcessOutput` runs only on the synchronous
-path. Output guardrails still do not apply to streamed responses. Fixing that
-requires deciding how to guard incremental deltas and has not been done.
+**Known remaining gap, larger than it first appeared:** `guardrails.ProcessOutput`
+has exactly one call site in the module, inside
+`runWithoutExecutionPlanWithToolsTracked`. Of the five terminal response paths,
+only that one reaches it. Because `requirePlanApproval` defaults to `true`, an
+agent with tools takes `runWithExecutionPlan` by default and output guardrails
+never run. `generateRoleResponse`, `handlePlanAction` and the whole streaming
+path miss it too. Separately, `WithCustomRunFunction` and
+`WithCustomRunStreamFunction` are checked before the run preamble, so they
+bypass input guardrails, the memory write and tracing as well.
+See [Guardrails](guardrails.md#known-limitation-output-guardrails-run-on-one-path-in-five).
 
 ### Conversation summaries no longer destroy history
 

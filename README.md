@@ -89,6 +89,10 @@ Guardrails now run first, and the guarded text is what is persisted and sent.
 If you rely on guardrails to strip secrets or block injection, they were not
 doing so. You may see rejections fire for the first time after upgrading.
 
+**Output guardrails remain broken** and are not fixed here: `ProcessOutput` has
+one call site, reached by one of five terminal paths — and not the default one.
+See [guardrails.md](docs/guardrails.md#known-limitation-output-guardrails-run-on-one-path-in-five).
+
 → [Details](docs/upgrading.md#input-guardrails-now-actually-apply) ·
 [Guardrails](docs/guardrails.md)
 

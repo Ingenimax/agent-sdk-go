@@ -705,6 +705,12 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// The execution-plan executor calls tool.Execute directly, bypassing the
 	// provider tool loop entirely. requirePlanApproval defaults to true, so this
 	// is the SDK's default path and must see the same decorators.
+	//
+	// The tracker is nil here and that is a known gap, not an oversight: the
+	// executor is built once at construction while the usage tracker is created
+	// per run, so there is nothing to pass. Pipeline decorators apply on this
+	// path; usage accounting does not. Fixing it means building the executor per
+	// run, which is deferred to the Runner work.
 	agent.planExecutor = executionplan.NewExecutor(agent.decorateTools(allTools, nil))
 
 	return agent, nil
