@@ -430,6 +430,40 @@ func main() {
     fmt.Println("Response 2:", response2)
 }
 
+## Semantic recall (vector store)
+
+`VectorStoreRetriever` embeds every message into a vector store and can surface
+relevant earlier turns on later questions.
+
+```go
+mem := memory.NewVectorStoreRetriever(store,
+    memory.WithAutoRecall(),      // search the store on every read
+    memory.WithRecallLimit(5),    // how many excerpts to surface
+)
+```
+
+> **Important:** without `WithAutoRecall` the store is **write-only**. Reads only
+> searched it when the caller passed `interfaces.WithQuery`, and no LLM provider
+> does — every one builds its request with a bare `GetMessages()`. So messages
+> were embedded and stored, and nothing ever read them back. `WithAutoRecall` is
+> opt-in because enabling it changes what the model sees, but without it you are
+> paying embedding cost for nothing.
+
+With auto-recall on, the most recent user message is used as the query — it is
+what the agent is being asked to answer.
+
+### Recalled content never reorders the transcript
+
+Recalled excerpts arrive as a single leading system message; the real message
+sequence is passed through untouched.
+
+That is deliberate. A similarity search returns results that are neither
+contiguous nor chronological, and splicing them into the message list would
+separate `tool_call` from its `tool_result` — which both the OpenAI and
+Anthropic APIs reject outright. Content already present in the recent window is
+skipped, so the model is not told the same thing twice, and a failing vector
+store degrades to the plain transcript rather than failing the turn.
+
 ## Capability discovery through decorators
 
 `interfaces.Memory` is three methods — `AddMessage`, `GetMessages`, `Clear`.

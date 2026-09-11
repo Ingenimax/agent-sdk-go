@@ -500,3 +500,116 @@ var (
 func NewFakeLLM() *FakeLLM {
 	return &FakeLLM{DefaultResponse: "ok"}
 }
+
+// FakeVectorStore is an interfaces.VectorStore that records what it was asked
+// to store and search, and returns canned results.
+//
+// interfaces.VectorStore is a twelve-method interface, so hand-rolling one per
+// test is exactly the duplication this package exists to prevent.
+type FakeVectorStore struct {
+	// Results is returned by Search and SearchByVector.
+	Results []interfaces.SearchResult
+
+	// SearchErr, when set, is returned by every search.
+	SearchErr error
+
+	// StoreErr, when set, is returned by every store.
+	StoreErr error
+
+	mu       sync.Mutex
+	stored   []interfaces.Document
+	searches []string
+}
+
+// Store implements interfaces.VectorStore.
+func (f *FakeVectorStore) Store(_ context.Context, documents []interfaces.Document, _ ...interfaces.StoreOption) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.StoreErr != nil {
+		return f.StoreErr
+	}
+	f.stored = append(f.stored, documents...)
+	return nil
+}
+
+// Get implements interfaces.VectorStore.
+func (f *FakeVectorStore) Get(_ context.Context, id string, _ ...interfaces.StoreOption) (*interfaces.Document, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.stored {
+		if f.stored[i].ID == id {
+			doc := f.stored[i]
+			return &doc, nil
+		}
+	}
+	return nil, fmt.Errorf("document %q not found", id)
+}
+
+// Search implements interfaces.VectorStore.
+func (f *FakeVectorStore) Search(_ context.Context, query string, _ int, _ ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.searches = append(f.searches, query)
+	if f.SearchErr != nil {
+		return nil, f.SearchErr
+	}
+	return f.Results, nil
+}
+
+// SearchByVector implements interfaces.VectorStore.
+func (f *FakeVectorStore) SearchByVector(_ context.Context, _ []float32, _ int, _ ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.SearchErr != nil {
+		return nil, f.SearchErr
+	}
+	return f.Results, nil
+}
+
+// Delete implements interfaces.VectorStore.
+func (f *FakeVectorStore) Delete(context.Context, []string, ...interfaces.DeleteOption) error {
+	return nil
+}
+
+// GlobalStore implements interfaces.VectorStore.
+func (f *FakeVectorStore) GlobalStore(ctx context.Context, documents []interfaces.Document, opts ...interfaces.StoreOption) error {
+	return f.Store(ctx, documents, opts...)
+}
+
+// GlobalSearch implements interfaces.VectorStore.
+func (f *FakeVectorStore) GlobalSearch(ctx context.Context, query string, limit int, opts ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	return f.Search(ctx, query, limit, opts...)
+}
+
+// GlobalSearchByVector implements interfaces.VectorStore.
+func (f *FakeVectorStore) GlobalSearchByVector(ctx context.Context, vector []float32, limit int, opts ...interfaces.SearchOption) ([]interfaces.SearchResult, error) {
+	return f.SearchByVector(ctx, vector, limit, opts...)
+}
+
+// GlobalDelete implements interfaces.VectorStore.
+func (f *FakeVectorStore) GlobalDelete(context.Context, []string, ...interfaces.DeleteOption) error {
+	return nil
+}
+
+// CreateTenant implements interfaces.VectorStore.
+func (f *FakeVectorStore) CreateTenant(context.Context, string) error { return nil }
+
+// DeleteTenant implements interfaces.VectorStore.
+func (f *FakeVectorStore) DeleteTenant(context.Context, string) error { return nil }
+
+// ListTenants implements interfaces.VectorStore.
+func (f *FakeVectorStore) ListTenants(context.Context) ([]string, error) { return nil, nil }
+
+// Stored returns every document handed to Store, in order.
+func (f *FakeVectorStore) Stored() []interfaces.Document {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]interfaces.Document(nil), f.stored...)
+}
+
+// Searches returns every query passed to Search, in order.
+func (f *FakeVectorStore) Searches() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.searches...)
+}
