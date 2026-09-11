@@ -1205,6 +1205,7 @@ For more detailed information, you can also refer to the following documents:
 - [Configuration Merge](docs/config-merge.md)
 - [Sub-Agents](docs/subagents.md)
 - [Multi-Agent Patterns](docs/multi-agent.md) - sequential, parallel, loop, graph
+- [Agent Capabilities](docs/capabilities.md) - sessions, runs, hooks, skills, consolidation
 - [Token Usage Tracking](docs/token-usage-tracking.md)
 - [Development](docs/development.md)
 - [Upgrading](docs/upgrading.md) - breaking changes and migration paths
