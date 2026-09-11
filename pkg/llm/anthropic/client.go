@@ -565,26 +565,14 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 		req.StopSequences = params.LLMConfig.StopSequences
 	}
 
-	// Handle reasoning/thinking if supported
-	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && SupportsThinking(c.Model) {
-		req.Thinking = &ReasoningSpec{
-			Type: "enabled",
-		}
-		if params.LLMConfig.ReasoningBudget > 0 {
-			req.Thinking.BudgetTokens = params.LLMConfig.ReasoningBudget
-		}
-		// Anthropic requires temperature = 1.0 when thinking is enabled
-		req.Temperature = 1.0
-		c.logger.Debug(ctx, "Enabled reasoning (thinking) tokens", map[string]interface{}{
-			"model":         c.Model,
-			"budget_tokens": params.LLMConfig.ReasoningBudget,
-			"max_tokens":    req.MaxTokens,
-			"temperature":   req.Temperature, // Show override
-		})
-	} else if params.LLMConfig != nil && params.LLMConfig.EnableReasoning {
-		c.logger.Warn(ctx, "Thinking tokens not supported by this model", map[string]interface{}{
-			"model":            c.Model,
-			"supported_models": []string{"claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-opus-4-1-20250805"},
+	// Adaptive thinking (Claude 4.6+ only); adaptive-capable models reject temperature/top_p.
+	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning {
+		req.Thinking = &ReasoningSpec{Type: "adaptive"}
+		req.Temperature = 0
+		req.TopP = 0
+		c.logger.Debug(ctx, "Enabled adaptive reasoning (thinking)", map[string]interface{}{
+			"model":      c.Model,
+			"max_tokens": req.MaxTokens,
 		})
 	}
 
@@ -1117,6 +1105,17 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		// Add reasoning parameter if available
 		if params.LLMConfig != nil && params.LLMConfig.Reasoning != "" {
 			c.logger.Debug(ctx, "Reasoning mode not supported in current API version", map[string]interface{}{"reasoning": params.LLMConfig.Reasoning})
+		}
+
+		// Adaptive thinking (Claude 4.6+ only); adaptive-capable models reject temperature/top_p.
+		if params.LLMConfig != nil && params.LLMConfig.EnableReasoning {
+			req.Thinking = &ReasoningSpec{Type: "adaptive"}
+			req.Temperature = 0
+			req.TopP = 0
+			c.logger.Debug(ctx, "Enabled adaptive reasoning (thinking) with tools", map[string]interface{}{
+				"model":      c.Model,
+				"max_tokens": req.MaxTokens,
+			})
 		}
 
 		// Send request
