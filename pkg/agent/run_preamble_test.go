@@ -26,7 +26,7 @@ func (g *redactingGuardrails) ProcessInput(_ context.Context, input string) (str
 }
 
 func (g *redactingGuardrails) ProcessOutput(_ context.Context, output string) (string, error) {
-	return output, nil
+	return strings.ReplaceAll(output, "SECRET", "[REDACTED]"), nil
 }
 
 func preambleCtx() context.Context {
@@ -233,4 +233,121 @@ func TestAssembleToolsDeduplicates(t *testing.T) {
 	if seen["same"] > 1 {
 		t.Errorf("assembleTools() returned %d tools named %q, want at most 1", seen["same"], "same")
 	}
+}
+
+// TestOutputGuardrailsRunOnTheDefaultPath guards the fix for output guardrails
+// that almost never ran.
+//
+// ProcessOutput used to have exactly one call site, inside
+// runWithoutExecutionPlanWithToolsTracked. Five terminal paths can return a
+// response and only that one reached it. Because requirePlanApproval defaults
+// to true, an agent configured with tools takes runWithExecutionPlan by
+// default -- so on the SDK's DEFAULT configuration, output guardrails did not
+// run at all.
+func TestOutputGuardrailsRunOnTheDefaultPath(t *testing.T) {
+	mem := memory.NewConversationBuffer()
+
+	agent, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("default-path-agent"),
+		WithMemory(mem),
+		WithGuardrails(&redactingGuardrails{}),
+		WithTools(&testutil.FakeTool{ToolName: "stub"}),
+		// requirePlanApproval left at its default (true), which is what selects
+		// the execution-plan path.
+	)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+	if !agent.requirePlanApproval {
+		t.Fatal("expected requirePlanApproval to default true; this test only " +
+			"covers the previously-unguarded path when it does")
+	}
+
+	out, err := agent.finishRun(preambleCtx(), "the value is SECRET")
+	if err != nil {
+		t.Fatalf("finishRun() error = %v", err)
+	}
+
+	if strings.Contains(out, "SECRET") {
+		t.Errorf("finishRun returned unguarded text %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED]") {
+		t.Errorf("finishRun returned %q, want the redacted form", out)
+	}
+}
+
+// TestFinishRunPersistsGuardedOutput asserts the transcript holds what the
+// guardrail approved, so the next turn replays guarded text rather than raw
+// model output.
+func TestFinishRunPersistsGuardedOutput(t *testing.T) {
+	mem := memory.NewConversationBuffer()
+
+	agent, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("persist-guarded-agent"),
+		WithMemory(mem),
+		WithGuardrails(&redactingGuardrails{}),
+	)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	ctx := preambleCtx()
+	if _, err := agent.finishRun(ctx, "the value is SECRET"); err != nil {
+		t.Fatalf("finishRun() error = %v", err)
+	}
+
+	msgs, err := mem.GetMessages(ctx)
+	if err != nil {
+		t.Fatalf("GetMessages() error = %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("memory holds %d messages, want 1", len(msgs))
+	}
+	if strings.Contains(msgs[0].Content, "SECRET") {
+		t.Errorf("memory holds UNGUARDED output %q: the next turn would replay it "+
+			"to the model", msgs[0].Content)
+	}
+	if msgs[0].Role != interfaces.MessageRoleAssistant {
+		t.Errorf("role = %q, want %q", msgs[0].Role, interfaces.MessageRoleAssistant)
+	}
+}
+
+// TestGuardOutputRejectionIsNotPersisted asserts a rejected response does not
+// reach the transcript.
+func TestGuardOutputRejectionIsNotPersisted(t *testing.T) {
+	mem := memory.NewConversationBuffer()
+	sentinel := errors.New("output blocked by policy")
+
+	agent, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("reject-output-agent"),
+		WithMemory(mem),
+		WithGuardrails(&blockingOutputGuardrails{err: sentinel}),
+	)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	ctx := preambleCtx()
+	if _, err := agent.finishRun(ctx, "anything"); err == nil {
+		t.Fatal("finishRun() returned no error when output guardrails rejected the response")
+	}
+
+	msgs, _ := mem.GetMessages(ctx)
+	if len(msgs) != 0 {
+		t.Errorf("memory holds %d messages after a rejected response, want 0", len(msgs))
+	}
+}
+
+// blockingOutputGuardrails rejects on output only.
+type blockingOutputGuardrails struct{ err error }
+
+func (g *blockingOutputGuardrails) ProcessInput(_ context.Context, in string) (string, error) {
+	return in, nil
+}
+
+func (g *blockingOutputGuardrails) ProcessOutput(context.Context, string) (string, error) {
+	return "", g.err
 }

@@ -173,21 +173,16 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 		// Check if the user is asking about the agent's role or identity
 		if a.systemPrompt != "" && a.isAskingAboutRole(processedInput) {
-			response := a.generateRoleResponse(ctx)
-
-			// Add the role response to memory if available
-			if a.memory != nil {
-				if err := a.memory.AddMessage(ctx, interfaces.Message{
-					Role:    "assistant",
-					Content: response,
-				}); err != nil {
-					sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-						Type:      interfaces.AgentEventError,
-						Error:     fmt.Errorf("failed to add role response to memory: %w", err),
-						Timestamp: time.Now(),
-					})
-					return
-				}
+			// A role response is produced whole rather than streamed, so output
+			// guardrails apply to it in full before anything is emitted.
+			response, finishErr := a.finishRun(ctx, a.generateRoleResponse(ctx))
+			if finishErr != nil {
+				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     finishErr,
+					Timestamp: time.Now(),
+				})
+				return
 			}
 
 			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
@@ -402,13 +397,28 @@ func (a *Agent) runStreamingGeneration(
 				}
 			}
 		} else if accumulatedContent.Len() > 0 {
-			// No tool calls, just content - add assistant message
-			err := a.memory.AddMessage(ctx, interfaces.Message{
+			// No tool calls, just content - add assistant message.
+			//
+			// Output guardrails are applied before the text is persisted, so the
+			// transcript holds what the guardrail approved and the next turn
+			// replays that rather than raw model output.
+			//
+			// LIMITATION: the deltas have already been streamed to the consumer by
+			// this point, so this does NOT retroactively guard what the caller saw.
+			// Guarding a stream as it is produced needs a design decision that has
+			// not been made -- see docs/guardrails.md.
+			guarded, guardErr := a.guardOutput(ctx, accumulatedContent.String())
+			if guardErr != nil {
+				a.logger.Error(ctx, "Output guardrails rejected the streamed response; it was not persisted", map[string]interface{}{
+					"error": guardErr.Error(),
+				})
+			} else if err := a.memory.AddMessage(ctx, interfaces.Message{
 				Role:    "assistant",
-				Content: accumulatedContent.String(),
-			})
-			if err != nil {
-				fmt.Printf("Warning: Failed to add assistant response to memory: %v\n", err)
+				Content: guarded,
+			}); err != nil {
+				a.logger.Warn(ctx, "Failed to add assistant response to memory", map[string]interface{}{
+					"error": err.Error(),
+				})
 			}
 		}
 	}

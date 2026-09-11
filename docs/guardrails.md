@@ -45,41 +45,47 @@ is `nil`:
 > After upgrading you may see rejections fire for the first time. See
 > [Upgrading](upgrading.md#input-guardrails-now-actually-apply).
 
-### Known limitation: output guardrails run on one path in five
+### Output guardrails
 
-**`ProcessOutput` has exactly one call site in the entire module**, in
-`runWithoutExecutionPlanWithToolsTracked` (`pkg/agent/agent.go:1287`). Five
-terminal paths can return a response, and only that one reaches it:
+`ProcessOutput` runs on every terminal path that produces a complete response,
+via `finishRun`, which guards and then persists — so the transcript holds what
+the guardrail approved and the next turn replays that rather than raw model
+output. A response the guardrail rejects is not persisted.
 
-| Path | `ProcessOutput` runs? |
+| Path | Guarded |
 | --- | --- |
-| `runWithoutExecutionPlanWithToolsTracked` | **yes** |
-| `runWithExecutionPlan` — **the default whenever tools are present** | no |
-| `generateRoleResponse` (role/identity questions) | no |
-| `handlePlanAction` (plan approve/modify/cancel) | no |
-| `RunStream` / `runLocalStream` | no |
+| `runWithoutExecutionPlanWithToolsTracked` | yes |
+| `runWithExecutionPlan` (the default with tools) | yes |
+| `generateRoleResponse` | yes |
+| plan create / modify replies | yes |
+| custom run function | output only — see below |
+| remote agent | output only — see below |
+| `RunStream` — role response | yes |
+| `RunStream` — streamed content | **persisted text only — see below** |
 
-The second row is the one that matters: `requirePlanApproval` defaults to
-`true` (`agent.go:632`), so an agent configured with tools takes the
-execution-plan path by default, and output guardrails never run.
+> Earlier releases had `ProcessOutput` at a single call site, reached by one of
+> five paths — and not the default one, since `requirePlanApproval` defaults to
+> `true`. On a default configuration, output guardrails did not run.
 
-**Do not rely on output guardrails today.** Setting
-`agent.WithRequirePlanApproval(false)` and avoiding `RunStream` gets you the one
-path that works, but that is a workaround, not a fix.
+#### Limitation: streamed deltas are not retroactively guarded
 
-> An earlier version of this page said `ProcessOutput` "runs only on the
-> synchronous path". That was wrong and understated the gap — most of the
-> synchronous path does not reach it either.
+On `RunStream`, content reaches the consumer incrementally. By the time the full
+response exists, the caller has already seen the raw deltas. Guardrails are
+applied to the accumulated text **before it is written to memory**, so the
+transcript is clean and the next turn is not poisoned — but the bytes already
+streamed are not recalled.
 
-### Known limitation: custom run functions bypass guardrails entirely
+If you need output filtering to reach the consumer, use the non-streaming path.
+Guarding a stream as it is produced requires a policy for partial text (buffer
+to a boundary? redact retroactively? abort mid-stream?) that has not been
+decided.
 
-`agent.WithCustomRunFunction` and `agent.WithCustomRunStreamFunction` are
-checked **before** the shared run preamble (`agent.go:838`, `streaming.go:33`).
-An agent configured with either gets **no input guardrails, no memory write and
-no tracing** — the custom function's output is returned verbatim.
+#### Limitation: custom run functions
 
-If you use a custom run function and need guardrails, call
-`ProcessInput`/`ProcessOutput` yourself inside it.
+`agent.WithCustomRunFunction` and `agent.WithCustomRunStreamFunction` replace the
+whole local run path. Their **output is guarded**, but they receive **no input
+guardrails, no memory write and no tracing** — that is inherent to replacing the
+run path. Call `ProcessInput` yourself inside a custom function if you need it.
 
 ## Using Guardrails with an Agent
 

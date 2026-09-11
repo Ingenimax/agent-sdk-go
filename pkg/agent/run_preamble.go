@@ -94,3 +94,52 @@ func (a *Agent) assembleTools(ctx context.Context) []interfaces.Tool {
 
 	return allTools
 }
+
+// finishRun applies output guardrails and persists the agent's reply.
+//
+// It is the counterpart to beginRun and exists for the same reason: the two
+// steps have to happen together and in this order. The guarded text is what
+// gets persisted, so the next turn replays what the guardrail approved rather
+// than the raw model output.
+//
+// Previously guardrails.ProcessOutput had exactly one call site, inside
+// runWithoutExecutionPlanWithToolsTracked. Five terminal paths can return a
+// response and only that one reached it -- and because requirePlanApproval
+// defaults to true, an agent with tools takes runWithExecutionPlan by default,
+// so output guardrails did not run on the SDK's default path. Routing every
+// terminal path through this function is what closes that.
+//
+// Returns the text the caller should return to the user.
+func (a *Agent) finishRun(ctx context.Context, response string) (string, error) {
+	response, err := a.guardOutput(ctx, response)
+	if err != nil {
+		return "", err
+	}
+
+	if a.memory != nil {
+		if err := a.memory.AddMessage(ctx, interfaces.Message{
+			Role:    interfaces.MessageRoleAssistant,
+			Content: response,
+		}); err != nil {
+			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
+		}
+	}
+
+	return response, nil
+}
+
+// guardOutput applies output guardrails without persisting anything.
+//
+// Used by the paths that own their own persistence, or have none: a custom run
+// function replaces the whole local path, and a remote agent's transcript lives
+// on the remote side. finishRun is the usual entry point.
+func (a *Agent) guardOutput(ctx context.Context, response string) (string, error) {
+	if a.guardrails == nil {
+		return response, nil
+	}
+	guarded, err := a.guardrails.ProcessOutput(ctx, response)
+	if err != nil {
+		return "", fmt.Errorf("guardrails error: %w", err)
+	}
+	return guarded, nil
+}

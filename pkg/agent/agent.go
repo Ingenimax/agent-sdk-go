@@ -846,9 +846,20 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 		if err != nil {
 			return nil, err
 		}
+		// A custom run function replaces the entire local run path, so it never
+		// reaches finishRun. Guard its output here. Note that input guardrails,
+		// the memory write and tracing are still skipped for a custom function --
+		// that is inherent to replacing the run path, and is documented.
+		if response, err = a.guardOutput(ctx, response); err != nil {
+			return nil, err
+		}
 	} else if a.isRemote {
 		response, err = a.runRemoteWithTracking(ctx, input)
 		if err != nil {
+			return nil, err
+		}
+		// The remote path returns another agent's answer; guard it locally too.
+		if response, err = a.guardOutput(ctx, response); err != nil {
 			return nil, err
 		}
 	} else {
@@ -926,18 +937,7 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
-		response := a.generateRoleResponse(ctx)
-
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    interfaces.MessageRoleAssistant,
-				Content: response,
-			}); err != nil {
-				return "", fmt.Errorf("failed to add role response to memory: %w", err)
-			}
-		}
-
-		return response, nil
+		return a.finishRun(ctx, a.generateRoleResponse(ctx))
 	}
 
 	allTools := a.assembleTools(ctx)
@@ -1288,26 +1288,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 		}
 	}
 
-	// Apply guardrails to output if available
-	if a.guardrails != nil {
-		guardedResponse, err := a.guardrails.ProcessOutput(ctx, response)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		response = guardedResponse
-	}
-
-	// Add agent message to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: response,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
-		}
-	}
-
-	return response, nil
+	return a.finishRun(ctx, response)
 }
 
 // extractPlanAction attempts to extract a plan action from the user input
@@ -1360,17 +1341,7 @@ func (a *Agent) approvePlan(ctx context.Context, plan *executionplan.ExecutionPl
 		return "", fmt.Errorf("failed to execute plan: %w", err)
 	}
 
-	// Add the execution result to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: result,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add execution result to memory: %w", err)
-		}
-	}
-
-	return result, nil
+	return a.finishRun(ctx, result)
 }
 
 // modifyPlan modifies a plan based on user input
@@ -1397,17 +1368,7 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPla
 	// Format the modified plan
 	formattedPlan := executionplan.FormatExecutionPlan(modifiedPlan)
 
-	// Add the modified plan to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: "I've updated the execution plan based on your feedback:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it further if needed.",
-		}); err != nil {
-			return "", fmt.Errorf("failed to add modified plan to memory: %w", err)
-		}
-	}
-
-	return "I've updated the execution plan based on your feedback:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it further if needed.", nil
+	return a.finishRun(ctx, "I've updated the execution plan based on your feedback:\n\n"+formattedPlan+"\nDo you approve this plan? You can modify it further if needed.")
 }
 
 // cancelPlan cancels a plan
@@ -1459,18 +1420,8 @@ func (a *Agent) runWithExecutionPlan(ctx context.Context, input string, gen *exe
 	// Format the plan for display
 	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
-	// Add the plan to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.",
-		}); err != nil {
-			return "", fmt.Errorf("failed to add plan to memory: %w", err)
-		}
-	}
-
 	// Return the plan for user approval
-	return "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.", nil
+	return a.finishRun(ctx, "I've created an execution plan for your request:\n\n"+formattedPlan+"\nDo you approve this plan? You can modify it if needed.")
 }
 
 // isStructuredJSONResponse checks if a message content is a structured JSON response

@@ -117,16 +117,21 @@ memory at all.
 You may see previously-hidden guardrail rejections start firing after
 upgrading. That is the feature working.
 
-**Known remaining gap, larger than it first appeared:** `guardrails.ProcessOutput`
-has exactly one call site in the module, inside
-`runWithoutExecutionPlanWithToolsTracked`. Of the five terminal response paths,
-only that one reaches it. Because `requirePlanApproval` defaults to `true`, an
-agent with tools takes `runWithExecutionPlan` by default and output guardrails
-never run. `generateRoleResponse`, `handlePlanAction` and the whole streaming
-path miss it too. Separately, `WithCustomRunFunction` and
-`WithCustomRunStreamFunction` are checked before the run preamble, so they
-bypass input guardrails, the memory write and tracing as well.
-See [Guardrails](guardrails.md#known-limitation-output-guardrails-run-on-one-path-in-five).
+### Output guardrails now run on every complete-response path
+
+`ProcessOutput` previously had a single call site, reached by one of five
+terminal paths — and not the default one, since `requirePlanApproval` defaults
+to `true`. On a default configuration, output guardrails did not run at all.
+
+Every path that produces a complete response now goes through `finishRun`, which
+guards and then persists, so the transcript holds guarded text. Custom run
+functions and remote agents have their output guarded at the run funnel.
+
+Two limitations remain and are documented in
+[Guardrails](guardrails.md#output-guardrails): streamed deltas have already
+reached the consumer before the full response exists, so only the persisted text
+is guarded; and a custom run function still bypasses input guardrails, the
+memory write and tracing.
 
 ### Conversation summaries no longer destroy history
 
