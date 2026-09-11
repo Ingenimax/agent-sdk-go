@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -118,6 +117,7 @@ type GenerateResponse struct {
 type ChatRequest struct {
 	Model         string        `json:"model"`
 	Messages      []ChatMessage `json:"messages"`
+	Tools         []Tool        `json:"tools,omitempty"`
 	Stream        bool          `json:"stream"`
 	Temperature   float64       `json:"temperature,omitempty"`
 	TopP          float64       `json:"top_p,omitempty"`
@@ -132,6 +132,40 @@ type ChatRequest struct {
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+
+	// ToolCalls is set on an assistant message when the model requests tools.
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+
+	// ToolCallID pairs a tool-result message with the call that produced it.
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
+// Tool is a function declaration in the OpenAI-compatible schema that vLLM
+// serves at /v1/chat/completions.
+type Tool struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+// ToolFunction describes a callable function and its JSON Schema parameters.
+type ToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+// ToolCall is a function invocation requested by the model.
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+// ToolCallFunction carries the requested function name and its arguments,
+// which arrive as a JSON-encoded string.
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type ChatResponse struct {
@@ -231,29 +265,202 @@ Ensure your response is a valid JSON object that strictly follows the schema abo
 	return generateResp.Choices[0].Text, nil
 }
 
-// GenerateWithTools generates text and can use tools
+// GenerateWithTools generates text using vLLM's native tool calling.
+//
+// vLLM serves an OpenAI-compatible /v1/chat/completions endpoint, so tools are
+// declared in the standard schema and the model replies with tool_calls.
+//
+// This previously stuffed tool names and descriptions into the prompt and
+// returned whatever prose came back:
+//
+//	// For now, vLLM doesn't support tool calling in the same way as
+//	// OpenAI/Anthropic. We'll implement a basic version that includes tool
+//	// descriptions in the prompt
+//
+// Nothing parsed a call out of the reply and no tool was ever executed, so an
+// agent configured with vLLM silently had no tools at all -- the same defect
+// fixed for Ollama in #325.
 func (c *VLLMClient) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
-	// For now, vLLM doesn't support tool calling in the same way as OpenAI/Anthropic
-	// We'll implement a basic version that includes tool descriptions in the prompt
 	if len(tools) == 0 {
 		return c.Generate(ctx, prompt, options...)
 	}
 
-	// Build tool descriptions
-	var toolDescriptions []string
-	for _, tool := range tools {
-		toolDescriptions = append(toolDescriptions, fmt.Sprintf("- %s: %s", tool.Name(), tool.Description()))
+	params := &interfaces.GenerateOptions{
+		LLMConfig: &interfaces.LLMConfig{Temperature: 0.7},
+	}
+	for _, option := range options {
+		option(params)
 	}
 
-	// Create enhanced prompt with tool information
-	enhancedPrompt := fmt.Sprintf(`%s
+	maxIterations := 2
+	if params.MaxIterations > 0 {
+		maxIterations = params.MaxIterations
+	}
 
-Available tools:
-%s
+	vllmTools := make([]Tool, 0, len(tools))
+	for _, tool := range tools {
+		vllmTools = append(vllmTools, Tool{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  toolParametersSchema(tool),
+			},
+		})
+	}
 
-Please respond to the user's request. If you need to use any tools, describe what you would do.`, prompt, strings.Join(toolDescriptions, "\n"))
+	var messages []ChatMessage
+	if params.SystemMessage != "" {
+		messages = append(messages, ChatMessage{Role: "system", Content: params.SystemMessage})
+	}
+	messages = append(messages, ChatMessage{Role: "user", Content: prompt})
 
-	return c.Generate(ctx, enhancedPrompt, options...)
+	for iter := 0; iter < maxIterations; iter++ {
+		// Stop between iterations when the caller has gone.
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+
+		req := ChatRequest{
+			Model:       c.Model,
+			Messages:    messages,
+			Tools:       vllmTools,
+			Stream:      false,
+			Temperature: params.LLMConfig.Temperature,
+			TopP:        params.LLMConfig.TopP,
+			Stop:        params.LLMConfig.StopSequences,
+		}
+
+		resp, err := c.makeRequest(ctx, "/v1/chat/completions", req)
+		if err != nil {
+			return "", fmt.Errorf("failed to chat with tools: %w", err)
+		}
+
+		var chatResp ChatResponse
+		if err := json.Unmarshal(resp, &chatResp); err != nil {
+			return "", fmt.Errorf("failed to unmarshal tool-chat response: %w", err)
+		}
+		if len(chatResp.Choices) == 0 {
+			return "", fmt.Errorf("no choices in chat response")
+		}
+
+		assistant := chatResp.Choices[0].Message
+
+		// No tool calls means the model produced its final answer.
+		if len(assistant.ToolCalls) == 0 {
+			return assistant.Content, nil
+		}
+
+		// The assistant turn requesting the calls has to stay in the transcript,
+		// or the tool results that follow reference a call the model cannot see.
+		messages = append(messages, assistant)
+
+		if params.Memory != nil {
+			summaries := make([]interfaces.ToolCall, 0, len(assistant.ToolCalls))
+			for _, call := range assistant.ToolCalls {
+				summaries = append(summaries, interfaces.ToolCall{
+					ID:        call.ID,
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
+				})
+			}
+			_ = params.Memory.AddMessage(ctx, interfaces.Message{
+				Role:      interfaces.MessageRoleAssistant,
+				Content:   assistant.Content,
+				ToolCalls: summaries,
+			})
+		}
+
+		byName := make(map[string]interfaces.Tool, len(tools))
+		for _, tool := range tools {
+			byName[tool.Name()] = tool
+		}
+
+		for _, call := range assistant.ToolCalls {
+			callID := call.ID
+			if callID == "" {
+				// Some servers omit the id. Synthesize a stable one so the same
+				// tool invoked twice in a turn does not collide.
+				callID = fmt.Sprintf("vllm:%s:%d", call.Function.Name, iter)
+			}
+
+			var result string
+			tool, ok := byName[call.Function.Name]
+			if !ok {
+				result = fmt.Sprintf("Error: tool %q is not available", call.Function.Name)
+			} else if out, execErr := tool.Execute(ctx, call.Function.Arguments); execErr != nil {
+				// Report the failure to the model rather than aborting the run,
+				// so it can recover or explain.
+				result = fmt.Sprintf("Error: %v", execErr)
+			} else {
+				result = out
+			}
+
+			messages = append(messages, ChatMessage{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: callID,
+			})
+
+			if params.Memory != nil {
+				_ = params.Memory.AddMessage(ctx, interfaces.Message{
+					Role:       interfaces.MessageRoleTool,
+					Content:    result,
+					ToolCallID: callID,
+				})
+			}
+		}
+	}
+
+	// Out of iterations with the model still asking for tools. Return the last
+	// assistant content rather than an error, matching the other providers.
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" && messages[i].Content != "" {
+			return messages[i].Content, nil
+		}
+	}
+	return "", fmt.Errorf("tool loop exhausted %d iterations without a final answer", maxIterations)
+}
+
+// toolParametersSchema renders a tool's parameters as a JSON Schema object, the
+// shape the OpenAI-compatible tools API expects.
+func toolParametersSchema(tool interfaces.Tool) map[string]interface{} {
+	properties := map[string]interface{}{}
+	var required []string
+
+	for name, spec := range tool.Parameters() {
+		property := map[string]interface{}{
+			"type":        spec.Type,
+			"description": spec.Description,
+		}
+		if spec.Default != nil {
+			property["default"] = spec.Default
+		}
+		if len(spec.Enum) > 0 {
+			property["enum"] = spec.Enum
+		}
+		if spec.Items != nil {
+			items := map[string]interface{}{"type": spec.Items.Type}
+			if len(spec.Items.Enum) > 0 {
+				items["enum"] = spec.Items.Enum
+			}
+			property["items"] = items
+		}
+		properties[name] = property
+
+		if spec.Required {
+			required = append(required, name)
+		}
+	}
+
+	schema := map[string]interface{}{
+		"type":       "object",
+		"properties": properties,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }
 
 // Chat performs a chat completion with messages
