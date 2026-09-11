@@ -290,6 +290,14 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 			TotalTokens:  int(resp.Usage.TotalTokens),
 		}
 
+		// Report prompt tokens served from cache. This provider caches long
+		// prefixes automatically with no control surface, so the cache read is
+		// the only observable evidence that it happened -- without it a caller
+		// cannot tell a cache hit from a full-price request.
+		if resp.Usage.PromptTokensDetails.CachedTokens > 0 {
+			usage.CacheReadInputTokens = int(resp.Usage.PromptTokensDetails.CachedTokens)
+		}
+
 		// Add reasoning tokens if available (for o1 models)
 		if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
 			usage.ReasoningTokens = int(resp.Usage.CompletionTokensDetails.ReasoningTokens)
