@@ -919,24 +919,61 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 			HTTPClient: httpClient,
 		}
 	default:
-		// Default to SSE if type is not recognized
-		config.Logger.Warn(ctx, "Server protocol type is not set, defaulting to SSE", map[string]interface{}{})
-		transport = &mcp.SSEClientTransport{
+		// Streamable HTTP is the current MCP HTTP transport and is what an
+		// unconfigured server should get. SSE is the legacy transport, kept
+		// because some deployed servers still only speak it -- but selecting it
+		// by default meant every caller who did not explicitly opt in got the
+		// legacy path, which is the opposite of the intended behaviour.
+		//
+		// Callers who need SSE can still ask for it explicitly, and
+		// newHTTPServerWithFallback probes for servers that only speak SSE.
+		transport = &mcp.StreamableClientTransport{
 			Endpoint:   config.BaseURL,
 			HTTPClient: httpClient,
 		}
 	}
 
 	server, err := newServerFromTransport(ctx, transport, "http-server", "http", retryConfig, config.Logger)
-	if err != nil {
-		config.Logger.Error(ctx, "[HTTP SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
-			"error":      err.Error(),
-			"error_type": err.ErrorType,
-			"retryable":  err.Retryable,
+	if err == nil {
+		return server, nil
+	}
+
+	// Fall back to SSE when the protocol was not pinned and the server appears
+	// not to speak streamable HTTP. Only an unpinned caller is probed: someone
+	// who explicitly asked for a transport gets the error for the one they
+	// asked for, rather than a confusing error from a transport they did not
+	// choose.
+	if config.ProtocolType == "" {
+		config.Logger.Warn(ctx, "Streamable HTTP connection failed; retrying with the legacy SSE transport", map[string]interface{}{
+			"endpoint": config.BaseURL,
+			"error":    err.Error(),
+		})
+
+		sseServer, sseErr := newServerFromTransport(ctx, &mcp.SSEClientTransport{
+			Endpoint:   config.BaseURL,
+			HTTPClient: httpClient,
+		}, "http-server", "http", retryConfig, config.Logger)
+		if sseErr == nil {
+			config.Logger.Info(ctx, "Connected over the legacy SSE transport; pin httpTransportMode: \"sse\" to skip the streamable attempt", map[string]interface{}{
+				"endpoint": config.BaseURL,
+			})
+			return sseServer, nil
+		}
+		// Report the streamable failure, not the SSE one: streamable is what we
+		// attempted first and what the server is expected to support.
+		config.Logger.Error(ctx, "[HTTP SERVER ERROR] Both streamable HTTP and SSE failed", map[string]interface{}{
+			"streamable_error": err.Error(),
+			"sse_error":        sseErr.Error(),
 		})
 		return nil, err
 	}
-	return server, nil
+
+	config.Logger.Error(ctx, "[HTTP SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
+		"error":      err.Error(),
+		"error_type": err.ErrorType,
+		"retryable":  err.Retryable,
+	})
+	return nil, err
 }
 
 func NewCustomTransportServer(ctx context.Context, config CustomTransportServerConfig) (interfaces.MCPServer, error) {

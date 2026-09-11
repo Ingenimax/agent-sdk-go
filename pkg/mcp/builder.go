@@ -248,7 +248,8 @@ func (b *Builder) parseServerURL(urlStr string) (interfaces.MCPServer, *LazyMCPS
 
 	case "http", "https":
 		// Format: http://host:port/path?token=xxx[&transport=streamable|sse]
-		// transport: "streamable" or "sse"; if omitted, default is SSE with fallback to streamable
+		// transport: "streamable" or "sse"; if omitted, streamable HTTP is tried first
+		// and falls back to SSE (see NewHTTPServerWithRetry).
 		name := u.Host
 		q := u.Query()
 		token := q.Get("token")
