@@ -191,18 +191,15 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	var err error
 
 	if forwarder, ok := ctx.Value(interfaces.StreamForwarderKey).(interfaces.StreamForwarder); ok && forwarder != nil {
-		// Use streaming to forward events to parent
-		result, streamErr := at.runWithStreaming(ctx, input, forwarder, span, agentName)
-		if streamErr != nil {
-			err = streamErr
-		} else {
-			// After streaming completes, get detailed response for tracking
-			response, err = at.agent.RunDetailed(ctx, input)
-			if err == nil && response.Content == "" {
-				// If detailed response is empty, use streamed result
-				response.Content = result
-			}
-		}
+		// Stream the sub-agent's events to the parent and build the response from
+		// what was observed.
+		//
+		// This used to call at.agent.RunDetailed(ctx, input) after streaming had
+		// already completed, purely to recover Usage for logging and span
+		// attributes -- which ran the entire sub-agent a second time and billed
+		// for it. Any parent that streamed paid twice for every sub-agent call.
+		// Usage now rides on the completion event instead.
+		response, err = at.runWithStreaming(ctx, input, forwarder, span, agentName)
 	} else {
 		// Fall back to detailed execution for full tracking
 		response, err = at.agent.RunDetailed(ctx, input)
@@ -367,7 +364,13 @@ func withSubAgentContext(ctx context.Context, parentAgent, subAgentName string) 
 }
 
 // runWithStreaming runs the sub-agent with streaming and forwards events to the parent
-func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forwarder interfaces.StreamForwarder, span interfaces.Span, agentName string) (string, error) {
+// runWithStreaming forwards the sub-agent's events to the parent and builds an
+// AgentResponse from what it observed.
+//
+// It returns a response rather than a bare string so the caller does not have to
+// run the sub-agent again to recover token accounting. Usage rides on the
+// completion event's metadata (see interfaces.MetadataKeyUsage).
+func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forwarder interfaces.StreamForwarder, span interfaces.Span, agentName string) (*interfaces.AgentResponse, error) {
 	// Start streaming from the sub-agent
 	eventChan, err := at.agent.RunStream(ctx, input)
 	if err != nil {
@@ -375,7 +378,7 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 			"sub_agent": agentName,
 			"error":     err.Error(),
 		})
-		return "", fmt.Errorf("failed to start sub-agent streaming: %w", err)
+		return nil, fmt.Errorf("failed to start sub-agent streaming: %w", err)
 	}
 
 	// Log that we're streaming
@@ -387,6 +390,7 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 	// Collect content for final result
 	var contentBuilder strings.Builder
 	var finalError error
+	response := &interfaces.AgentResponse{AgentName: agentName}
 
 	// Forward all events and collect content
 	for event := range eventChan {
@@ -396,6 +400,20 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 		// Collect content for the final result
 		if event.Type == interfaces.AgentEventContent {
 			contentBuilder.WriteString(event.Content)
+		}
+
+		// The completion event carries the sub-agent's token accounting. Reading
+		// it here is what makes a second execution unnecessary.
+		if event.Type == interfaces.AgentEventComplete && event.Metadata != nil {
+			if usage, ok := event.Metadata[interfaces.MetadataKeyUsage].(*interfaces.TokenUsage); ok {
+				response.Usage = usage
+			}
+			if model, ok := event.Metadata[interfaces.MetadataKeyModel].(string); ok {
+				response.Model = model
+			}
+			if summary, ok := event.Metadata[interfaces.MetadataKeyExecutionSummary].(interfaces.ExecutionSummary); ok {
+				response.ExecutionSummary = summary
+			}
 		}
 
 		// Track errors
@@ -425,10 +443,11 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 
 	// Return error if we encountered one
 	if finalError != nil {
-		return "", finalError
+		return nil, finalError
 	}
 
-	return contentBuilder.String(), nil
+	response.Content = contentBuilder.String()
+	return response, nil
 }
 
 // WithStreamForwarder adds a stream forwarder to the context

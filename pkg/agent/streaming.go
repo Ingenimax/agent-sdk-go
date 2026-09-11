@@ -413,14 +413,27 @@ func (a *Agent) runStreamingGeneration(
 		}
 	}
 
-	// Send completion event
+	// Send completion event. Usage rides on the metadata so a consumer -- most
+	// importantly AgentTool wrapping this agent as a sub-agent -- can recover
+	// token accounting without executing the agent a second time.
+	completionMeta := map[string]interface{}{
+		"total_content_length": accumulatedContent.Len(),
+		"had_error":            finalError != nil,
+	}
+	if tracker := getUsageTracker(ctx); tracker != nil {
+		if usage, execSummary, model := tracker.getResults(); usage != nil {
+			completionMeta[interfaces.MetadataKeyUsage] = usage
+			completionMeta[interfaces.MetadataKeyModel] = model
+			if execSummary != nil {
+				completionMeta[interfaces.MetadataKeyExecutionSummary] = *execSummary
+			}
+		}
+	}
+
 	sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 		Type:      interfaces.AgentEventComplete,
 		Timestamp: time.Now(),
-		Metadata: map[string]interface{}{
-			"total_content_length": accumulatedContent.Len(),
-			"had_error":            finalError != nil,
-		},
+		Metadata:  completionMeta,
 	})
 
 	return int64(accumulatedContent.Len()), finalError
