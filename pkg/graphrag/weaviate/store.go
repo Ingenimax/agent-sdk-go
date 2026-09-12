@@ -120,7 +120,7 @@ func New(config *Config, options ...Option) (*Store, error) {
 	// Create Weaviate client
 	client, err := weaviate.NewClient(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", graphrag.ErrConnectionFailed, err)
+		return nil, fmt.Errorf("%w: %w", graphrag.ErrConnectionFailed, err)
 	}
 
 	store.client = client

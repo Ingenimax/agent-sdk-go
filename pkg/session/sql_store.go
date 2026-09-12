@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -173,7 +174,7 @@ func (s *SQLStore) Get(ctx context.Context, orgID, id string) (*Session, error) 
 
 	if err := row.Scan(&sess.UserID, &sess.AppName, &sess.Title, &stateJSON,
 		&sess.MessageCount, &sess.TokenTotal, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("session get: %w", err)
@@ -200,7 +201,7 @@ func (s *SQLStore) Get(ctx context.Context, orgID, id string) (*Session, error) 
 func (s *SQLStore) readSharedState(ctx context.Context, query string, args ...any) (map[string]any, error) {
 	var stateJSON string
 	err := s.db.QueryRowContext(ctx, s.rebind(query), args...).Scan(&stateJSON)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return map[string]any{}, nil
 	}
 	if err != nil {
@@ -299,7 +300,7 @@ func (s *SQLStore) mergeIntoRowTx(ctx context.Context, tx *sql.Tx, query string,
 
 	var stateJSON string
 	err := tx.QueryRowContext(ctx, s.rebind(query), args...).Scan(&stateJSON)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("session: reading shared state: %w", err)
 	}
 	if err == nil {

@@ -36,7 +36,7 @@ func (s *Store) ExtractFromText(ctx context.Context, text string, llm interfaces
 	// Call LLM to extract entities and relationships
 	response, err := llm.Generate(ctx, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", graphrag.ErrExtractionFailed, err)
+		return nil, fmt.Errorf("%w: %w", graphrag.ErrExtractionFailed, err)
 	}
 
 	// Parse the LLM response

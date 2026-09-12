@@ -2,6 +2,7 @@ package weaviate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
@@ -98,7 +99,7 @@ func (s *Store) LocalSearch(ctx context.Context, query string, entityID string, 
 	// If an entity ID is provided, get context from that entity
 	if entityID != "" {
 		graphContext, err := s.TraverseFrom(ctx, entityID, depth, opts...)
-		if err != nil && err != graphrag.ErrEntityNotFound {
+		if err != nil && !errors.Is(err, graphrag.ErrEntityNotFound) {
 			return nil, err
 		}
 
@@ -115,7 +116,7 @@ func (s *Store) LocalSearch(ctx context.Context, query string, entityID string, 
 		// Use the top result as the starting point
 		topEntityID := searchResults[0].Entity.ID
 		graphContext, err := s.TraverseFrom(ctx, topEntityID, depth, opts...)
-		if err != nil && err != graphrag.ErrEntityNotFound {
+		if err != nil && !errors.Is(err, graphrag.ErrEntityNotFound) {
 			s.logger.Warn(ctx, "Failed to get context for top result", map[string]interface{}{
 				"entityId": topEntityID,
 				"error":    err.Error(),

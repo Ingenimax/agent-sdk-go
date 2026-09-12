@@ -398,7 +398,7 @@ func (c *TransactionCollection) Get(ctx context.Context, id string) (map[string]
 	var result map[string]interface{}
 	err = c.tx.QueryRowContext(ctx, query, id, orgID).Scan(&result)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("document not found")
 		}
 		return nil, fmt.Errorf("failed to scan row: %w", err)
