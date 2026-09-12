@@ -541,6 +541,13 @@ func (c *VLLMClient) makeRequest(ctx context.Context, endpoint string, payload i
 	var resp *http.Response
 	if c.retryExecutor != nil {
 		err = c.retryExecutor.Execute(ctx, func() error {
+			// A retry discards whatever the previous attempt returned. Closing it
+			// first keeps a retried request from leaking a response body per
+			// attempt -- the outer defer only ever closes the last one.
+			if resp != nil {
+				_ = resp.Body.Close()
+				resp = nil
+			}
 			var execErr error
 			resp, execErr = c.HTTPClient.Do(req)
 			return execErr
@@ -584,6 +591,13 @@ func (c *VLLMClient) makeGETRequest(ctx context.Context, endpoint string) ([]byt
 	var resp *http.Response
 	if c.retryExecutor != nil {
 		err = c.retryExecutor.Execute(ctx, func() error {
+			// A retry discards whatever the previous attempt returned. Closing it
+			// first keeps a retried request from leaking a response body per
+			// attempt -- the outer defer only ever closes the last one.
+			if resp != nil {
+				_ = resp.Body.Close()
+				resp = nil
+			}
 			var execErr error
 			resp, execErr = c.HTTPClient.Do(req)
 			return execErr
