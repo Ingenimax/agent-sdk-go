@@ -148,6 +148,23 @@ func (p *Pipeline) ProcessResponse(ctx context.Context, response string) (string
 	return processedResponse, nil
 }
 
+// ProcessInput implements interfaces.Guardrails, so a Pipeline can be handed
+// straight to agent.WithGuardrails.
+//
+// Without these two methods the whole package was unreachable from an agent:
+// WithGuardrails takes an interfaces.Guardrails (ProcessInput / ProcessOutput)
+// while Pipeline exposed only ProcessRequest / ProcessResponse, and no type in
+// the module implemented the interface. Every guardrail here could be built and
+// none could be attached to anything.
+func (p *Pipeline) ProcessInput(ctx context.Context, input string) (string, error) {
+	return p.ProcessRequest(ctx, input)
+}
+
+// ProcessOutput implements interfaces.Guardrails. See ProcessInput.
+func (p *Pipeline) ProcessOutput(ctx context.Context, output string) (string, error) {
+	return p.ProcessResponse(ctx, output)
+}
+
 // AddGuardrail adds a guardrail to the pipeline
 func (p *Pipeline) AddGuardrail(guardrail Guardrail) {
 	p.guardrails = append(p.guardrails, guardrail)

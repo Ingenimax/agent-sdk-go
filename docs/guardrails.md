@@ -6,19 +6,38 @@ This document explains how to use the Guardrails component of the Agent SDK.
 
 Guardrails provide safety mechanisms to ensure that your agents behave responsibly and ethically. They can filter, modify, or block responses that violate policies or contain harmful content.
 
-## Enabling Guardrails
+## Building a pipeline
 
-To enable guardrails, set the `GUARDRAILS_ENABLED` environment variable to `true`:
+Guardrails are wired up in code. Construct the ones you want and put them in a
+`Pipeline`, which is what an agent accepts:
 
-```bash
-export GUARDRAILS_ENABLED=true
+```go
+gr := guardrails.NewPipeline([]guardrails.Guardrail{
+    guardrails.NewPiiFilter(guardrails.RedactAction),
+    guardrails.NewContentFilter([]string{"badword"}, guardrails.BlockAction),
+    guardrails.NewTokenLimit(4000, nil, guardrails.RedactAction, "end"),
+}, logging.New())
+
+a, err := agent.NewAgent(
+    agent.WithLLM(llmClient),
+    agent.WithMemory(memory.NewConversationBuffer()),
+    agent.WithGuardrails(gr),
+)
 ```
 
-You can also specify a configuration file:
+> **Changed:** `Pipeline` previously exposed only `ProcessRequest` /
+> `ProcessResponse`, while `agent.WithGuardrails` requires an
+> `interfaces.Guardrails` (`ProcessInput` / `ProcessOutput`) — and no type in the
+> module implemented that interface. **Every guardrail in this package could be
+> constructed and none could be attached to an agent.** `Pipeline` now implements
+> the interface directly.
 
-```bash
-export GUARDRAILS_CONFIG_PATH=/path/to/guardrails.yaml
-```
+### Configuration is not read from the environment
+
+`GUARDRAILS_ENABLED` and `GUARDRAILS_CONFIG_PATH` are parsed into
+`config.Guardrails` and **nothing reads them**. There is no YAML rule format, no
+`guardrails.New`, and no config-file loader. Setting those variables has no
+effect; build the pipeline in code.
 
 ## When guardrails run
 
@@ -89,346 +108,169 @@ run path. Call `ProcessInput` yourself inside a custom function if you need it.
 
 ## Using Guardrails with an Agent
 
-To use guardrails with an agent, pass them to the `WithGuardrails` option:
+`agent.WithGuardrails` takes any `interfaces.Guardrails`:
 
 ```go
-import (
-    "github.com/Ingenimax/agent-sdk-go/pkg/agent"
-    "github.com/Ingenimax/agent-sdk-go/pkg/guardrails"
-)
-
-// Create guardrails
-gr := guardrails.New(guardrails.WithConfigPath("/path/to/guardrails.yaml"))
-
-// Create agent with guardrails
-agent, err := agent.NewAgent(
-    agent.WithLLM(openaiClient),
-    agent.WithMemory(memory.NewConversationBuffer()),
-    agent.WithGuardrails(gr),
-)
+type Guardrails interface {
+    ProcessInput(ctx context.Context, input string) (string, error)
+    ProcessOutput(ctx context.Context, output string) (string, error)
+}
 ```
 
-## Guardrails Configuration
-
-Guardrails are configured using a YAML file. Here's an example configuration:
-
-```yaml
-# guardrails.yaml
-version: 1
-rules:
-  - name: no_harmful_content
-    description: Block harmful content
-    patterns:
-      - type: regex
-        pattern: "(?i)(how to (make|create|build) (a )?(bomb|explosive|weapon))"
-    action: block
-    message: "I cannot provide information on creating harmful devices."
-
-  - name: no_personal_data
-    description: Redact personal data
-    patterns:
-      - type: regex
-        pattern: "(?i)\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN
-      - type: regex
-        pattern: "(?i)\\b\\d{16}\\b"  # Credit card
-    action: redact
-    replacement: "[REDACTED]"
-
-  - name: no_profanity
-    description: Filter profanity
-    patterns:
-      - type: wordlist
-        words: ["badword1", "badword2", "badword3"]
-    action: filter
-    replacement: "****"
-
-  - name: topic_restriction
-    description: Restrict to certain topics
-    topics:
-      allowed: ["technology", "science", "education"]
-      blocked: ["politics", "religion", "adult"]
-    action: block
-    message: "I can only discuss technology, science, and education topics."
-```
-
-## Rule Types
-
-### Regex Rules
-
-Regex rules match patterns using regular expressions:
-
-```yaml
-- name: no_email_addresses
-  description: Redact email addresses
-  patterns:
-    - type: regex
-      pattern: "(?i)\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"
-  action: redact
-  replacement: "[EMAIL REDACTED]"
-```
-
-### Wordlist Rules
-
-Wordlist rules match specific words or phrases:
-
-```yaml
-- name: no_profanity
-  description: Filter profanity
-  patterns:
-    - type: wordlist
-      words: ["badword1", "badword2", "badword3"]
-  action: filter
-  replacement: "****"
-```
-
-### Topic Rules
-
-Topic rules restrict or allow certain topics:
-
-```yaml
-- name: topic_restriction
-  description: Restrict to certain topics
-  topics:
-    allowed: ["technology", "science", "education"]
-    blocked: ["politics", "religion", "adult"]
-  action: block
-  message: "I can only discuss technology, science, and education topics."
-```
-
-### Semantic Rules
-
-Semantic rules use embeddings to detect semantic similarity:
-
-```yaml
-- name: no_harmful_instructions
-  description: Block harmful instructions
-  semantic:
-    examples:
-      - "How to hack into a computer"
-      - "How to steal someone's identity"
-      - "How to make a dangerous chemical"
-    threshold: 0.8
-  action: block
-  message: "I cannot provide potentially harmful instructions."
-```
+`*guardrails.Pipeline` satisfies it. Returning an error from either method aborts
+the run, and the returned string replaces the content.
 
 ## Actions
 
-### Block
+Every guardrail is constructed with an `Action`, which decides what the pipeline
+does when that guardrail triggers:
 
-The `block` action prevents the response from being sent and returns a custom message:
+| Action | Effect |
+| --- | --- |
+| `BlockAction` | The run fails with `blocked by <type> guardrail`. Content is not sent or returned. |
+| `RedactAction` | The guardrail's modified text replaces the content and the run continues. |
+| `WarnAction` | The **original** content continues unchanged; the modification is logged only. |
 
-```yaml
-action: block
-message: "I cannot provide that information."
-```
+An action the pipeline does not recognise falls through the switch and behaves
+like `WarnAction`: the content passes unmodified.
 
-### Redact
+Guardrails run in the order given, each seeing the previous one's output, so
+redactions compose.
 
-The `redact` action replaces matched content with a replacement string:
+## Built-in guardrails
 
-```yaml
-action: redact
-replacement: "[REDACTED]"
-```
-
-### Filter
-
-The `filter` action replaces matched content with a replacement string but is typically used for less sensitive content:
-
-```yaml
-action: filter
-replacement: "****"
-```
-
-### Log
-
-The `log` action logs the matched content but allows the response to be sent:
-
-```yaml
-action: log
-```
-
-## Using Guardrails Programmatically
-
-You can also use guardrails programmatically:
+### PiiFilter
 
 ```go
-import (
-    "context"
-    "github.com/Ingenimax/agent-sdk-go/pkg/guardrails"
-)
-
-// Create guardrails
-gr := guardrails.New()
-
-// Add a rule
-gr.AddRule(&guardrails.Rule{
-    Name:        "no_harmful_content",
-    Description: "Block harmful content",
-    Patterns: []guardrails.Pattern{
-        {
-            Type:    "regex",
-            Pattern: "(?i)(how to (make|create|build) (a )?(bomb|explosive|weapon))",
-        },
-    },
-    Action:  "block",
-    Message: "I cannot provide information on creating harmful devices.",
-})
-
-// Check content
-result, err := gr.Check(context.Background(), "How to make a bomb")
-if err != nil {
-    log.Fatalf("Failed to check content: %v", err)
-}
-
-if result.Blocked {
-    fmt.Println("Content was blocked:", result.Message)
-} else if result.Modified {
-    fmt.Println("Content was modified:", result.Content)
-} else {
-    fmt.Println("Content passed guardrails:", result.Content)
-}
+guardrails.NewPiiFilter(guardrails.RedactAction)
 ```
 
-## Multi-tenancy with Guardrails
+Redacts email addresses, phone numbers, SSNs, credit card numbers and IP
+addresses, replacing each match with `[REDACTED <kind>]`. Pattern-based, so it
+catches formatted values and misses unformatted or unusual ones — treat it as
+defence in depth, not a guarantee.
 
-When using guardrails with multi-tenancy, you can have different guardrails for different organizations:
+### ContentFilter
 
 ```go
-import (
-    "context"
-    "github.com/Ingenimax/agent-sdk-go/pkg/guardrails"
-    "github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-)
-
-// Create guardrails for different organizations
-orgGuardrails := map[string]interfaces.Guardrails{
-    "org-123": guardrails.New(guardrails.WithConfigPath("/path/to/org123-guardrails.yaml")),
-    "org-456": guardrails.New(guardrails.WithConfigPath("/path/to/org456-guardrails.yaml")),
-}
-
-// Create a multi-tenant guardrails provider
-gr := guardrails.NewMultiTenant(orgGuardrails, guardrails.New()) // Default guardrails as fallback
-
-// Create agent with multi-tenant guardrails
-agent, err := agent.NewAgent(
-    agent.WithLLM(openaiClient),
-    agent.WithMemory(memory.NewConversationBuffer()),
-    agent.WithGuardrails(gr),
-)
-
-// Create context with organization ID
-ctx := context.Background()
-ctx = multitenancy.WithOrgID(ctx, "org-123")
-
-// The appropriate guardrails for org-123 will be used
-response, err := agent.Run(ctx, "What is the capital of France?")
+guardrails.NewContentFilter([]string{"badword", "c++"}, guardrails.RedactAction)
 ```
 
-## Creating Custom Guardrails
+Case-insensitive whole-word matching against a fixed list, replacing matches
+with `****`.
 
-You can implement custom guardrails by implementing the `interfaces.Guardrails` interface:
+> **Changed:** blocked words are now escaped and anchored per word. Previously
+> they were interpolated into the pattern raw, so a word containing regex
+> metacharacters (`c++`, `a.b`) **panicked at construction**, and an **empty word
+> list matched at every word boundary — redacting the whole text**.
+
+### TokenLimit
 
 ```go
-import (
-    "context"
-    "github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-)
+guardrails.NewTokenLimit(4000, nil, guardrails.RedactAction, "end")
+```
 
-// CustomGuardrails is a custom guardrails implementation
-type CustomGuardrails struct {
-    // Add your fields here
-}
+Truncates text over `maxTokens`. `truncateMode` is `"end"` (default), `"start"`
+or `"middle"`. A `nil` counter uses `SimpleTokenCounter`, which counts
+whitespace-separated fields — an approximation, not a real tokenizer. Supply
+your own `TokenCounter` if the limit needs to match a provider's accounting.
 
-// NewCustomGuardrails creates a new custom guardrails
-func NewCustomGuardrails() *CustomGuardrails {
-    return &CustomGuardrails{}
-}
+### RateLimit
 
-// Check checks content against guardrails
-func (g *CustomGuardrails) Check(ctx context.Context, content string) (*interfaces.GuardrailsResult, error) {
-    // Implement your logic to check content
+```go
+guardrails.NewRateLimit(60, guardrails.BlockAction)
+```
 
-    // Example: Block content containing "forbidden"
-    if strings.Contains(strings.ToLower(content), "forbidden") {
-        return &interfaces.GuardrailsResult{
-            Blocked: true,
-            Message: "This content is not allowed.",
-        }, nil
+Caps requests per minute, counted per organization via
+`multitenancy.GetOrgID` (requests with no org ID share a `"default"` bucket).
+
+**Use `BlockAction` with this one.** Its modified-text slot carries the
+"rate limit exceeded" diagnostic rather than a redacted prompt, so under
+`RedactAction` the user's prompt is replaced by that message and sent to the
+model. The counter map also retains one entry per organization for the process
+lifetime.
+
+### ToolRestriction
+
+```go
+guardrails.NewToolRestriction([]string{"search"}, guardrails.BlockAction)
+```
+
+**This does not restrict tool execution.** It scans request *text* for the
+literal phrase `use tool <name>` and flags names outside the allow-list. A model
+calling a tool through the provider's tool-calling API never passes through it.
+To actually control tool access, use the hooks package
+([capabilities.md](capabilities.md)) — `hooks.AllowList` gates tools at
+invocation.
+
+## Middleware
+
+`LLMMiddleware` and `ToolMiddleware` wrap a single LLM or tool with a pipeline,
+for guarding one component rather than a whole agent:
+
+```go
+guarded := guardrails.NewToolMiddleware(myTool, gr)
+```
+
+## Writing a custom guardrail
+
+Implement `Guardrail` and add it to a pipeline:
+
+```go
+type MyGuardrail struct{}
+
+func (g *MyGuardrail) Type() guardrails.GuardrailType { return "my_guardrail" }
+func (g *MyGuardrail) Action() guardrails.Action      { return guardrails.RedactAction }
+
+// CheckRequest returns (triggered, modifiedText, error). modifiedText is used
+// only when Action is RedactAction.
+func (g *MyGuardrail) CheckRequest(ctx context.Context, request string) (bool, string, error) {
+    if strings.Contains(request, "forbidden") {
+        return true, strings.ReplaceAll(request, "forbidden", "[REDACTED]"), nil
     }
+    return false, request, nil
+}
 
-    // Example: Redact email addresses
-    emailRegex := regexp.MustCompile(`(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
-    if emailRegex.MatchString(content) {
-        modified := emailRegex.ReplaceAllString(content, "[EMAIL REDACTED]")
-        return &interfaces.GuardrailsResult{
-            Modified: true,
-            Content:  modified,
-        }, nil
-    }
-
-    // Content passed guardrails
-    return &interfaces.GuardrailsResult{
-        Content: content,
-    }, nil
+func (g *MyGuardrail) CheckResponse(ctx context.Context, response string) (bool, string, error) {
+    return false, response, nil
 }
 ```
 
-## Example: Complete Guardrails Setup
+Returning a non-nil error from either method aborts the run — reserve it for
+genuine failures, not policy violations.
+
+Alternatively, implement `interfaces.Guardrails` yourself and pass it to
+`agent.WithGuardrails` directly; you do not have to use this package.
+
+## Multi-tenancy
+
+There is no multi-tenant guardrails wrapper in the SDK. `RateLimit` is the only
+built-in that is org-aware. To vary policy per tenant, implement
+`interfaces.Guardrails` and select a pipeline inside `ProcessInput` /
+`ProcessOutput`:
 
 ```go
-package main
+type PerOrg struct {
+    byOrg    map[string]*guardrails.Pipeline
+    fallback *guardrails.Pipeline
+}
 
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/Ingenimax/agent-sdk-go/pkg/agent"
-    "github.com/Ingenimax/agent-sdk-go/pkg/config"
-    "github.com/Ingenimax/agent-sdk-go/pkg/guardrails"
-    "github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
-    "github.com/Ingenimax/agent-sdk-go/pkg/memory"
-)
-
-func main() {
-    // Get configuration
-    cfg := config.Get()
-
-    // Create OpenAI client
-    openaiClient := openai.NewClient(cfg.LLM.OpenAI.APIKey)
-
-    // Create guardrails
-    gr := guardrails.New(
-        guardrails.WithConfigPath(cfg.Guardrails.ConfigPath),
-    )
-
-    // Create a new agent with guardrails
-    agent, err := agent.NewAgent(
-        agent.WithLLM(openaiClient),
-        agent.WithMemory(memory.NewConversationBuffer()),
-        agent.WithGuardrails(gr),
-        agent.WithSystemPrompt("You are a helpful AI assistant."),
-    )
+func (p *PerOrg) pipeline(ctx context.Context) *guardrails.Pipeline {
+    orgID, err := multitenancy.GetOrgID(ctx)
     if err != nil {
-        log.Fatalf("Failed to create agent: %v", err)
+        return p.fallback
     }
-
-    // Run the agent
-    ctx := context.Background()
-
-    // Safe query
-    response1, err := agent.Run(ctx, "What is the capital of France?")
-    if err != nil {
-        log.Fatalf("Failed to run agent: %v", err)
+    if gr, ok := p.byOrg[orgID]; ok {
+        return gr
     }
-    fmt.Println("Safe query response:", response1)
-
-    // Potentially unsafe query (will be blocked or modified by guardrails)
-    response2, err := agent.Run(ctx, "How do I hack into a computer?")
-    if err != nil {
-        log.Fatalf("Failed to run agent: %v", err)
-    }
-    fmt.Println("Unsafe query response:", response2)
+    return p.fallback
 }
+
+func (p *PerOrg) ProcessInput(ctx context.Context, input string) (string, error) {
+    return p.pipeline(ctx).ProcessInput(ctx, input)
+}
+
+func (p *PerOrg) ProcessOutput(ctx context.Context, output string) (string, error) {
+    return p.pipeline(ctx).ProcessOutput(ctx, output)
+}
+```
