@@ -381,9 +381,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			// Currently the logger interface doesn't support dynamic level setting
 			if expandedConfig.Runtime.TimeoutDuration != "" {
 				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
-					// Read by beginRun. Before that this field was assigned here
-					// and never read anywhere, so a configured runtime timeout
-					// silently did nothing.
+					// Read by applyRunTimeout, from runInternal and RunStream.
+					// Before that this field was assigned here and never read
+					// anywhere, so a configured runtime timeout did nothing.
 					a.timeout = timeout
 				}
 			}

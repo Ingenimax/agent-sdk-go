@@ -84,6 +84,23 @@ the removed loader needed.
 
 ---
 
+## Security fix: prompt template path containment
+
+`prompts`' template loader checked containment with `strings.HasPrefix` on
+cleaned paths, which is a string test rather than a path test. Two ways out of
+the base directory passed it:
+
+- a sibling directory whose name merely starts with the base name — base
+  `prompts` admitted `prompts-evil/steal.tmpl`;
+- a symlink pointing outside, because only the candidate path was resolved and
+  the base never was.
+
+Containment is now decided by resolving symlinks on both sides and asking
+`filepath.Rel` whether the result is genuinely inside.
+
+If you relied on either behaviour to load templates from outside the base
+directory, pass that directory as the base instead.
+
 ## Behaviour changes
 
 These change what the SDK does without changing any signature you call.
@@ -220,6 +237,59 @@ streamed. Both paths now share one assembly step.
 
 ---
 
+### Redis summarization now archives what it replaces
+
+`RedisMemory` with `WithSummarization` used to trim the summarized messages
+away permanently. Summarization is lossy and, for Redis, the raw text existed
+nowhere else — so a poor summary destroyed the only copy of the transcript and
+nothing could audit what it had dropped.
+
+Those messages are now moved to an archive list first, atomically with the trim,
+and read back with `ArchivedMessages(ctx)`. The archive key is the conversation
+key plus `:archive`.
+
+**This costs storage you were not previously using.** If that is not the
+trade-off you want, opt out:
+
+```go
+memory.NewRedisMemory(client,
+    memory.WithSummarization(llmClient, 50, 5),
+    memory.WithoutArchive(),
+)
+```
+
+The trim point is also pair-safe now: it no longer cuts between an assistant
+turn carrying `tool_calls` and the tool messages answering it, which used to
+make the *next* turn fail with an unpaired-tool-result error from the provider.
+
+### A configured `runtime.timeout` now actually applies
+
+`runtime.timeout` in YAML was parsed and stored on the agent, and then read
+nowhere. An agent configured with a timeout ran without one — and when the
+caller passed `context.Background()`, a wedged provider call hung forever.
+
+It is now applied to the run on both the synchronous and streaming paths.
+
+**A long-running agent that previously ran to completion may now be cut off.**
+If you set `runtime.timeout` years ago as documentation rather than as a limit,
+check the value is one you actually want:
+
+```yaml
+runtime:
+  timeout: 5m   # this is now enforced
+```
+
+A deadline already on the caller's context is left alone when it is tighter —
+whichever bound is stricter wins, and an agent-level default never extends a
+deadline the caller deliberately set.
+
+### `WithAgents` no longer leaves tools for detached sub-agents
+
+`WithAgents` replaced the sub-agent list but only *appended* the generated
+`{name}_agent` tools. Calling it twice left the first set's tools in place, so
+the model could still call sub-agents that were no longer attached. Stale
+entries are now removed before the new set is added.
+
 ## Removals
 
 ### `pkg/workflow`
@@ -262,10 +332,24 @@ the conformance assertion against the only executor shipped fails:
 
 It also lacks `GetTaskStatus`, `ExecuteWorkflow` and `ExecuteWorkflowAsync`, and
 its `ExecuteStep`/`ExecuteTask` take concrete `*core.Task` and `*core.Step`
-rather than the `interface{}` the contract declares. Consequently
-`task/service.NewInMemoryTaskService`, whose third parameter is an
-`interfaces.TaskExecutor`, cannot be constructed with anything this module
-provides, and is deprecated too.
+rather than the `interface{}` the contract declares.
+
+`task/service.NewInMemoryTaskService` used to take this interface as its third
+parameter, which made it impossible to construct with anything at all. It now
+takes `service.TaskRunner`, the single method it actually calls:
+
+```go
+type TaskRunner interface {
+    ExecuteTask(ctx context.Context, t *task.Task) error
+}
+```
+
+That takes a few lines to implement. Note that the shipped
+`*task/executor.TaskExecutor` still does not satisfy it, for a separate reason:
+it operates on `*task/core.Task` while the service operates on `*task.Task`, and
+those are two distinct structs rather than an alias. `pkg/task` and
+`pkg/task/core` are parallel type hierarchies for the same concept; reconciling
+them is left undone rather than papered over with a conversion shim.
 
 The `ExecuteWorkflow` methods are documented as initiating "a temporal workflow".
 Temporal is not a dependency of this module and never has been.
@@ -322,6 +406,39 @@ capability of whatever it wraps.
 `GetInvocationID`, `IsSubAgentCall`, `ValidateRecursionDepth` and
 `MaxRecursionDepth`. The identically-named functions in `pkg/agent` delegate to
 them and are unchanged for callers.
+
+### Guardrails can now be attached to an agent
+
+`agent.WithGuardrails` takes an `interfaces.Guardrails`
+(`ProcessInput`/`ProcessOutput`). `guardrails.Pipeline` exposed only
+`ProcessRequest`/`ProcessResponse`, and no type in the module implemented the
+interface — so every guardrail in `pkg/guardrails` could be constructed and none
+could be attached to anything.
+
+`Pipeline` now implements it:
+
+```go
+gr := guardrails.NewPipeline([]guardrails.Guardrail{
+    guardrails.NewPiiFilter(guardrails.RedactAction),
+}, logging.New())
+
+a, err := agent.NewAgent(
+    agent.WithLLM(llmClient),
+    agent.WithGuardrails(gr),
+)
+```
+
+Two `ContentFilter` defects were fixed at the same time, both from
+interpolating the blocked words into the pattern unescaped: a word containing
+regex metacharacters (`c++`) **panicked at construction**, and an **empty word
+list matched at every word boundary**, replacing the whole text with asterisks.
+Words are now escaped, and a filter with no words matches nothing.
+
+`docs/guardrails.md` previously documented an API that does not exist
+(`guardrails.New`, `WithConfigPath`, `AddRule`, `Check`, `NewMultiTenant`, a YAML
+rule format). `GUARDRAILS_ENABLED` and `GUARDRAILS_CONFIG_PATH` are parsed into
+`config.Guardrails` and read by nothing; setting them has no effect. Build the
+pipeline in code.
 
 ### `agentconfig.WithLocalPath`
 

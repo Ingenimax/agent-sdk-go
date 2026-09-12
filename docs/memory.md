@@ -63,6 +63,48 @@ mem, err := memory.NewRedisMemoryFromConfig(memory.RedisConfig{
 })
 ```
 
+#### Summarization, and the archive
+
+Redis memory can summarize old messages in place, keeping the conversation
+bounded without growing the key forever:
+
+```go
+mem := memory.NewRedisMemory(client,
+    memory.WithSummarization(llmClient, 50, 5),
+    // 50 = summarize once the conversation exceeds 50 messages
+    //  5 = how many summaries to keep
+)
+```
+
+Summarization is lossy, and for Redis the raw messages exist nowhere else. So
+the messages a summary replaces are **moved to an archive list** rather than
+deleted, and can be read back:
+
+```go
+archived, err := mem.ArchivedMessages(ctx)
+```
+
+The archive lives beside the conversation, at the conversation key plus an
+`:archive` suffix. Change the prefix with `memory.WithArchiveKeyPrefix("...")`,
+or turn archiving off with `memory.WithoutArchive()` when storage cost matters
+more than being able to recover what a summary dropped.
+
+Two details worth knowing:
+
+- The archive write and the trim happen in **one Lua script**, so a concurrent
+  write cannot land in the window between them and be lost.
+- The trim point is **pair-safe**. A cut can otherwise land between an assistant
+  turn carrying `tool_calls` and the tool messages answering it, and both the
+  OpenAI and Anthropic APIs reject a tool result whose call is absent from the
+  transcript — which failed the *next* turn, far from the cause. The boundary is
+  walked back over trailing tool messages and the assistant turn that requested
+  them.
+
+> **Changed:** summarized messages were previously trimmed away permanently. A
+> bad summary took the only copy of the transcript with it, and nothing could
+> audit what had been dropped. See
+> [Upgrading](upgrading.md#redis-summarization-now-archives-what-it-replaces).
+
 ### Conversation Summary
 
 Keeps a rolling buffer and, once it fills, replaces the buffered messages with
@@ -339,12 +381,13 @@ func (m *CustomMemory) Clear(ctx context.Context) error {
 
 // Helper function to get conversation ID from context
 func getConversationID(ctx context.Context) string {
-    // Get organization ID
+    // Get organization ID. multitenancy stores it under an unexported key, so
+    // go through GetOrgID rather than reaching into the context yourself --
+    // there is no exported key to read, and the similarly-named key used by
+    // pkg/context is a different one that GetOrgID does not see.
     orgID := "default"
-    if id := ctx.Value(multitenancy.OrgIDKey); id != nil {
-        if s, ok := id.(string); ok {
-            orgID = s
-        }
+    if id, err := multitenancy.GetOrgID(ctx); err == nil {
+        orgID = id
     }
 
     // Get conversation ID
@@ -429,6 +472,7 @@ func main() {
     }
     fmt.Println("Response 2:", response2)
 }
+```
 
 ## Semantic recall (vector store)
 
