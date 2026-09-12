@@ -554,11 +554,34 @@ func (r *RedisMemory) archiveAndTrim(ctx context.Context, liveKey string, n int)
 }
 
 // archiveKey derives a conversation's archive list key from its live key.
+// archiveKeySuffix is appended to a conversation key to hold its archive.
+const archiveKeySuffix = ":archive"
+
 func (r *RedisMemory) archiveKey(liveKey string) string {
-	if r.archiveKeyPrefix == "" {
-		return liveKey + ":archive"
+	// A custom prefix equal to keyPrefix would rebuild the live key exactly,
+	// so the archive would be the conversation itself: RPUSH followed by LTRIM
+	// on the same list, destroying what it was meant to preserve. Fall back to
+	// the suffix scheme rather than corrupt the conversation.
+	if r.archiveKeyPrefix != "" && r.archiveKeyPrefix != r.keyPrefix {
+		return r.archiveKeyPrefix + strings.TrimPrefix(liveKey, r.keyPrefix)
 	}
-	return r.archiveKeyPrefix + strings.TrimPrefix(liveKey, r.keyPrefix)
+	return liveKey + archiveKeySuffix
+}
+
+// isArchiveKey reports whether key holds archived messages rather than a live
+// conversation.
+//
+// The listing and statistics helpers scan keyPrefix-rooted patterns, and the
+// default archive key sits inside that namespace -- "{prefix}{org}:{conv}"
+// gains a ":archive" suffix and still matches "{prefix}{org}:*". Without this
+// check every summarized conversation was reported twice: once for itself and
+// once as a phantom conversation named "{conv}:archive", whose messages were
+// counted again in the totals.
+func (r *RedisMemory) isArchiveKey(key string) bool {
+	if r.archiveKeyPrefix != "" && r.archiveKeyPrefix != r.keyPrefix {
+		return strings.HasPrefix(key, r.archiveKeyPrefix)
+	}
+	return strings.HasSuffix(key, archiveKeySuffix)
 }
 
 // ArchivedMessages returns the raw messages that summarization moved out of the
@@ -753,6 +776,9 @@ func (r *RedisMemory) GetAllConversations(ctx context.Context) ([]string, error)
 	expectedPrefix := fmt.Sprintf("%s%s:", r.keyPrefix, orgID)
 
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
 		if strings.HasPrefix(key, expectedPrefix) {
 			conversationID := strings.TrimPrefix(key, expectedPrefix)
 			conversations = append(conversations, conversationID)
@@ -806,11 +832,18 @@ func (r *RedisMemory) GetMemoryStatistics(ctx context.Context) (totalConversatio
 		return 0, 0, fmt.Errorf("failed to get conversation keys: %w", err)
 	}
 
-	totalConversations = len(keys)
+	totalConversations = 0
 	totalMessages = 0
 
-	// Count messages in each conversation
+	// Count messages in each conversation. Archives hold copies of messages
+	// already counted under their live conversation, so including them would
+	// report both a phantom conversation and double the message total.
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
+		totalConversations++
+
 		count, err := r.client.LLen(ctx, key).Result()
 		if err != nil {
 			continue // Skip if we can't get count
@@ -835,6 +868,9 @@ func (r *RedisMemory) GetAllConversationsAcrossOrgs() (map[string][]string, erro
 	orgConversations := make(map[string][]string)
 
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
 		// Extract orgID and conversationID from key
 		// Key format: keyPrefix + orgID + ":" + conversationID
 		if strings.HasPrefix(key, r.keyPrefix) {
@@ -861,6 +897,16 @@ func (r *RedisMemory) GetConversationMessagesAcrossOrgs(conversationID string) (
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to search for conversation: %w", err)
 	}
+
+	// Drop archives: they are copies of a live conversation, and returning one
+	// would hand back the summarized history in place of the conversation.
+	live := keys[:0]
+	for _, key := range keys {
+		if !r.isArchiveKey(key) {
+			live = append(live, key)
+		}
+	}
+	keys = live
 
 	if len(keys) == 0 {
 		return []interfaces.Message{}, "", nil // Conversation not found
@@ -909,11 +955,18 @@ func (r *RedisMemory) GetMemoryStatisticsAcrossOrgs() (totalConversations, total
 		return 0, 0, fmt.Errorf("failed to get all conversation keys: %w", err)
 	}
 
-	totalConversations = len(keys)
+	totalConversations = 0
 	totalMessages = 0
 
-	// Count messages in each conversation
+	// Count messages in each conversation. Archives hold copies of messages
+	// already counted under their live conversation, so including them would
+	// report both a phantom conversation and double the message total.
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
+		totalConversations++
+
 		count, err := r.client.LLen(ctx, key).Result()
 		if err != nil {
 			continue // Skip if we can't get count

@@ -182,3 +182,98 @@ func TestArchiveAndTrimClampsToListLength(t *testing.T) {
 	archived, _ := mem.ArchivedMessages(ctx)
 	assert.Len(t, archived, 2)
 }
+
+// TestArchiveKeysAreNotListedAsConversations guards a regression the archive
+// itself introduced.
+//
+// The live conversation key is "{prefix}{org}:{conv}" and the default archive
+// key is that plus ":archive". GetAllConversations and GetMemoryStatistics scan
+// "{prefix}{org}:*", which matches the archive too -- so after any
+// summarization the archive surfaced as a second, phantom conversation named
+// "{conv}:archive", and its messages were counted again in the statistics.
+func TestArchiveKeysAreNotListedAsConversations(t *testing.T) {
+	mem, _ := newRedisMemory(t)
+	ctx := summaryCtx()
+
+	addUserMessages(t, mem, ctx, 3, "hello")
+
+	// Archive directly, which is what summarization does internally.
+	require.NoError(t, mem.archiveAndTrim(ctx, mem.conversationKey(ctx), 2))
+
+	archived, err := mem.ArchivedMessages(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, archived, "precondition: the archive must exist for this test to mean anything")
+
+	conversations, err := mem.GetAllConversations(ctx)
+	require.NoError(t, err)
+
+	for _, id := range conversations {
+		assert.NotContains(t, id, "archive",
+			"the archive key was listed as a conversation: %q", id)
+	}
+	assert.Len(t, conversations, 1, "expected exactly one real conversation, got %v", conversations)
+}
+
+// TestArchivedMessagesAreNotCountedTwice is the statistics half of the same
+// defect: the archive holds copies of messages already counted, so including it
+// double-counts the conversation's history.
+func TestArchivedMessagesAreNotCountedTwice(t *testing.T) {
+	mem, _ := newRedisMemory(t)
+	ctx := summaryCtx()
+
+	addUserMessages(t, mem, ctx, 4, "hello")
+	require.NoError(t, mem.archiveAndTrim(ctx, mem.conversationKey(ctx), 2))
+
+	conversations, messages, err := mem.GetMemoryStatistics(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, conversations, "the archive must not count as a conversation")
+
+	live, err := mem.GetMessages(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, len(live), messages,
+		"statistics should count the live conversation only, not the archived copies")
+}
+
+// TestCustomArchivePrefixIsAlsoExcluded covers the WithArchiveKeyPrefix path,
+// where the archive can still land inside the scanned namespace.
+func TestCustomArchivePrefixIsAlsoExcluded(t *testing.T) {
+	mem, _ := newRedisMemory(t, WithArchiveKeyPrefix("agent:archive:"))
+	ctx := summaryCtx()
+
+	addUserMessages(t, mem, ctx, 3, "hello")
+	require.NoError(t, mem.archiveAndTrim(ctx, mem.conversationKey(ctx), 2))
+
+	conversations, err := mem.GetAllConversations(ctx)
+	require.NoError(t, err)
+	assert.Len(t, conversations, 1,
+		"a custom archive prefix inside the key namespace must still be excluded, got %v", conversations)
+}
+
+// TestArchivePrefixEqualToKeyPrefixDoesNotAliasTheConversation guards a
+// destructive configuration.
+//
+// archiveKey rebuilds the key as archiveKeyPrefix + the live key minus
+// keyPrefix, so setting the archive prefix to the memory key prefix reproduced
+// the live key exactly -- making the "archive" the conversation itself, which
+// archiveAndTrim then RPUSHed into and LTRIMmed. It now falls back to the
+// suffix scheme instead of destroying what it was meant to preserve.
+func TestArchivePrefixEqualToKeyPrefixDoesNotAliasTheConversation(t *testing.T) {
+	mem, _ := newRedisMemory(t, WithKeyPrefix("agent:memory:"), WithArchiveKeyPrefix("agent:memory:"))
+	ctx := summaryCtx()
+
+	live := mem.conversationKey(ctx)
+	assert.NotEqual(t, live, mem.archiveKey(live),
+		"the archive key must never equal the live conversation key")
+
+	addUserMessages(t, mem, ctx, 4, "hello")
+	require.NoError(t, mem.archiveAndTrim(ctx, live, 2))
+
+	remaining, err := mem.GetMessages(ctx)
+	require.NoError(t, err)
+	assert.Len(t, remaining, 2, "the live conversation should hold the untrimmed tail")
+
+	archived, err := mem.ArchivedMessages(ctx)
+	require.NoError(t, err)
+	assert.Len(t, archived, 2, "the archived messages should be recoverable")
+}
