@@ -12,12 +12,6 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 
 📖 **[docs.goagents.dev](https://docs.goagents.dev/)** — Full documentation, guides, and reference.
 
-## Community
-
-[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/MjJbDG2nQZ)
-
-Join our Discord server to collaborate, share what you're building, and get community support for agent-sdk-go!
-
 ## Features
 
 ### Core Capabilities
@@ -1189,5 +1183,4 @@ Contributions welcome via GitHub issues and pull requests.
 | Resource | Link |
 |----------|------|
 | Documentation | [docs.goagents.dev](https://docs.goagents.dev/) |
-| Discord | [Join Community](https://discord.com/invite/MjJbDG2nQZ) |
 | GitHub | [Ingenimax/agent-sdk-go](https://github.com/Ingenimax/agent-sdk-go) |
