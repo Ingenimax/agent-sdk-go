@@ -381,6 +381,9 @@ func WithAgentConfig(config AgentConfig, variables map[string]string) Option {
 			// Currently the logger interface doesn't support dynamic level setting
 			if expandedConfig.Runtime.TimeoutDuration != "" {
 				if timeout, err := time.ParseDuration(expandedConfig.Runtime.TimeoutDuration); err == nil {
+					// Read by beginRun. Before that this field was assigned here
+					// and never read anywhere, so a configured runtime timeout
+					// silently did nothing.
 					a.timeout = timeout
 				}
 			}
@@ -600,7 +603,31 @@ func WithRemoteTimeout(timeout time.Duration) Option {
 // WithAgents sets the sub-agents that can be called as tools
 func WithAgents(subAgents ...*Agent) Option {
 	return func(a *Agent) {
+		// Drop the tools created by a previous WithAgents before replacing the
+		// sub-agent set.
+		//
+		// This used to assign a.subAgents (replacing) while appending to a.tools
+		// (accumulating), so calling WithAgents twice left one sub-agent and two
+		// tools -- the second a wrapper around an agent no longer registered.
+		// The model then saw a tool it could call that the parent did not know
+		// about.
+		if len(a.subAgents) > 0 && len(a.tools) > 0 {
+			stale := make(map[string]struct{}, len(a.subAgents))
+			for _, previous := range a.subAgents {
+				stale[fmt.Sprintf("%s_agent", previous.GetName())] = struct{}{}
+			}
+			kept := a.tools[:0]
+			for _, tool := range a.tools {
+				if _, isStale := stale[tool.Name()]; isStale {
+					continue
+				}
+				kept = append(kept, tool)
+			}
+			a.tools = kept
+		}
+
 		a.subAgents = subAgents
+
 		// Automatically wrap sub-agents as tools
 		for _, subAgent := range subAgents {
 			agentTool := tools.NewAgentTool(subAgent)
@@ -834,6 +861,10 @@ func (a *Agent) RunDetailed(ctx context.Context, input string) (*interfaces.Agen
 
 func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*interfaces.AgentResponse, error) {
 	startTime := time.Now()
+
+	// A configured runtime timeout bounds the whole run.
+	ctx, cancelTimeout := a.applyRunTimeout(ctx)
+	defer cancelTimeout()
 
 	tracker := newUsageTracker(detailed)
 	ctx = withUsageTracker(ctx, tracker)

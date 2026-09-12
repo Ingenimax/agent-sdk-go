@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -350,4 +351,126 @@ func (g *blockingOutputGuardrails) ProcessInput(_ context.Context, in string) (s
 
 func (g *blockingOutputGuardrails) ProcessOutput(context.Context, string) (string, error) {
 	return "", g.err
+}
+
+// TestWithAgentsIsIdempotent guards a defect where the option accumulated tools
+// while replacing sub-agents.
+//
+// It assigned a.subAgents (replacing) but appended to a.tools (accumulating),
+// so calling it twice left one sub-agent and two tools -- the second wrapping an
+// agent no longer registered. The model could then call a tool the parent did
+// not know about.
+func TestWithAgentsIsIdempotent(t *testing.T) {
+	child, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("child"),
+		WithRequirePlanApproval(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAgent(child) error = %v", err)
+	}
+
+	replacement, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("replacement"),
+		WithRequirePlanApproval(false),
+	)
+	if err != nil {
+		t.Fatalf("NewAgent(replacement) error = %v", err)
+	}
+
+	parent, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("parent"),
+		WithRequirePlanApproval(false),
+		WithAgents(child),
+		WithAgents(replacement), // applied twice
+	)
+	if err != nil {
+		t.Fatalf("NewAgent(parent) error = %v", err)
+	}
+
+	if len(parent.subAgents) != 1 {
+		t.Errorf("subAgents = %d, want 1", len(parent.subAgents))
+	}
+
+	var agentTools []string
+	for _, tool := range parent.tools {
+		if strings.HasSuffix(tool.Name(), "_agent") {
+			agentTools = append(agentTools, tool.Name())
+		}
+	}
+	if len(agentTools) != 1 {
+		t.Errorf("sub-agent tools = %v, want exactly one: a replaced sub-agent must "+
+			"not leave its tool behind, or the model can call an agent the parent "+
+			"no longer knows about", agentTools)
+	}
+	if len(agentTools) == 1 && agentTools[0] != "replacement_agent" {
+		t.Errorf("surviving tool = %q, want the replacement", agentTools[0])
+	}
+}
+
+// TestRuntimeTimeoutBoundsTheRun guards a config setting that did nothing.
+//
+// a.timeout was assigned from `runtime.timeout` in YAML and read nowhere in the
+// module, so configuring it had no effect at all.
+func TestRuntimeTimeoutBoundsTheRun(t *testing.T) {
+	agent, err := NewAgent(
+		WithLLM(testutil.NewFakeLLM()),
+		WithName("timeout-agent"),
+	)
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+	agent.timeout = 50 * time.Millisecond
+
+	ctx, cancel := agent.applyRunTimeout(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("no deadline was applied; a configured runtime timeout must bound the run")
+	}
+	if time.Until(deadline) > time.Second {
+		t.Errorf("deadline is %s away, want roughly the configured 50ms", time.Until(deadline))
+	}
+}
+
+// TestRuntimeTimeoutDoesNotExtendATighterDeadline asserts a config default
+// cannot loosen a bound the caller deliberately set.
+func TestRuntimeTimeoutDoesNotExtendATighterDeadline(t *testing.T) {
+	agent, err := NewAgent(WithLLM(testutil.NewFakeLLM()), WithName("timeout-agent"))
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+	agent.timeout = time.Hour
+
+	caller, cancelCaller := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelCaller()
+
+	ctx, cancel := agent.applyRunTimeout(caller)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("the caller's deadline was lost")
+	}
+	if time.Until(deadline) > time.Minute {
+		t.Error("the agent's longer timeout replaced the caller's tighter deadline; " +
+			"whichever bound is tighter should win")
+	}
+}
+
+func TestNoRuntimeTimeoutLeavesTheContextAlone(t *testing.T) {
+	agent, err := NewAgent(WithLLM(testutil.NewFakeLLM()), WithName("no-timeout"))
+	if err != nil {
+		t.Fatalf("NewAgent() error = %v", err)
+	}
+
+	ctx, cancel := agent.applyRunTimeout(context.Background())
+	defer cancel()
+
+	if _, ok := ctx.Deadline(); ok {
+		t.Error("a deadline was applied when none was configured")
+	}
 }

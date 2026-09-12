@@ -68,6 +68,10 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// beginRun applies it again idempotently.
 		ctx = a.applyRunIdentity(ctx)
 
+		// A configured runtime timeout bounds the whole run.
+		ctx, cancelTimeout := a.applyRunTimeout(ctx)
+		defer cancelTimeout()
+
 		// Create usage tracker for detailed metrics collection
 		tracker := newUsageTracker(true)
 		ctx = withUsageTracker(ctx, tracker)
