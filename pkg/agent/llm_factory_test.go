@@ -30,7 +30,7 @@ func TestParseGoogleCredentials(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:  "file path with JSON content",
+			name: "file path with JSON content",
 			setupFunc: func() (string, func()) {
 				tmpDir := t.TempDir()
 				tmpFile := filepath.Join(tmpDir, "credentials.json")
@@ -59,7 +59,7 @@ func TestParseGoogleCredentials(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:  "file with invalid JSON",
+			name: "file with invalid JSON",
 			setupFunc: func() (string, func()) {
 				tmpDir := t.TempDir()
 				tmpFile := filepath.Join(tmpDir, "invalid.json")

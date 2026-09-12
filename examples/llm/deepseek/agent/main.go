@@ -48,7 +48,7 @@ func (t *SearchTool) Execute(ctx context.Context, args string) (string, error) {
 
 	// Simulate search results
 	results := map[string]interface{}{
-		"query":   params.Query,
+		"query": params.Query,
 		"results": []string{
 			"Result 1: DeepSeek-V3.2 released with 128K context window",
 			"Result 2: DeepSeek reasoning models outperform GPT-4 on benchmarks",

@@ -28,9 +28,9 @@ func (s *GeminiImageEditSession) SendMessage(ctx context.Context, message string
 	}
 
 	s.logger.Debug(ctx, "Sending message to image edit session", map[string]interface{}{
-		"model":        s.model,
-		"message_len":  len(message),
-		"has_options":  options != nil,
+		"model":       s.model,
+		"message_len": len(message),
+		"has_options": options != nil,
 	})
 
 	// Build message part
@@ -230,9 +230,9 @@ func (s *GeminiImageEditSession) parseResponse(result *genai.GenerateContentResp
 	response.Metadata["model"] = s.model
 
 	s.logger.Debug(context.Background(), "Parsed image edit response", map[string]interface{}{
-		"text_len":     len(response.Text),
-		"image_count":  len(response.Images),
-		"has_usage":    response.Usage != nil,
+		"text_len":    len(response.Text),
+		"image_count": len(response.Images),
+		"has_usage":   response.Usage != nil,
 	})
 
 	return response, nil

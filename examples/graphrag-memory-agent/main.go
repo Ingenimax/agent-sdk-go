@@ -112,8 +112,8 @@ func main() {
 	ag, err := agent.NewAgent(
 		agent.WithLLM(llm),
 		agent.WithName("MemoryAgent"),
-		agent.WithMemory(conversationMemory),  // Short-term: conversation history
-		agent.WithGraphRAG(store),              // Long-term: structured knowledge graph
+		agent.WithMemory(conversationMemory), // Short-term: conversation history
+		agent.WithGraphRAG(store),            // Long-term: structured knowledge graph
 		agent.WithRequirePlanApproval(false),
 		agent.WithMaxIterations(10), // Allow enough iterations for memory operations
 		agent.WithSystemPrompt(memoryAgentPrompt),

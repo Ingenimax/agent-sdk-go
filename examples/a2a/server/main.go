@@ -29,7 +29,7 @@ import (
 type echoAgent struct{}
 
 func (e *echoAgent) GetName() string        { return "echo" }
-func (e *echoAgent) GetDescription() string  { return "Echoes back your message" }
+func (e *echoAgent) GetDescription() string { return "Echoes back your message" }
 
 func (e *echoAgent) Run(_ context.Context, input string) (string, error) {
 	return fmt.Sprintf("Echo: %s", input), nil

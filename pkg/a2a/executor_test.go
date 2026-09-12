@@ -25,7 +25,7 @@ type mockAgent struct {
 	streamDelay  time.Duration
 }
 
-func (m *mockAgent) GetName() string       { return m.name }
+func (m *mockAgent) GetName() string        { return m.name }
 func (m *mockAgent) GetDescription() string { return m.description }
 
 func (m *mockAgent) Run(_ context.Context, _ string) (string, error) {
