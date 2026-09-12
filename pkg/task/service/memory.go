@@ -19,20 +19,38 @@ type InMemoryTaskService struct {
 	logger        logging.Logger
 	taskHistories map[string][]string
 	planner       interfaces.TaskPlanner
-	// Retained during the interfaces.TaskExecutor deprecation window. Note that
-	// no type in this module satisfies that interface, so this field cannot
-	// currently be populated with a shipped executor.
-	executor interfaces.TaskExecutor //nolint:staticcheck // SA1019: deprecated, removed with the interface
+	executor      TaskRunner
+}
 
+// TaskRunner executes an approved task.
+//
+// This is the only executor capability InMemoryTaskService uses, so it is the
+// only one the constructor asks for.
+//
+// It exists because the service previously took an interfaces.TaskExecutor,
+// which nothing in this module satisfies: *task/executor.TaskExecutor has no
+// CancelTask, GetTaskStatus, ExecuteWorkflow or ExecuteWorkflowAsync, and its
+// ExecuteStep/ExecuteTask take concrete types rather than the interface{} that
+// contract declares. The service was therefore uninstantiable with anything at
+// all -- an eight-method interface with zero implementations. Asking only for
+// the one method actually used makes it implementable in a few lines, without
+// repairing an interface nobody can satisfy.
+//
+// Note that *task/executor.TaskExecutor still does NOT satisfy this, for a
+// separate reason worth recording: it operates on *task/core.Task while this
+// service operates on *task.Task, and those are two distinct structs rather
+// than an alias. pkg/task and pkg/task/core are parallel type hierarchies for
+// the same concept. Reconciling them is a larger change than this one and is
+// left deliberately undone rather than papered over with a conversion shim.
+type TaskRunner interface {
+	ExecuteTask(ctx context.Context, t *task.Task) error
 }
 
 // NewInMemoryTaskService creates a new in-memory task service.
 //
-// Deprecated: the executor parameter is an interfaces.TaskExecutor, which no
-// type in this module satisfies. This constructor cannot be called with any
-// executor the SDK provides and will change signature when that interface is
-// removed.
-func NewInMemoryTaskService(logger logging.Logger, planner interfaces.TaskPlanner, executor interfaces.TaskExecutor) *InMemoryTaskService { //nolint:staticcheck // SA1019: deprecated, removed with the interface
+// executor may be nil, in which case an approved plan is marked executing and
+// left for the caller to run.
+func NewInMemoryTaskService(logger logging.Logger, planner interfaces.TaskPlanner, executor TaskRunner) *InMemoryTaskService {
 	return &InMemoryTaskService{
 		tasks:         make(map[string]*task.Task),
 		taskHistories: make(map[string][]string),
