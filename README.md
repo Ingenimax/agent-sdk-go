@@ -12,167 +12,40 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 
 📖 **[docs.goagents.dev](https://docs.goagents.dev/)** — Full documentation, guides, and reference.
 
-## Community
-
-[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/MjJbDG2nQZ)
-
-Join our Discord server to collaborate, share what you're building, and get community support for agent-sdk-go!
-
 ## Features
 
 ### Core Capabilities
 - 🧠 **Multi-Model Intelligence**: Seamless integration with OpenAI, Anthropic, and Google Vertex AI (Gemini models).
 - 🔧 **Modular Tool Ecosystem**: Expand agent capabilities with plug-and-play tools for web search, data retrieval, and custom operations
-- 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer and vector-based retrieval options
-- 🔌 **MCP Integration**: Support for Model Context Protocol (MCP) servers via HTTP and stdio transports
+- 📝 **Advanced Memory Management**: Persistent conversation tracking with buffer, vector-based retrieval and summarization
+- 🔌 **MCP Integration**: Model Context Protocol servers over streamable HTTP, SSE and stdio
 - 📊 **Token Usage Tracking**: Built-in token counting for cost monitoring, usage analytics, and optimization
+- 💬 **Session Persistence** *(NEW)*: Durable conversations with scoped state, listing and resume — in-memory, Postgres or SQLite. [Docs](docs/capabilities.md#sessions)
+- 📚 **Agent Skills** *(NEW)*: `SKILL.md` capability bundles loaded from disk, with progressive disclosure so a large library stays cheap. [Docs](docs/capabilities.md#skills)
+- 🌙 **Memory Consolidation** *(NEW)*: Distil an idle conversation into durable facts — merges, corrections and generalizations — proposed for review rather than silently written. [Docs](docs/capabilities.md#memory-consolidation)
+- ⚡ **Prompt Caching** *(NEW)*: Capability-aware caching that tells you which providers honor it, instead of silently doing nothing. [Docs](docs/capabilities.md#prompt-caching)
 
 ### Enterprise-Ready
 - 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
 - 📈 **Complete Observability**: Integrated tracing and logging for monitoring and debugging
 - 🏢 **Enterprise Multi-tenancy**: Securely support multiple organizations with isolated resources
+- 🪝 **Hooks & Plugins** *(NEW)*: Intercept every tool call to audit, deny, rewrite or redact — bundled as named plugins, reaching all LLM providers. [Docs](docs/capabilities.md#hooks-and-plugins)
+- ⏱️ **Background Runs** *(NEW)*: Run identity, a live registry and cancel-by-ID, so work in flight can be observed and stopped. [Docs](docs/capabilities.md#background-runs)
 
 ### Development Experience
 - 🛠️ **Structured Task Framework**: Plan, approve, and execute complex multi-step operations
 - 📄 **Declarative Configuration**: Define sophisticated agents and tasks using intuitive YAML definitions
 - 🧙 **Zero-Effort Bootstrapping**: Auto-generate complete agent configurations from simple system prompts
+- 🕸️ **Multi-Agent Patterns** *(NEW)*: Sequential, parallel, loop and graph composition over a registry of agents. [Docs](docs/multi-agent.md)
+- 🔀 **Agent Transfer** *(NEW)*: Let the model hand a conversation to a better-suited agent through a constrained tool call. [Docs](docs/capabilities.md#llm-driven-transfer)
+- 🧩 **Tool Pipeline** *(NEW)*: One ordered decorator chain around every tool call, reaching all providers without touching any. [Docs](docs/tool-pipeline.md)
 
-## New
-
-Highlights from the current development line. Full details, including every
-breaking change and its migration path, are in **[docs/upgrading.md](docs/upgrading.md)**.
-
-Most of this line is corrective — several features were not doing what they
-claimed. That is reflected below: the removals and fixes are listed because they
-change behaviour you may be relying on, not because they are achievements.
-
-### New API at a glance
-
-| API | What it gives you |
-| --- | --- |
-| `agent.WithToolDecorator(d)` | Interpose on every tool call — audit, deny, rewrite, time |
-| `agent.ToolDecorator` | The decorator signature: `func([]interfaces.Tool) []interfaces.Tool` |
-| `agent.UnwrapTool(t)` | Recover the concrete tool underneath a decorator chain |
-| `agent.ForwardOptionalToolInterfaces(t)` | Forward `DisplayName`/`Internal` when writing a decorator |
-| `interfaces.AsConversationMemory(m)` | Ask for conversation ops, seeing through decorators |
-| `interfaces.AsAdminConversationMemory(m)` | Same, for cross-org operations |
-| `interfaces.UnwrapMemory(m)` | The innermost `Memory` in a decorator chain |
-| `interfaces.MemoryUnwrapper` | Implement on your own `Memory` decorators |
-| `tools.WithSubAgentContext(ctx, parent, sub)` | Record a sub-agent invocation and its depth |
-| `tools.GetRecursionDepth(ctx)` | Current sub-agent recursion depth |
-| `tools.IsSubAgentCall(ctx)` | Whether this run is nested inside another agent |
-| `tools.ValidateRecursionDepth(ctx)` | Error once `tools.MaxRecursionDepth` is exceeded |
-| `agentconfig.WithLocalPath(path)` | Load config from a specific file |
-
-The `pkg/tools` sub-agent helpers already existed unexported; they are now public
-and are the counter the recursion guard actually enforces. The identically-named
-functions in `pkg/agent` delegate to them.
-
-### 🔐 Remote configuration loading removed
-
-`pkg/agentconfig` used to fetch agent YAML over HTTP and unmarshal it straight
-into a config whose `mcp:` section names a **local executable to run**. A
-compromised configuration service therefore had arbitrary command execution
-inside the agent process, with every API key in the environment inherited by the
-child. The transport is gone; configuration loads from local files only. Local
-YAML, including `mcp:`, is unchanged.
-
-→ [Migration path](docs/upgrading.md#security-fix-remote-configuration-loading-removed)
-
-### 🚦 Input guardrails now actually apply
-
-Guardrails ran *after* the user message was written to memory, and the providers
-build their request from memory. With memory configured — the normal case —
-**the model was shown the unguarded input and `ProcessInput` had no effect**.
-Guardrails now run first, and the guarded text is what is persisted and sent.
-
-If you rely on guardrails to strip secrets or block injection, they were not
-doing so. You may see rejections fire for the first time after upgrading.
-
-**Output guardrails now run too.** `ProcessOutput` previously had one call site,
-reached by one of five terminal paths — not including the default one. Every
-complete-response path is now guarded, and guarded text is what gets persisted.
-Streamed deltas remain an exception; see
-[guardrails.md](docs/guardrails.md#output-guardrails).
-
-→ [Details](docs/upgrading.md#input-guardrails-now-actually-apply) ·
-[Guardrails](docs/guardrails.md)
-
-### 🧩 Tool decorator pipeline
-
-Interpose on every tool call — audit, deny, rewrite arguments, bound output —
-without touching any LLM provider:
-
-```go
-agent, err := agent.NewAgent(
-    agent.WithLLM(llm),
-    agent.WithTools(searchTool, deployTool),
-    agent.WithToolDecorator(auditing),
-)
-```
-
-Applied at all three composition sites, including the execution-plan path that
-is the SDK's default. Ordering is fixed so a denied call is never recorded as
-executed.
-
-→ [Tool pipeline](docs/tool-pipeline.md)
-
-### 🧠 Memory fixes
-
-- **Summaries no longer destroy history.** Each new summary replaced the
-  previous one while the raw messages had already been cleared, so every
-  summarization after the first discarded all earlier history. The prior summary
-  is now folded in.
-- **Summarization works above a threshold of 100.** The internal buffer was
-  hardcoded to 100 messages, silently disabling the feature for any larger
-  `WithMaxBufferSize`.
-- **Redis summarization thresholds were transposed** — `max_summaries` and
-  `summary_after_messages` now mean what they say.
-- **Decorators no longer hide capabilities.** Wrapping a `RedisMemory` in
-  tracing made `GetAllConversations` and its siblings silently return empty. Use
-  `interfaces.AsConversationMemory`; give your own decorators an `Unwrap`.
-
-→ [Memory](docs/memory.md) · [Details](docs/upgrading.md#behaviour-changes)
-
-### ⚡ Concurrency and cancellation
-
-- **`Agent` is safe for concurrent `Run`.** It mutated a shared field from the
-  run path on its default configuration, so a parent fanning out to two
-  sub-agents raced without the caller writing concurrent code.
-- **Cancelling a run stops its sub-agents.** They were detached from the parent
-  context and could keep running for up to 30 minutes, still writing to shared
-  memory.
-- **One recursion counter.** Two independent counters existed with identical key
-  strings but different key types; only one guarded anything.
-
-→ [Sub-agents](docs/subagents.md)
-
-### 📊 `ExecutionSummary.ToolCalls` counts calls
-
-It previously incremented only the first time a tool was seen, so it always
-equalled `len(UsedTools)` — forty calls to one tool reported `1`. Dashboards
-will show higher, correct numbers.
-
-→ [Token usage tracking](docs/token-usage-tracking.md)
-
-### 🗑️ Removals and deprecations
-
-| Item | Status | Why |
-| --- | --- | --- |
-| Remote config loading | **Removed** | Arbitrary command execution |
-| `pkg/workflow` | **Removed** | No execution logic, no importers, corrupted its own state |
-| Anthropic 1h `CacheTTL` | **Removed** | Sent without its beta header, so never honored — callers were billed at the 5-minute rate |
-| `interfaces.TaskExecutor` | **Deprecated** | No type in the module satisfies it |
-
-→ [Full list](docs/upgrading.md#removals)
-
-### 🧪 Shared test doubles
-
-`internal/testutil` provides concurrency-safe `FakeLLM`, `FakeTool`,
-`FakeMemory`, `FakeTracer` and friends, replacing a dozen hand-rolled mocks
-none of which were safe under `-race`.
-
-→ [Development](docs/development.md#test-doubles)
+> **Upgrading an existing deployment?** This line removes remote configuration
+> loading (it allowed the config service to execute local binaries) and fixes
+> several features that were silently not working — most importantly **input
+> guardrails, which had no effect whenever memory was configured**. See
+> [docs/upgrading.md](docs/upgrading.md) for every behaviour change, removal and
+> migration path.
 
 ## Getting Started
 
@@ -1205,6 +1078,7 @@ For more detailed information, you can also refer to the following documents:
 - [Configuration Merge](docs/config-merge.md)
 - [Sub-Agents](docs/subagents.md)
 - [Multi-Agent Patterns](docs/multi-agent.md) - sequential, parallel, loop, graph
+- [Agent Capabilities](docs/capabilities.md) - sessions, runs, hooks, skills, consolidation
 - [Token Usage Tracking](docs/token-usage-tracking.md)
 - [Development](docs/development.md)
 - [Upgrading](docs/upgrading.md) - breaking changes and migration paths
@@ -1309,5 +1183,4 @@ Contributions welcome via GitHub issues and pull requests.
 | Resource | Link |
 |----------|------|
 | Documentation | [docs.goagents.dev](https://docs.goagents.dev/) |
-| Discord | [Join Community](https://discord.com/invite/MjJbDG2nQZ) |
 | GitHub | [Ingenimax/agent-sdk-go](https://github.com/Ingenimax/agent-sdk-go) |
