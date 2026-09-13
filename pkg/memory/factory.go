@@ -151,7 +151,13 @@ func (f *MemoryFactory) createRedisMemory(config map[string]interface{}, llmClie
 				RetryInterval: 100 * time.Millisecond,
 				BackoffFactor: 2.0,
 			}),
-			WithSummarization(llmClient, maxSummaries, summaryAfterMessages),
+			// Argument order matters here and was previously transposed:
+			// WithSummarization(llm, messageThreshold, summaryCount). Passing
+			// (maxSummaries, summaryAfterMessages) meant max_summaries became the
+			// message threshold and summary_after_messages became the summary
+			// count, so with the defaults summarization fired every 3 messages
+			// instead of every 10 and retained 10 summaries instead of 3.
+			WithSummarization(llmClient, summaryAfterMessages, maxSummaries),
 		)
 	}
 

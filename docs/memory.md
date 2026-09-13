@@ -26,24 +26,78 @@ Stores only the most recent N messages:
 ```go
 import "github.com/Ingenimax/agent-sdk-go/pkg/memory"
 
-// Create a conversation buffer window memory with a window size of 10 messages
-mem := memory.NewConversationBufferWindow(10)
+// Keep only the 10 most recent messages
+mem := memory.NewConversationBuffer(memory.WithMaxSize(10))
 ```
+
+The buffer trims from the front once it exceeds the size, so the oldest messages
+are dropped first. The default is 100.
 
 ### Redis Memory
 
 Stores messages in Redis for persistence:
 
 ```go
-import "github.com/Ingenimax/agent-sdk-go/pkg/memory/redis"
+import (
+    "github.com/Ingenimax/agent-sdk-go/pkg/memory"
+    "github.com/go-redis/redis/v8"
+)
 
-// Create a Redis memory
-mem := redis.New(
-    "localhost:6379", // Redis URL
-    "",               // Redis password (empty for no password)
-    0,                // Redis database number
+client := redis.NewClient(&redis.Options{
+    Addr:     "localhost:6379",
+    Password: "",
+    DB:       0,
+})
+
+mem := memory.NewRedisMemory(client,
+    memory.WithTTL(24*time.Hour),
+    memory.WithKeyPrefix("agent:"),
 )
 ```
+
+Or from a config struct, which creates the client for you:
+
+```go
+mem, err := memory.NewRedisMemoryFromConfig(memory.RedisConfig{
+    URL: "localhost:6379",
+})
+```
+
+### Conversation Summary
+
+Keeps a rolling buffer and, once it fills, replaces the buffered messages with
+an LLM-generated summary. Useful for long conversations that would otherwise
+outgrow the model's context window.
+
+```go
+mem := memory.NewConversationSummary(llmClient,
+    memory.WithMaxBufferSize(20),  // summarize once 20 messages accumulate
+    memory.WithSummaryLength(150), // target word count for the summary
+)
+```
+
+How it behaves:
+
+- When the buffer reaches `WithMaxBufferSize`, the buffered messages are
+  summarized and cleared.
+- The **previous summary is folded into the new one**, so the record compounds
+  rather than being replaced. `Metadata["count"]` on the stored summary
+  accumulates across every round.
+- `GetMessages` returns the current summary first, followed by any messages
+  buffered since.
+- Assistant turns carrying only tool calls are rendered as
+  `(called tools: name, name)` rather than as empty content, so the summarizer
+  can see what the agent did.
+
+> **Changed:** before the current development line, each new summary *replaced*
+> the previous one and the summarizer only saw the current buffer — so every
+> summarization after the first discarded all earlier history irrecoverably.
+> Separately, the internal buffer was hardcoded to 100 messages, so any
+> `WithMaxBufferSize` above 100 silently never fired. Both are fixed. See
+> [Upgrading](upgrading.md#behaviour-changes).
+
+Summarization runs inline on the call that crosses the threshold, so that
+`AddMessage` blocks on an LLM call.
 
 ## Using Memory with an Agent
 
@@ -375,3 +429,91 @@ func main() {
     }
     fmt.Println("Response 2:", response2)
 }
+
+## Semantic recall (vector store)
+
+`VectorStoreRetriever` embeds every message into a vector store and can surface
+relevant earlier turns on later questions.
+
+```go
+mem := memory.NewVectorStoreRetriever(store,
+    memory.WithAutoRecall(),      // search the store on every read
+    memory.WithRecallLimit(5),    // how many excerpts to surface
+)
+```
+
+> **Important:** without `WithAutoRecall` the store is **write-only**. Reads only
+> searched it when the caller passed `interfaces.WithQuery`, and no LLM provider
+> does — every one builds its request with a bare `GetMessages()`. So messages
+> were embedded and stored, and nothing ever read them back. `WithAutoRecall` is
+> opt-in because enabling it changes what the model sees, but without it you are
+> paying embedding cost for nothing.
+
+With auto-recall on, the most recent user message is used as the query — it is
+what the agent is being asked to answer.
+
+### Recalled content never reorders the transcript
+
+Recalled excerpts arrive as a single leading system message; the real message
+sequence is passed through untouched.
+
+That is deliberate. A similarity search returns results that are neither
+contiguous nor chronological, and splicing them into the message list would
+separate `tool_call` from its `tool_result` — which both the OpenAI and
+Anthropic APIs reject outright. Content already present in the recent window is
+skipped, so the model is not told the same thing twice, and a failing vector
+store degrades to the plain transcript rather than failing the turn.
+
+## Capability discovery through decorators
+
+`interfaces.Memory` is three methods — `AddMessage`, `GetMessages`, `Clear`.
+Richer behaviour is optional and discovered by type assertion:
+
+- `interfaces.ConversationMemory` adds `GetAllConversations`,
+  `GetConversationMessages` and `GetMemoryStatistics`.
+- `interfaces.AdminConversationMemory` adds the cross-organization variants.
+
+A **decorator** that implements only the three core methods hides every optional
+capability of whatever it wraps, and a bare type assertion fails silently:
+callers get an empty result rather than an error. This is exactly what happened
+when `tracing.NewTracedMemory` wrapped a `RedisMemory` — `Agent.GetAllConversations`
+and its siblings started returning nothing.
+
+### Asking about capabilities
+
+Use the helpers rather than a bare assertion. They walk the decorator chain:
+
+```go
+if convMem, ok := interfaces.AsConversationMemory(mem); ok {
+    conversations, err := convMem.GetAllConversations(ctx)
+}
+
+if adminMem, ok := interfaces.AsAdminConversationMemory(mem); ok {
+    all, err := adminMem.GetAllConversationsAcrossOrgs()
+}
+
+inner := interfaces.UnwrapMemory(mem) // the innermost Memory
+```
+
+### Writing a Memory decorator
+
+Implement `interfaces.MemoryUnwrapper` so the helpers can see past you:
+
+```go
+type auditedMemory struct {
+    inner interfaces.Memory
+}
+
+// ... AddMessage, GetMessages, Clear ...
+
+func (m *auditedMemory) Unwrap() interfaces.Memory { return m.inner }
+```
+
+Without `Unwrap`, your decorator silently disables conversation listing,
+per-conversation retrieval and memory statistics for every agent that uses it.
+
+## See also
+
+- [Tracing](tracing.md) — the memory tracing decorator
+- [Multi-tenancy](multitenancy.md) — how memory is scoped
+- [Upgrading](upgrading.md) — memory behaviour changes

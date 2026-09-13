@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -12,6 +13,8 @@ import (
 type VectorStoreRetriever struct {
 	buffer      *ConversationBuffer
 	vectorStore interfaces.VectorStore
+	autoRecall  bool
+	recallLimit int
 	mu          sync.RWMutex
 }
 
@@ -23,6 +26,7 @@ func NewVectorStoreRetriever(vectorStore interfaces.VectorStore, options ...Retr
 	retriever := &VectorStoreRetriever{
 		buffer:      NewConversationBuffer(),
 		vectorStore: vectorStore,
+		recallLimit: 5,
 	}
 
 	for _, option := range options {
@@ -70,9 +74,23 @@ func (v *VectorStoreRetriever) GetMessages(ctx context.Context, options ...inter
 		option(opts)
 	}
 
-	// If no query is provided, return messages from buffer
+	// If no query is provided, fall back to the buffer -- optionally enriching it
+	// with semantically recalled history first.
+	//
+	// This gate is why the vector store was effectively write-only. Every
+	// provider builds its request with a bare, optionless GetMessages call, and
+	// interfaces.WithQuery had no caller anywhere in the module, so opts.Query
+	// was always "" and the search below was unreachable. Callers paid to embed
+	// and store every message into a store nothing ever read back.
 	if opts.Query == "" {
-		return v.buffer.GetMessages(ctx, options...)
+		recent, err := v.buffer.GetMessages(ctx, options...)
+		if err != nil {
+			return nil, err
+		}
+		if !v.autoRecall {
+			return recent, nil
+		}
+		return v.withRecalledContext(ctx, recent), nil
 	}
 
 	// Search for relevant messages in vector store
@@ -122,4 +140,100 @@ func (v *VectorStoreRetriever) Clear(ctx context.Context) error {
 	fmt.Printf("Warning: Messages for conversation %s not deleted from vector store\n", conversationID)
 
 	return nil
+}
+
+// WithAutoRecall makes GetMessages search the vector store even when the caller
+// supplies no explicit query, using the most recent user message as the query.
+//
+// It is opt-in. Enabling it changes what the model sees, and the safe default
+// for an existing deployment is no change -- but note that without it the
+// vector store is write-only, since no provider passes interfaces.WithQuery.
+func WithAutoRecall() RetrieverOption {
+	return func(v *VectorStoreRetriever) {
+		v.autoRecall = true
+	}
+}
+
+// WithRecallLimit sets how many prior messages auto-recall may surface.
+// Defaults to 5.
+func WithRecallLimit(n int) RetrieverOption {
+	return func(v *VectorStoreRetriever) {
+		if n > 0 {
+			v.recallLimit = n
+		}
+	}
+}
+
+// withRecalledContext prepends semantically relevant history to the recent
+// transcript as a single system message.
+//
+// It deliberately does NOT splice recalled messages into the transcript. The
+// conversation carries tool_call / tool_result pairs that both the OpenAI and
+// Anthropic APIs reject if separated or reordered, and a similarity search
+// returns neither contiguous nor chronological results. Recalled content is
+// therefore delivered as context ABOUT the conversation, leaving the real
+// message sequence untouched.
+//
+// Recall failures are not fatal: the caller gets the unmodified transcript.
+func (v *VectorStoreRetriever) withRecalledContext(ctx context.Context, recent []interfaces.Message) []interfaces.Message {
+	query := lastUserContent(recent)
+	if query == "" {
+		return recent
+	}
+
+	results, err := v.vectorStore.Search(ctx, query, v.recallLimit)
+	if err != nil || len(results) == 0 {
+		return recent
+	}
+
+	// Skip anything already present in the recent window; repeating it wastes
+	// context and reads as the model being told the same thing twice.
+	present := make(map[string]struct{}, len(recent))
+	for _, m := range recent {
+		present[m.Content] = struct{}{}
+	}
+
+	var recalled []string
+	for _, result := range results {
+		content := result.Document.Content
+		if content == "" {
+			continue
+		}
+		if _, seen := present[content]; seen {
+			continue
+		}
+		role, _ := result.Document.Metadata["role"].(string)
+		if role == "" {
+			role = "unknown"
+		}
+		recalled = append(recalled, fmt.Sprintf("- [%s] %s", role, content))
+		present[content] = struct{}{}
+	}
+
+	if len(recalled) == 0 {
+		return recent
+	}
+
+	context := interfaces.Message{
+		Role: interfaces.MessageRoleSystem,
+		Content: "Relevant excerpts from earlier in this conversation:\n" +
+			strings.Join(recalled, "\n"),
+		Metadata: map[string]interface{}{
+			"recalled":     true,
+			"recall_count": len(recalled),
+		},
+	}
+
+	return append([]interfaces.Message{context}, recent...)
+}
+
+// lastUserContent returns the most recent user message's content, which is the
+// natural recall query: it is what the agent is being asked right now.
+func lastUserContent(messages []interfaces.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == interfaces.MessageRoleUser && messages[i].Content != "" {
+			return messages[i].Content
+		}
+	}
+	return ""
 }

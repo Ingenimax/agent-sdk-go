@@ -2,36 +2,36 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"fmt"
-	"math/big"
 	"time"
+
+	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 )
 
-// ContextKey is a type for context keys to avoid collisions
-type ContextKey string
+// Sub-agent context handling lives in pkg/tools, which owns the only recursion
+// guard that actually runs (AgentTool.Execute consults it before invoking a
+// sub-agent). Everything here delegates there.
+//
+// This package used to declare its own `type ContextKey string` with the same
+// string values as the ones in pkg/tools. Go context keys compare by type AND
+// value, so agent.ContextKey("recursion_depth") and
+// tools.contextKey("recursion_depth") were two entirely separate keys backing
+// two independent counters that could never observe one another. The copy here
+// was reached only by a unit test and by examples/subagents/depth_validation,
+// which meant the example demonstrated a recursion guard that did not protect
+// production. Delegating leaves exactly one counter.
+//
+// pkg/agent already imports pkg/tools and the dependency cannot run the other
+// way, so pkg/tools is the correct owner.
 
 const (
-	// SubAgentNameKey is the context key for sub-agent name
-	SubAgentNameKey ContextKey = "sub_agent_name"
+	// MaxRecursionDepth is the maximum allowed sub-agent recursion depth.
+	MaxRecursionDepth = tools.MaxRecursionDepth
 
-	// ParentAgentKey is the context key for parent agent
-	ParentAgentKey ContextKey = "parent_agent"
-
-	// RecursionDepthKey is the context key for recursion depth
-	RecursionDepthKey ContextKey = "recursion_depth"
-
-	// InvocationIDKey is the context key for invocation ID
-	InvocationIDKey ContextKey = "invocation_id"
-
-	// MaxRecursionDepth is the maximum allowed recursion depth
-	MaxRecursionDepth = 5
-
-	// DefaultSubAgentTimeout is the default timeout for sub-agent calls
+	// DefaultSubAgentTimeout is the default timeout for sub-agent calls.
 	DefaultSubAgentTimeout = 30 * time.Second
 )
 
-// SubAgentContext contains context information for sub-agent invocations
+// SubAgentContext contains context information for sub-agent invocations.
 type SubAgentContext struct {
 	ParentAgent    string
 	SubAgentName   string
@@ -40,87 +40,43 @@ type SubAgentContext struct {
 	StartTime      time.Time
 }
 
-// WithSubAgentContext adds sub-agent context to the context
+// WithSubAgentContext adds sub-agent context to the context, incrementing the
+// recursion depth that AgentTool.Execute enforces.
 func WithSubAgentContext(ctx context.Context, parentAgent, subAgentName string) context.Context {
-	// Get current recursion depth
-	depth := GetRecursionDepth(ctx)
-
-	// Create sub-agent context
-	subCtx := SubAgentContext{
-		ParentAgent:    parentAgent,
-		SubAgentName:   subAgentName,
-		RecursionDepth: depth + 1,
-		InvocationID:   generateInvocationID(),
-		StartTime:      time.Now(),
-	}
-
-	// Add to context
-	ctx = context.WithValue(ctx, SubAgentNameKey, subAgentName)
-	ctx = context.WithValue(ctx, ParentAgentKey, parentAgent)
-	ctx = context.WithValue(ctx, RecursionDepthKey, depth+1)
-	ctx = context.WithValue(ctx, InvocationIDKey, subCtx.InvocationID)
-
-	return ctx
+	return tools.WithSubAgentContext(ctx, parentAgent, subAgentName)
 }
 
-// GetRecursionDepth retrieves the current recursion depth from context
+// GetRecursionDepth retrieves the current recursion depth from context.
 func GetRecursionDepth(ctx context.Context) int {
-	if depth, ok := ctx.Value(RecursionDepthKey).(int); ok {
-		return depth
-	}
-	return 0
+	return tools.GetRecursionDepth(ctx)
 }
 
-// GetSubAgentName retrieves the sub-agent name from context
+// GetSubAgentName retrieves the sub-agent name from context.
 func GetSubAgentName(ctx context.Context) string {
-	if name, ok := ctx.Value(SubAgentNameKey).(string); ok {
-		return name
-	}
-	return ""
+	return tools.GetSubAgentName(ctx)
 }
 
-// GetParentAgent retrieves the parent agent from context
+// GetParentAgent retrieves the parent agent from context.
 func GetParentAgent(ctx context.Context) string {
-	if parent, ok := ctx.Value(ParentAgentKey).(string); ok {
-		return parent
-	}
-	return ""
+	return tools.GetParentAgent(ctx)
 }
 
-// GetInvocationID retrieves the invocation ID from context
+// GetInvocationID retrieves the invocation ID from context.
 func GetInvocationID(ctx context.Context) string {
-	if id, ok := ctx.Value(InvocationIDKey).(string); ok {
-		return id
-	}
-	return ""
+	return tools.GetInvocationID(ctx)
 }
 
-// IsSubAgentCall checks if the current context is a sub-agent call
+// IsSubAgentCall checks if the current context is a sub-agent call.
 func IsSubAgentCall(ctx context.Context) bool {
-	return GetRecursionDepth(ctx) > 0
+	return tools.IsSubAgentCall(ctx)
 }
 
-// ValidateRecursionDepth checks if the recursion depth is within limits
+// ValidateRecursionDepth checks if the recursion depth is within limits.
 func ValidateRecursionDepth(ctx context.Context) error {
-	depth := GetRecursionDepth(ctx)
-	if depth > MaxRecursionDepth {
-		return fmt.Errorf("maximum recursion depth %d exceeded (current: %d)", MaxRecursionDepth, depth)
-	}
-	return nil
+	return tools.ValidateRecursionDepth(ctx)
 }
 
-// generateInvocationID generates a unique invocation ID
-func generateInvocationID() string {
-	// Use crypto/rand for secure random number generation
-	randomNum, err := rand.Int(rand.Reader, big.NewInt(10000))
-	if err != nil {
-		// Fallback to timestamp-only if crypto/rand fails
-		return fmt.Sprintf("inv_%d", time.Now().UnixNano())
-	}
-	return fmt.Sprintf("inv_%d_%s", time.Now().UnixNano(), randomNum.String())
-}
-
-// WithTimeout adds a timeout to the context for sub-agent calls
+// WithTimeout adds a timeout to the context for sub-agent calls.
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, timeout) // #nosec G118 - cancel func is returned to caller
 }

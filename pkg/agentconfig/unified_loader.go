@@ -15,37 +15,47 @@ import (
 type ConfigSource string
 
 const (
-	ConfigSourceRemote ConfigSource = "remote"
-	ConfigSourceLocal  ConfigSource = "local"
-	ConfigSourceCache  ConfigSource = "cache"
-	ConfigSourceMerged ConfigSource = "merged" // Remote + Local merged
+	ConfigSourceLocal ConfigSource = "local"
+	ConfigSourceCache ConfigSource = "cache"
+
+	// ConfigSourceMerged marks a config produced by MergeAgentConfig.
+	ConfigSourceMerged ConfigSource = "merged"
 )
 
-// MergeStrategy determines how configs are merged when both remote and local exist
+// MergeStrategy determines which of two configs wins when MergeAgentConfig
+// combines them.
 type MergeStrategy string
 
 const (
-	// MergeStrategyNone - No merging, use only one source (default behavior)
+	// MergeStrategyNone - no merging.
 	MergeStrategyNone MergeStrategy = "none"
 
-	// MergeStrategyRemotePriority - Remote config is primary, local fills gaps (recommended)
-	// Use case: Config server has authority, local provides defaults
-	MergeStrategyRemotePriority MergeStrategy = "remote_priority"
+	// MergeStrategyPrimaryPriority - the primary config wins; base fills gaps.
+	MergeStrategyPrimaryPriority MergeStrategy = "primary_priority"
 
-	// MergeStrategyLocalPriority - Local config is primary, remote fills gaps
-	// Use case: Local development with remote fallbacks
-	MergeStrategyLocalPriority MergeStrategy = "local_priority"
+	// MergeStrategyBasePriority - the base config wins; primary fills gaps.
+	MergeStrategyBasePriority MergeStrategy = "base_priority"
+)
+
+const (
+	// MergeStrategyRemotePriority is retained for source compatibility.
+	//
+	// Deprecated: remote configuration loading was removed; there is no remote
+	// config to prioritise. Use MergeStrategyPrimaryPriority.
+	MergeStrategyRemotePriority = MergeStrategyPrimaryPriority
+
+	// MergeStrategyLocalPriority is retained for source compatibility.
+	//
+	// Deprecated: remote configuration loading was removed; both inputs to
+	// MergeAgentConfig are now local. Use MergeStrategyBasePriority.
+	MergeStrategyLocalPriority = MergeStrategyBasePriority
 )
 
 // LoadOptions configures how agent configurations are loaded
 type LoadOptions struct {
-	// Source preferences
-	PreferRemote  bool   // Try remote first
-	AllowFallback bool   // Fall back to local if remote fails
-	LocalPath     string // Specific local file path
-
-	// Merging
-	MergeStrategy MergeStrategy // How to merge remote and local configs
+	// LocalPath is a specific config file path. When empty, a set of
+	// conventional locations is searched.
+	LocalPath string
 
 	// Caching
 	EnableCache  bool
@@ -59,9 +69,6 @@ type LoadOptions struct {
 // DefaultLoadOptions returns sensible defaults
 func DefaultLoadOptions() *LoadOptions {
 	return &LoadOptions{
-		PreferRemote:       true,              // Try remote first
-		AllowFallback:      true,              // Fall back to local if remote fails
-		MergeStrategy:      MergeStrategyNone, // No merging by default (backwards compatible)
 		EnableCache:        true,
 		CacheTimeout:       5 * time.Minute,
 		EnableEnvOverrides: true,
@@ -72,12 +79,26 @@ func DefaultLoadOptions() *LoadOptions {
 // LoadOption is a functional option
 type LoadOption func(*LoadOptions)
 
-// WithLocalFallback enables fallback to local file
-func WithLocalFallback(path string) LoadOption {
+// WithLocalPath sets an explicit config file path.
+func WithLocalPath(path string) LoadOption {
 	return func(opts *LoadOptions) {
-		opts.AllowFallback = true
 		opts.LocalPath = path
 	}
+}
+
+// WithLocalFallback sets an explicit config file path.
+//
+// Deprecated: configuration is always loaded locally; there is no remote source
+// to fall back from. Use WithLocalPath.
+func WithLocalFallback(path string) LoadOption {
+	return WithLocalPath(path)
+}
+
+// WithLocalOnly is a no-op.
+//
+// Deprecated: configuration is always loaded locally. This option has no effect.
+func WithLocalOnly() LoadOption {
+	return func(*LoadOptions) {}
 }
 
 // WithCache enables caching with specified timeout
@@ -109,67 +130,24 @@ func WithVerbose() LoadOption {
 	}
 }
 
-// WithRemoteOnly forces remote configuration only
-func WithRemoteOnly() LoadOption {
-	return func(opts *LoadOptions) {
-		opts.PreferRemote = true
-		opts.AllowFallback = false
-	}
-}
-
-// WithLocalOnly forces local configuration only
-func WithLocalOnly() LoadOption {
-	return func(opts *LoadOptions) {
-		opts.PreferRemote = false
-		opts.AllowFallback = false
-	}
-}
-
-// WithMergeStrategy sets the merge strategy for combining remote and local configs
-func WithMergeStrategy(strategy MergeStrategy) LoadOption {
-	return func(opts *LoadOptions) {
-		opts.MergeStrategy = strategy
-		// When merging, we need to load both sources
-		if strategy != MergeStrategyNone {
-			opts.AllowFallback = true // Ensure we try to load both
-		}
-	}
-}
-
-// WithRemotePriorityMerge enables merging with remote config taking priority
-// Local config provides defaults for fields not set in remote
-func WithRemotePriorityMerge() LoadOption {
-	return WithMergeStrategy(MergeStrategyRemotePriority)
-}
-
-// WithLocalPriorityMerge enables merging with local config taking priority
-// Remote config provides defaults for fields not set in local
-func WithLocalPriorityMerge() LoadOption {
-	return WithMergeStrategy(MergeStrategyLocalPriority)
-}
-
-// LoadAgentConfig is the main entry point for loading agent configurations
-// It uses AGENT_DEPLOYMENT_ID to load configuration from remote, then falls back to local if configured
-func LoadAgentConfig(ctx context.Context, agentName, environment string, options ...LoadOption) (*agent.AgentConfig, error) {
-	// Get agent deployment ID from environment
-	agentID := os.Getenv("AGENT_DEPLOYMENT_ID")
-	if agentID == "" {
-		return nil, fmt.Errorf("AGENT_DEPLOYMENT_ID environment variable is required")
-	}
-
-	// Apply options
+// LoadAgentConfig is the main entry point for loading agent configurations.
+//
+// Configuration is loaded from a local YAML file. Remote configuration loading
+// was removed: it fetched YAML over HTTP and unmarshalled it straight into an
+// AgentConfig whose MCP section names a local executable to run, which handed
+// the config server arbitrary command execution inside the agent process.
+func LoadAgentConfig(_ context.Context, agentName, environment string, options ...LoadOption) (*agent.AgentConfig, error) {
 	opts := DefaultLoadOptions()
 	for _, option := range options {
 		option(opts)
 	}
 
 	if opts.Verbose {
-		fmt.Printf("Loading agent config: agent_id=%s (env: %s)\n", agentID, environment)
+		fmt.Printf("Loading agent config: agent=%s (env: %s)\n", agentName, environment)
 	}
 
-	// Try cache first if enabled
+	cacheKey := fmt.Sprintf("%s:%s", agentName, environment)
 	if opts.EnableCache {
-		cacheKey := fmt.Sprintf("%s:%s", agentID, environment)
 		if cached := getFromCache(cacheKey); cached != nil {
 			if opts.Verbose {
 				fmt.Printf("Loaded from cache: %s\n", cacheKey)
@@ -178,115 +156,21 @@ func LoadAgentConfig(ctx context.Context, agentName, environment string, options
 		}
 	}
 
-	var config *agent.AgentConfig
-	var remoteConfig *agent.AgentConfig
-	var localConfig *agent.AgentConfig
-	var source ConfigSource
-	var err error
-	var remoteErr, localErr error
-
-	// If merging is enabled, load both configs
-	if opts.MergeStrategy != MergeStrategyNone {
-		if opts.Verbose {
-			fmt.Printf("Merge strategy enabled: %s\n", opts.MergeStrategy)
-		}
-
-		// Load remote config
-		remoteConfig, remoteErr = loadFromRemoteByID(ctx, agentID, environment, opts)
-		if remoteErr != nil && opts.Verbose {
-			fmt.Printf("Remote loading failed (will merge with local if available): %v\n", remoteErr)
-		}
-
-		// Load local config
-		localConfig, localErr = loadFromLocal(agentName, environment, opts)
-		if localErr != nil && opts.Verbose {
-			fmt.Printf("Local loading failed (will merge with remote if available): %v\n", localErr)
-		}
-
-		// Perform merge based on strategy
-		switch opts.MergeStrategy {
-		case MergeStrategyRemotePriority:
-			if remoteConfig != nil && localConfig != nil {
-				// Both configs available - merge with remote priority
-				config = MergeAgentConfig(remoteConfig, localConfig, opts.MergeStrategy)
-				source = ConfigSourceMerged
-				if opts.Verbose {
-					fmt.Printf("Merged remote (priority) + local configs\n")
-				}
-			} else if remoteConfig != nil {
-				// Only remote available
-				config = remoteConfig
-				source = ConfigSourceRemote
-			} else if localConfig != nil {
-				// Only local available
-				config = localConfig
-				source = ConfigSourceLocal
-			}
-		case MergeStrategyLocalPriority:
-			if remoteConfig != nil && localConfig != nil {
-				// Both configs available - merge with local priority
-				config = MergeAgentConfig(localConfig, remoteConfig, opts.MergeStrategy)
-				source = ConfigSourceMerged
-				if opts.Verbose {
-					fmt.Printf("Merged local (priority) + remote configs\n")
-				}
-			} else if localConfig != nil {
-				// Only local available
-				config = localConfig
-				source = ConfigSourceLocal
-			} else if remoteConfig != nil {
-				// Only remote available
-				config = remoteConfig
-				source = ConfigSourceRemote
-			}
-		}
-
-		// If no config loaded after merge attempt, return error
-		if config == nil {
-			return nil, fmt.Errorf("failed to load config for merging: remote error: %v, local error: %v", remoteErr, localErr)
-		}
-	} else {
-		// No merging - use original behavior (either/or with fallback)
-		// Try remote first if preferred
-		if opts.PreferRemote {
-			config, err = loadFromRemoteByID(ctx, agentID, environment, opts)
-			if err == nil {
-				source = ConfigSourceRemote
-			} else if opts.Verbose {
-				fmt.Printf("Remote loading failed: %v\n", err)
-			}
-		}
-
-		// Fall back to local if remote failed and fallback is enabled
-		if config == nil && opts.AllowFallback {
-			config, err = loadFromLocal(agentName, environment, opts)
-			if err == nil {
-				source = ConfigSourceLocal
-			} else if opts.Verbose {
-				fmt.Printf("Local loading failed: %v\n", err)
-			}
-		}
-
-		if config == nil {
-			return nil, fmt.Errorf("failed to load agent config from any source: %w", err)
-		}
+	config, err := loadFromLocal(agentName, environment, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load agent config: %w", err)
 	}
 
 	// Add source metadata (preserve existing metadata if already set by loader)
 	if config.ConfigSource == nil {
 		config.ConfigSource = &agent.ConfigSourceMetadata{}
 	}
-	// Only override if not already set by the loader
 	if config.ConfigSource.Type == "" {
-		config.ConfigSource.Type = string(source)
-	}
-	if config.ConfigSource.AgentID == "" {
-		config.ConfigSource.AgentID = agentID
+		config.ConfigSource.Type = string(ConfigSourceLocal)
 	}
 	if config.ConfigSource.Environment == "" {
 		config.ConfigSource.Environment = environment
 	}
-	// Keep the actual agent name from remote if available, otherwise use the parameter
 	if config.ConfigSource.AgentName == "" {
 		config.ConfigSource.AgentName = agentName
 	}
@@ -297,78 +181,15 @@ func LoadAgentConfig(ctx context.Context, agentName, environment string, options
 		*config = agent.ExpandAgentConfig(*config)
 	}
 
-	// Cache the result if enabled
 	if opts.EnableCache {
-		cacheKey := fmt.Sprintf("%s:%s", agentID, environment)
 		cacheConfig(cacheKey, config, opts.CacheTimeout)
 	}
 
 	if opts.Verbose {
-		fmt.Printf("Successfully loaded from %s\n", source)
+		fmt.Printf("Successfully loaded from %s\n", ConfigSourceLocal)
 	}
 
 	return config, nil
-}
-
-// loadFromRemoteByID loads configuration from starops-config-service using agent_id
-func loadFromRemoteByID(ctx context.Context, agentID, environment string, opts *LoadOptions) (*agent.AgentConfig, error) {
-	// Create client
-	client, err := NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config client: %w", err)
-	}
-
-	// Fetch from remote service using agent_id
-	response, err := client.FetchAgentConfig(ctx, agentID, environment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch remote config: %w", err)
-	}
-
-	// DEBUG: Log what the config server returned
-	fmt.Printf("[DEBUG] Config server response - ResolvedVariables count: %d\n", len(response.ResolvedVariables))
-	for key, value := range response.ResolvedVariables {
-		displayValue := value
-		if len(value) > 10 {
-			displayValue = value[:10] + "..."
-		}
-		fmt.Printf("[DEBUG] ResolvedVariable: %s = '%s'\n", key, displayValue)
-	}
-
-	// Parse the resolved YAML - it has the agent name as top-level key
-	// Format: agent_name: { role: "...", goal: "...", ... }
-	var wrappedConfig map[string]agent.AgentConfig
-	if err := yaml.Unmarshal([]byte(response.ResolvedYAML), &wrappedConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse remote YAML: %w", err)
-	}
-
-	// Extract the first (and only) agent config from the map
-	if len(wrappedConfig) == 0 {
-		return nil, fmt.Errorf("no agent configuration found in remote YAML")
-	}
-
-	var config agent.AgentConfig
-	var actualAgentName string
-	for name, cfg := range wrappedConfig {
-		actualAgentName = name
-		config = cfg
-		fmt.Printf("[DEBUG] loadFromRemoteByID - Loaded config for agent: %s\n", actualAgentName)
-		fmt.Printf("[DEBUG] loadFromRemoteByID - Role: %s\n", cfg.Role)
-		fmt.Printf("[DEBUG] loadFromRemoteByID - Goal: %s\n", cfg.Goal)
-		fmt.Printf("[DEBUG] loadFromRemoteByID - Backstory: %s\n", cfg.Backstory)
-		break
-	}
-
-	// Set source metadata with the actual agent name from YAML
-	config.ConfigSource = &agent.ConfigSourceMetadata{
-		Type:        "remote",
-		Source:      fmt.Sprintf("starops-config-service://agent_id=%s/%s", agentID, environment),
-		AgentID:     agentID,
-		AgentName:   actualAgentName, // Use the actual agent name from YAML
-		Environment: environment,
-		Variables:   response.ResolvedVariables,
-	}
-
-	return &config, nil
 }
 
 // loadFromLocal loads configuration from local YAML file

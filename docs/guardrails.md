@@ -20,6 +20,73 @@ You can also specify a configuration file:
 export GUARDRAILS_CONFIG_PATH=/path/to/guardrails.yaml
 ```
 
+## When guardrails run
+
+Input guardrails run **before** the user message is written to memory, and the
+guarded text is what gets persisted and sent to the model. An input your
+guardrail rejects is not written to memory at all.
+
+That ordering is load-bearing. The LLM providers build their request from
+memory, not from the value returned by `ProcessInput` — for example
+`pkg/llm/openai/message_history.go` appends the prompt argument only when memory
+is `nil`:
+
+```go
+} else {
+    // Only append current user message when memory is nil
+    messages = append(messages, openai.UserMessage(prompt))
+}
+```
+
+> **Changed:** both run paths previously wrote the raw input to memory and only
+> then called `ProcessInput`, assigning the result to a local variable the
+> providers never read. With memory configured — the normal case — **the model
+> was shown the unguarded input and input guardrails had no effect at all.**
+> After upgrading you may see rejections fire for the first time. See
+> [Upgrading](upgrading.md#input-guardrails-now-actually-apply).
+
+### Output guardrails
+
+`ProcessOutput` runs on every terminal path that produces a complete response,
+via `finishRun`, which guards and then persists — so the transcript holds what
+the guardrail approved and the next turn replays that rather than raw model
+output. A response the guardrail rejects is not persisted.
+
+| Path | Guarded |
+| --- | --- |
+| `runWithoutExecutionPlanWithToolsTracked` | yes |
+| `runWithExecutionPlan` (the default with tools) | yes |
+| `generateRoleResponse` | yes |
+| plan create / modify replies | yes |
+| custom run function | output only — see below |
+| remote agent | output only — see below |
+| `RunStream` — role response | yes |
+| `RunStream` — streamed content | **persisted text only — see below** |
+
+> Earlier releases had `ProcessOutput` at a single call site, reached by one of
+> five paths — and not the default one, since `requirePlanApproval` defaults to
+> `true`. On a default configuration, output guardrails did not run.
+
+#### Limitation: streamed deltas are not retroactively guarded
+
+On `RunStream`, content reaches the consumer incrementally. By the time the full
+response exists, the caller has already seen the raw deltas. Guardrails are
+applied to the accumulated text **before it is written to memory**, so the
+transcript is clean and the next turn is not poisoned — but the bytes already
+streamed are not recalled.
+
+If you need output filtering to reach the consumer, use the non-streaming path.
+Guarding a stream as it is produced requires a policy for partial text (buffer
+to a boundary? redact retroactively? abort mid-stream?) that has not been
+decided.
+
+#### Limitation: custom run functions
+
+`agent.WithCustomRunFunction` and `agent.WithCustomRunStreamFunction` replace the
+whole local run path. Their **output is guarded**, but they receive **no input
+guardrails, no memory write and no tracing** — that is inherent to replacing the
+run path. Call `ProcessInput` yourself inside a custom function if you need it.
+
 ## Using Guardrails with an Agent
 
 To use guardrails with an agent, pass them to the `WithGuardrails` option:

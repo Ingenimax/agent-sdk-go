@@ -121,3 +121,77 @@ func WithQuery(query string) GetMessagesOption {
 		o.Query = query
 	}
 }
+
+// MemoryUnwrapper is implemented by Memory decorators that wrap another Memory.
+//
+// Memory is a three-method interface, and richer behaviour (ConversationMemory,
+// AdminConversationMemory) is discovered by type assertion. A decorator that
+// implements only the three core methods therefore hides every optional
+// capability of the value it wraps, and the assertion fails silently: callers
+// get an empty result rather than an error. Implementing Unwrap lets the
+// AsConversationMemory / AsAdminConversationMemory helpers see through the
+// decorator chain.
+type MemoryUnwrapper interface {
+	// Unwrap returns the Memory this value decorates.
+	Unwrap() Memory
+}
+
+// UnwrapMemory walks a chain of MemoryUnwrapper decorators and returns the
+// innermost Memory. It returns m unchanged when m is nil or wraps nothing.
+func UnwrapMemory(m Memory) Memory {
+	for {
+		unwrapper, ok := m.(MemoryUnwrapper)
+		if !ok {
+			return m
+		}
+		inner := unwrapper.Unwrap()
+		if inner == nil {
+			return m
+		}
+		m = inner
+	}
+}
+
+// AsConversationMemory reports whether m, or any Memory it decorates, supports
+// conversation-level operations.
+//
+// Prefer this over a bare m.(ConversationMemory) assertion: the bare form
+// returns false for a perfectly capable Memory that merely happens to be
+// wrapped in tracing or another decorator.
+func AsConversationMemory(m Memory) (ConversationMemory, bool) {
+	for m != nil {
+		if cm, ok := m.(ConversationMemory); ok {
+			return cm, true
+		}
+		unwrapper, ok := m.(MemoryUnwrapper)
+		if !ok {
+			return nil, false
+		}
+		inner := unwrapper.Unwrap()
+		if inner == nil {
+			return nil, false
+		}
+		m = inner
+	}
+	return nil, false
+}
+
+// AsAdminConversationMemory reports whether m, or any Memory it decorates,
+// supports cross-organization conversation operations.
+func AsAdminConversationMemory(m Memory) (AdminConversationMemory, bool) {
+	for m != nil {
+		if am, ok := m.(AdminConversationMemory); ok {
+			return am, true
+		}
+		unwrapper, ok := m.(MemoryUnwrapper)
+		if !ok {
+			return nil, false
+		}
+		inner := unwrapper.Unwrap()
+		if inner == nil {
+			return nil, false
+		}
+		m = inner
+	}
+	return nil, false
+}

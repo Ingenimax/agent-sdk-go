@@ -68,7 +68,22 @@ type TaskPlanner interface {
 	CreatePlan(ctx context.Context, task interface{}) (string, error)
 }
 
-// TaskExecutor is the interface for executing tasks
+// TaskExecutor is the interface for executing tasks.
+//
+// Deprecated: this interface has no satisfying implementation anywhere in the
+// SDK and cannot usefully be implemented as written. *task/executor.TaskExecutor,
+// the only executor shipped, does not satisfy it (it has no CancelTask,
+// GetTaskStatus, ExecuteWorkflow or ExecuteWorkflowAsync, and its ExecuteStep /
+// ExecuteTask take concrete *core.Task and *core.Step rather than interface{}).
+// As a result NewInMemoryTaskService, which accepts a TaskExecutor, cannot be
+// constructed with anything this module provides.
+//
+// The ExecuteWorkflow and ExecuteWorkflowAsync methods reference a Temporal
+// integration that does not exist; Temporal is not a dependency of this module.
+//
+// This interface will be removed in a future minor release. Depend on the
+// concrete *task/executor.TaskExecutor, or define an interface in your own
+// package containing only the methods you use.
 type TaskExecutor interface {
 	// ExecuteSync executes a task synchronously
 	ExecuteSync(ctx context.Context, taskName string, params interface{}, opts *TaskOptions) (*TaskResult, error)

@@ -78,6 +78,14 @@ func (ut *usageTracker) addToolCall(toolName string) {
 	ut.mu.Lock()
 	defer ut.mu.Unlock()
 
+	// ToolCalls counts invocations, so it is incremented for every call. The
+	// early return used to sit above this line, inside the dedup loop, which
+	// meant ToolCalls only advanced the first time a given tool was seen and
+	// was therefore always exactly len(UsedTools) -- forty calls to one tool
+	// reported 1.
+	ut.execSummary.ToolCalls++
+
+	// UsedTools is a distinct set, so it is appended to only once per tool.
 	for _, used := range ut.execSummary.UsedTools {
 		if used == toolName {
 			return
@@ -85,7 +93,6 @@ func (ut *usageTracker) addToolCall(toolName string) {
 	}
 
 	ut.execSummary.UsedTools = append(ut.execSummary.UsedTools, toolName)
-	ut.execSummary.ToolCalls++
 }
 
 func (ut *usageTracker) setExecutionTime(timeMs int64) {

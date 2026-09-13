@@ -776,7 +776,6 @@ agent-cli test-llm agents.yaml my_agent
 ## Related Documentation
 
 - [Agent Configuration Guide](agent.md)
-- [YAML Configuration Enhancement Plan](yaml-configuration-enhancement-plan.md)
 - [Environment Variables](environment_variables.md)
 - [LLM Providers](llm.md)
 - [Security Best Practices](../README.md#security)

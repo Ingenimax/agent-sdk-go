@@ -25,11 +25,8 @@ func (b *cacheRequestBuilder) HasCacheOptions() bool {
 	return b.config.CacheSystemMessage || b.config.CacheTools || b.config.CacheConversation
 }
 
-// getCacheControl returns the cache control block based on config TTL.
+// getCacheControl returns the cache control block used for every breakpoint.
 func (b *cacheRequestBuilder) getCacheControl() *CacheControl {
-	if b.config != nil && b.config.CacheTTL != "" {
-		return NewCacheControlWithTTL(b.config.CacheTTL)
-	}
 	return NewCacheControl()
 }
 

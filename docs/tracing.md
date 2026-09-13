@@ -164,6 +164,30 @@ agent, err := agent.NewAgent(
 )
 ```
 
+#### Preserving memory capabilities
+
+`TracedMemory` wraps another `Memory` and implements
+`interfaces.MemoryUnwrapper`, so optional capabilities of the memory underneath
+remain discoverable:
+
+```go
+tracedMemory := tracing.NewTracedMemory(redisMemory, tracer)
+
+// Sees through the decorator to the RedisMemory underneath.
+if convMem, ok := interfaces.AsConversationMemory(tracedMemory); ok {
+    conversations, err := convMem.GetAllConversations(ctx)
+}
+```
+
+> **Changed:** `TracedMemory` implements only the three core `Memory` methods,
+> and `Agent.GetAllConversations`, `GetConversationMessages` and
+> `GetMemoryStatistics` used a bare type assertion for
+> `interfaces.ConversationMemory`. Wrapping a `RedisMemory` in tracing therefore
+> made that assertion miss, and all three returned empty results with no error.
+> Use `interfaces.AsConversationMemory` rather than a bare assertion, and give
+> any `Memory` decorator you write an `Unwrap` method. See
+> [Memory](memory.md#capability-discovery-through-decorators).
+
 ### Migration Guide (deprecated APIs)
 
 The following legacy helpers are deprecated in favor of the NewTracedLLM and NewTracedMemory. Please migrate as shown below.

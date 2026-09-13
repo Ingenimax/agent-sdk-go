@@ -43,7 +43,6 @@ func WithSummaryLength(wordCount int) SummaryOption {
 // NewConversationSummary creates a new conversation summary memory
 func NewConversationSummary(llmClient interfaces.LLM, options ...SummaryOption) *ConversationSummary {
 	summary := &ConversationSummary{
-		buffer:          NewConversationBuffer(),
 		llmClient:       llmClient,
 		maxBufferSize:   10, // Default max buffer size
 		summaryMessages: make(map[string]interfaces.Message),
@@ -53,6 +52,18 @@ func NewConversationSummary(llmClient interfaces.LLM, options ...SummaryOption) 
 	for _, option := range options {
 		option(summary)
 	}
+
+	if summary.maxBufferSize < 1 {
+		summary.maxBufferSize = 1
+	}
+
+	// The inner buffer is built after the options are applied and sized to
+	// maxBufferSize. It used to be constructed with a bare NewConversationBuffer(),
+	// which hardcodes maxSize 100 and trims from the front on every add, so any
+	// caller passing WithMaxBufferSize above 100 got a summarizer whose trigger
+	// (len(messages) >= maxBufferSize) could never be reached. Summarization was
+	// silently disabled with no error and no warning.
+	summary.buffer = NewConversationBuffer(WithMaxSize(summary.maxBufferSize))
 
 	return summary
 }
@@ -80,10 +91,27 @@ func (c *ConversationSummary) AddMessage(ctx context.Context, message interfaces
 	}
 
 	if len(messages) >= c.maxBufferSize {
-		// Summarize messages
-		summary, err := c.summarize(ctx, messages)
+		// Fold any existing summary into the new one. Previously the new
+		// summary simply replaced the old via a map assignment, and summarize()
+		// only ever saw the current buffer -- so on every second and subsequent
+		// summarization the entire earlier history was destroyed, silently and
+		// irrecoverably, since the raw messages had already been cleared from
+		// the only store. Passing the prior summary in makes the record compound
+		// instead.
+		prior := c.summaryMessages[conversationID].Content
+
+		summary, err := c.summarize(ctx, prior, messages)
 		if err != nil {
 			return err
+		}
+
+		// Track how many raw messages this summary now stands for, across all
+		// the rounds folded into it.
+		covered := len(messages)
+		if existing, ok := c.summaryMessages[conversationID]; ok {
+			if previousCount, ok := existing.Metadata["count"].(int); ok {
+				covered += previousCount
+			}
 		}
 
 		// Store summary
@@ -92,7 +120,7 @@ func (c *ConversationSummary) AddMessage(ctx context.Context, message interfaces
 			Content: summary,
 			Metadata: map[string]interface{}{
 				"is_summary": true,
-				"count":      len(messages),
+				"count":      covered,
 			},
 		}
 
@@ -157,8 +185,12 @@ func (c *ConversationSummary) Clear(ctx context.Context) error {
 	return nil
 }
 
-// summarize summarizes a list of messages
-func (c *ConversationSummary) summarize(ctx context.Context, messages []interfaces.Message) (string, error) {
+// summarize summarizes a list of messages.
+//
+// prior is the existing summary for this conversation, or "" if there is none.
+// It is included in the prompt so that history already compressed into a
+// summary survives the next round rather than being discarded.
+func (c *ConversationSummary) summarize(ctx context.Context, prior string, messages []interfaces.Message) (string, error) {
 	// Format messages for summarization
 	var sb strings.Builder
 
@@ -171,8 +203,23 @@ func (c *ConversationSummary) summarize(ctx context.Context, messages []interfac
 	}
 
 	fmt.Fprintf(&sb, "Summarize the following conversation in a concise summary (about %d words maximum):\n\n", summaryLength)
+
+	if prior != "" {
+		fmt.Fprintf(&sb, "Summary of the conversation so far:\n%s\n\nSubsequent messages:\n", prior)
+	}
+
 	for _, msg := range messages {
-		fmt.Fprintf(&sb, "%s: %s\n", msg.Role, msg.Content)
+		content := msg.Content
+		// Assistant turns that only carry tool calls have empty content;
+		// rendering them as a bare role name loses what the agent actually did.
+		if content == "" && len(msg.ToolCalls) > 0 {
+			names := make([]string, 0, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				names = append(names, tc.Name)
+			}
+			content = fmt.Sprintf("(called tools: %s)", strings.Join(names, ", "))
+		}
+		fmt.Fprintf(&sb, "%s: %s\n", msg.Role, content)
 	}
 	sb.WriteString("\nSummary:")
 

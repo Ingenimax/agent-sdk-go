@@ -4,8 +4,7 @@ package anthropic
 // When added to a content block, it marks that block as a cache breakpoint,
 // caching everything up to and including that block.
 type CacheControl struct {
-	Type string `json:"type"`          // "ephemeral" is the only supported value
-	TTL  string `json:"ttl,omitempty"` // "5m" (default) or "1h"
+	Type string `json:"type"` // "ephemeral" is the only supported value
 }
 
 // CacheableContent represents a content block that can have cache_control.
@@ -41,15 +40,12 @@ type CacheableTool struct {
 }
 
 // NewCacheControl creates a new CacheControl with the default 5-minute TTL.
+//
+// Extended (1h) cache TTL is deliberately not supported: it requires an
+// anthropic-beta request header that this client does not send, so emitting a
+// "ttl" field without it produced a cache_control block the API would not
+// honor. Callers were silently billed at the 5-minute rate while believing
+// they had hourly caching.
 func NewCacheControl() *CacheControl {
 	return &CacheControl{Type: "ephemeral"}
-}
-
-// NewCacheControlWithTTL creates a new CacheControl with a specific TTL.
-// Valid TTL values are "5m" (default) or "1h".
-func NewCacheControlWithTTL(ttl string) *CacheControl {
-	if ttl == "" || ttl == "5m" {
-		return &CacheControl{Type: "ephemeral"}
-	}
-	return &CacheControl{Type: "ephemeral", TTL: ttl}
 }

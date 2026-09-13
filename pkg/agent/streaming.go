@@ -10,7 +10,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 )
 
 // sendEvent pushes an AgentStreamEvent onto eventChan while respecting
@@ -65,13 +64,9 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// Track execution start time
 		startTime := time.Now()
 
-		// Inject agent name into context for tracing span naming
-		ctx = tracing.WithAgentName(ctx, a.name)
-
-		// If orgID is set on the agent, add it to the context
-		if a.orgID != "" {
-			ctx = multitenancy.WithOrgID(ctx, a.orgID)
-		}
+		// Stamp identity before the span starts so the span is named correctly.
+		// beginRun applies it again idempotently.
+		ctx = a.applyRunIdentity(ctx)
 
 		// Create usage tracker for detailed metrics collection
 		tracker := newUsageTracker(true)
@@ -139,34 +134,20 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			}()
 		}
 
-		// Add user message to memory
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    "user",
-				Content: input,
-			}); err != nil {
-				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-					Type:      interfaces.AgentEventError,
-					Error:     fmt.Errorf("failed to add user message to memory: %w", err),
-					Timestamp: time.Now(),
-				})
-				return
-			}
-		}
-
-		// Apply guardrails to input if available
-		processedInput := input
-		if a.guardrails != nil {
-			guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-			if err != nil {
-				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-					Type:      interfaces.AgentEventError,
-					Error:     fmt.Errorf("guardrails error: %w", err),
-					Timestamp: time.Now(),
-				})
-				return
-			}
-			processedInput = guardedInput
+		// Apply input guardrails and persist the resulting user message. See
+		// beginRun: guardrails must run before the memory write, because the
+		// providers build their request from memory rather than from the prompt
+		// argument.
+		var processedInput string
+		var preambleErr error
+		ctx, processedInput, preambleErr = a.beginRun(ctx, input)
+		if preambleErr != nil {
+			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
+				Type:      interfaces.AgentEventError,
+				Error:     preambleErr,
+				Timestamp: time.Now(),
+			})
+			return
 		}
 
 		// Check if the input is related to an existing plan
@@ -192,21 +173,16 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 
 		// Check if the user is asking about the agent's role or identity
 		if a.systemPrompt != "" && a.isAskingAboutRole(processedInput) {
-			response := a.generateRoleResponse()
-
-			// Add the role response to memory if available
-			if a.memory != nil {
-				if err := a.memory.AddMessage(ctx, interfaces.Message{
-					Role:    "assistant",
-					Content: response,
-				}); err != nil {
-					sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
-						Type:      interfaces.AgentEventError,
-						Error:     fmt.Errorf("failed to add role response to memory: %w", err),
-						Timestamp: time.Now(),
-					})
-					return
-				}
+			// A role response is produced whole rather than streamed, so output
+			// guardrails apply to it in full before anything is emitted.
+			response, finishErr := a.finishRun(ctx, a.generateRoleResponse(ctx))
+			if finishErr != nil {
+				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
+					Type:      interfaces.AgentEventError,
+					Error:     finishErr,
+					Timestamp: time.Now(),
+				})
+				return
 			}
 
 			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
@@ -221,28 +197,16 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			return
 		}
 
-		// Collect all tools. initializeMCPTools already populated a.tools, so the
-		// runtime re-collect below can re-add the same tools; deduplicate after the
-		// append to keep tool names unique (LLM providers like Anthropic reject
-		// requests with duplicate tool names — see issue #308).
-		allTools := a.tools
-
-		// Add MCP tools if available
-		if len(a.mcpServers) > 0 {
-			mcpTools, err := a.collectMCPTools(ctx)
-			if err != nil {
-				// Log the error but continue with the agent tools
-				// Warning: Failed to collect MCP tools
-				fmt.Printf("Warning: Failed to collect MCP tools: %v\n", err)
-			} else if len(mcpTools) > 0 {
-				allTools = deduplicateTools(append(allTools, mcpTools...))
-			}
-		}
+		// Shared with the sync path. This block previously omitted lazy MCP
+		// tools, so an agent configured with them saw a different tool set
+		// depending on whether it was streamed, and it reported collection
+		// failures via fmt.Printf rather than the agent's logger.
+		allTools := a.assembleTools(ctx)
 
 		// If tools are available and plan approval is required, we can't stream execution plans yet
 		if (len(allTools) > 0) && a.requirePlanApproval {
 			// For now, fall back to non-streaming execution plan generation
-			result, err := a.runWithExecutionPlan(ctx, processedInput)
+			result, err := a.runWithExecutionPlan(ctx, processedInput, a.planGeneratorFor(allTools))
 			if err != nil {
 				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
@@ -354,7 +318,7 @@ func (a *Agent) runStreamingGeneration(
 	if len(allTools) > 0 {
 		// Record tool invocations as the LLM actually calls them, not the
 		// full set of available tools (#305).
-		toolsForLLM := wrapToolsWithTracker(allTools, getUsageTracker(ctx))
+		toolsForLLM := a.decorateTools(allTools, getUsageTracker(ctx))
 		llmEventChan, err = streamingLLM.GenerateWithToolsStream(ctxWithForwarder, input, toolsForLLM, options...)
 	} else {
 		llmEventChan, err = streamingLLM.GenerateStream(ctxWithForwarder, input, options...)
@@ -433,25 +397,53 @@ func (a *Agent) runStreamingGeneration(
 				}
 			}
 		} else if accumulatedContent.Len() > 0 {
-			// No tool calls, just content - add assistant message
-			err := a.memory.AddMessage(ctx, interfaces.Message{
+			// No tool calls, just content - add assistant message.
+			//
+			// Output guardrails are applied before the text is persisted, so the
+			// transcript holds what the guardrail approved and the next turn
+			// replays that rather than raw model output.
+			//
+			// LIMITATION: the deltas have already been streamed to the consumer by
+			// this point, so this does NOT retroactively guard what the caller saw.
+			// Guarding a stream as it is produced needs a design decision that has
+			// not been made -- see docs/guardrails.md.
+			guarded, guardErr := a.guardOutput(ctx, accumulatedContent.String())
+			if guardErr != nil {
+				a.logger.Error(ctx, "Output guardrails rejected the streamed response; it was not persisted", map[string]interface{}{
+					"error": guardErr.Error(),
+				})
+			} else if err := a.memory.AddMessage(ctx, interfaces.Message{
 				Role:    "assistant",
-				Content: accumulatedContent.String(),
-			})
-			if err != nil {
-				fmt.Printf("Warning: Failed to add assistant response to memory: %v\n", err)
+				Content: guarded,
+			}); err != nil {
+				a.logger.Warn(ctx, "Failed to add assistant response to memory", map[string]interface{}{
+					"error": err.Error(),
+				})
 			}
 		}
 	}
 
-	// Send completion event
+	// Send completion event. Usage rides on the metadata so a consumer -- most
+	// importantly AgentTool wrapping this agent as a sub-agent -- can recover
+	// token accounting without executing the agent a second time.
+	completionMeta := map[string]interface{}{
+		"total_content_length": accumulatedContent.Len(),
+		"had_error":            finalError != nil,
+	}
+	if tracker := getUsageTracker(ctx); tracker != nil {
+		if usage, execSummary, model := tracker.getResults(); usage != nil {
+			completionMeta[interfaces.MetadataKeyUsage] = usage
+			completionMeta[interfaces.MetadataKeyModel] = model
+			if execSummary != nil {
+				completionMeta[interfaces.MetadataKeyExecutionSummary] = *execSummary
+			}
+		}
+	}
+
 	sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 		Type:      interfaces.AgentEventComplete,
 		Timestamp: time.Now(),
-		Metadata: map[string]interface{}{
-			"total_content_length": accumulatedContent.Len(),
-			"had_error":            finalError != nil,
-		},
+		Metadata:  completionMeta,
 	})
 
 	return int64(accumulatedContent.Len()), finalError

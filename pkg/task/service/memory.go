@@ -19,11 +19,20 @@ type InMemoryTaskService struct {
 	logger        logging.Logger
 	taskHistories map[string][]string
 	planner       interfaces.TaskPlanner
-	executor      interfaces.TaskExecutor
+	// Retained during the interfaces.TaskExecutor deprecation window. Note that
+	// no type in this module satisfies that interface, so this field cannot
+	// currently be populated with a shipped executor.
+	executor interfaces.TaskExecutor //nolint:staticcheck // SA1019: deprecated, removed with the interface
+
 }
 
-// NewInMemoryTaskService creates a new in-memory task service
-func NewInMemoryTaskService(logger logging.Logger, planner interfaces.TaskPlanner, executor interfaces.TaskExecutor) *InMemoryTaskService {
+// NewInMemoryTaskService creates a new in-memory task service.
+//
+// Deprecated: the executor parameter is an interfaces.TaskExecutor, which no
+// type in this module satisfies. This constructor cannot be called with any
+// executor the SDK provides and will change signature when that interface is
+// removed.
+func NewInMemoryTaskService(logger logging.Logger, planner interfaces.TaskPlanner, executor interfaces.TaskExecutor) *InMemoryTaskService { //nolint:staticcheck // SA1019: deprecated, removed with the interface
 	return &InMemoryTaskService{
 		tasks:         make(map[string]*task.Task),
 		taskHistories: make(map[string][]string),

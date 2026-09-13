@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMergeAgentConfig_RemotePriority(t *testing.T) {
+func TestMergeAgentConfig_PrimaryPriority(t *testing.T) {
 	tests := []struct {
 		name     string
 		remote   *agent.AgentConfig
@@ -156,7 +156,7 @@ func TestMergeAgentConfig_RemotePriority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := MergeAgentConfig(tt.remote, tt.local, MergeStrategyRemotePriority)
+			result := MergeAgentConfig(tt.remote, tt.local, MergeStrategyPrimaryPriority)
 			require.NotNil(t, result)
 
 			assert.Equal(t, tt.expected.Role, result.Role)
@@ -198,7 +198,7 @@ func TestMergeAgentConfig_RemotePriority(t *testing.T) {
 	}
 }
 
-func TestMergeAgentConfig_LocalPriority(t *testing.T) {
+func TestMergeAgentConfig_BasePriority(t *testing.T) {
 	local := &agent.AgentConfig{
 		Role:      "Local Role",
 		Goal:      "Local Goal",
@@ -211,7 +211,7 @@ func TestMergeAgentConfig_LocalPriority(t *testing.T) {
 		Backstory: "Remote Backstory",
 	}
 
-	result := MergeAgentConfig(local, remote, MergeStrategyLocalPriority)
+	result := MergeAgentConfig(local, remote, MergeStrategyBasePriority)
 	require.NotNil(t, result)
 
 	// Local values should take priority
@@ -227,17 +227,17 @@ func TestMergeAgentConfig_NilHandling(t *testing.T) {
 	}
 
 	t.Run("nil remote returns local", func(t *testing.T) {
-		result := MergeAgentConfig(nil, config, MergeStrategyRemotePriority)
+		result := MergeAgentConfig(nil, config, MergeStrategyPrimaryPriority)
 		assert.Equal(t, config, result)
 	})
 
 	t.Run("nil local returns remote", func(t *testing.T) {
-		result := MergeAgentConfig(config, nil, MergeStrategyRemotePriority)
+		result := MergeAgentConfig(config, nil, MergeStrategyPrimaryPriority)
 		assert.Equal(t, config, result)
 	})
 
 	t.Run("both nil returns nil", func(t *testing.T) {
-		result := MergeAgentConfig(nil, nil, MergeStrategyRemotePriority)
+		result := MergeAgentConfig(nil, nil, MergeStrategyPrimaryPriority)
 		assert.Nil(t, result)
 	})
 }
@@ -265,7 +265,7 @@ func TestMergeAgentConfig_ConfigSourceMetadata(t *testing.T) {
 		},
 	}
 
-	result := MergeAgentConfig(remote, local, MergeStrategyRemotePriority)
+	result := MergeAgentConfig(remote, local, MergeStrategyPrimaryPriority)
 	require.NotNil(t, result)
 	require.NotNil(t, result.ConfigSource)
 
@@ -326,7 +326,7 @@ func TestMergeDoesNotMutateOriginal(t *testing.T) {
 	originalPrimaryVarCount := len(primary.ConfigSource.Variables)
 
 	// Perform merge
-	merged := MergeAgentConfig(primary, base, MergeStrategyRemotePriority)
+	merged := MergeAgentConfig(primary, base, MergeStrategyPrimaryPriority)
 
 	// Modify merged config to test for shared state
 	merged.Tools = append(merged.Tools, agent.ToolConfigYAML{Name: "tool3", Type: "type3"})
@@ -371,7 +371,7 @@ func TestDeepCopyToolConfigs(t *testing.T) {
 		},
 	}
 
-	merged := MergeAgentConfig(primary, base, MergeStrategyRemotePriority)
+	merged := MergeAgentConfig(primary, base, MergeStrategyPrimaryPriority)
 
 	// Modify merged tool config
 	merged.Tools[0].Config["new_key"] = "new_value"
@@ -400,7 +400,7 @@ func TestDeepCopyNestedMaps(t *testing.T) {
 		Role: "Base",
 	}
 
-	merged := MergeAgentConfig(primary, base, MergeStrategyRemotePriority)
+	merged := MergeAgentConfig(primary, base, MergeStrategyPrimaryPriority)
 
 	// Modify nested map in merged config
 	nestedMap := merged.LLMProvider.Config["nested"].(map[string]interface{})
@@ -429,7 +429,7 @@ func TestDeepCopySubAgentsRecursive(t *testing.T) {
 		Role: "Base Manager",
 	}
 
-	merged := MergeAgentConfig(primary, base, MergeStrategyRemotePriority)
+	merged := MergeAgentConfig(primary, base, MergeStrategyPrimaryPriority)
 
 	// Modify sub-agent in merged config
 	merged.SubAgents["worker1"] = agent.AgentConfig{Role: "Modified Worker"}
@@ -489,7 +489,7 @@ func TestNilConfigMerge(t *testing.T) {
 	}
 
 	t.Run("nil primary returns deep copy of base", func(t *testing.T) {
-		result := MergeAgentConfig(nil, config, MergeStrategyRemotePriority)
+		result := MergeAgentConfig(nil, config, MergeStrategyPrimaryPriority)
 		require.NotNil(t, result)
 
 		// Modify result
@@ -500,7 +500,7 @@ func TestNilConfigMerge(t *testing.T) {
 	})
 
 	t.Run("nil base returns deep copy of primary", func(t *testing.T) {
-		result := MergeAgentConfig(config, nil, MergeStrategyRemotePriority)
+		result := MergeAgentConfig(config, nil, MergeStrategyPrimaryPriority)
 		require.NotNil(t, result)
 
 		// Modify result
@@ -514,8 +514,8 @@ func TestNilConfigMerge(t *testing.T) {
 // TestDeepCopyComplexPointers verifies deep copying of complex pointer fields
 func TestDeepCopyComplexPointers(t *testing.T) {
 	primary := &agent.AgentConfig{
-		Role:              "Primary",
-		MaxIterations:     intPtr(5),
+		Role:                "Primary",
+		MaxIterations:       intPtr(5),
 		RequirePlanApproval: boolPtr(true),
 		StreamConfig: &agent.StreamConfigYAML{
 			BufferSize:          intPtr(100),
@@ -531,7 +531,7 @@ func TestDeepCopyComplexPointers(t *testing.T) {
 		Role: "Base",
 	}
 
-	merged := MergeAgentConfig(primary, base, MergeStrategyRemotePriority)
+	merged := MergeAgentConfig(primary, base, MergeStrategyPrimaryPriority)
 
 	// Modify merged pointers
 	*merged.MaxIterations = 10

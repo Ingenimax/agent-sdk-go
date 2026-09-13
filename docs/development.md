@@ -6,7 +6,7 @@ This document provides detailed information for developers contributing to the A
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26+
 - Git
 - An IDE with Go support (VSCode, GoLand, etc.)
 - pre-commit (optional but recommended)
@@ -139,3 +139,48 @@ Keep documentation up-to-date when making changes. This includes:
 - [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
 - [Effective Go](https://golang.org/doc/effective_go)
 - [Go Modules](https://blog.golang.org/using-go-modules)
+
+## Test doubles
+
+`internal/testutil` provides shared, concurrency-safe test doubles. Use these
+rather than hand-rolling a mock per test file:
+
+| Double | Implements |
+| --- | --- |
+| `FakeLLM` | `interfaces.LLM` and `interfaces.StreamingLLM` |
+| `FakeTool` | `interfaces.Tool`, `ToolWithDisplayName`, `InternalTool` |
+| `FakeMemory` | `interfaces.Memory` |
+| `FakeConversationMemory` | `interfaces.ConversationMemory` |
+| `FakeTracer`, `FakeSpan` | `interfaces.Tracer`, `interfaces.Span` |
+
+```go
+import "github.com/Ingenimax/agent-sdk-go/internal/testutil"
+
+llm := &testutil.FakeLLM{
+    Responses:       []string{"first answer", "second answer"},
+    DefaultResponse: "fallback",
+    Usage:           &interfaces.TokenUsage{InputTokens: 10, OutputTokens: 5},
+}
+
+agent, err := agent.NewAgent(
+    agent.WithLLM(llm),
+    agent.WithTools(&testutil.FakeTool{ToolName: "search", Result: "results"}),
+)
+
+// Afterwards
+llm.Calls()          // how many Generate* calls
+llm.Prompts()        // every prompt, in order
+llm.ToolNamesAt(0)   // tools offered on the first call
+```
+
+`testutil.NewFakeLLM()` returns one that answers everything with `"ok"`.
+
+Take full control with `GenerateFunc`, inject failures with `Err`, and drive the
+tool set with `InvokeTools: true`.
+
+All doubles are safe to call from multiple goroutines, so a race the detector
+reports under `go test -race` is a race in the code under test rather than in
+the double. That was not true of the mocks this package replaced.
+
+`internal/testutil` is under `internal/` deliberately: it is a convenience for
+this module's tests, not API supported for downstream modules.

@@ -21,16 +21,6 @@ func TestCacheControl_JSON(t *testing.T) {
 			control:  NewCacheControl(),
 			expected: `{"type":"ephemeral"}`,
 		},
-		{
-			name:     "cache control with 5m TTL",
-			control:  NewCacheControlWithTTL("5m"),
-			expected: `{"type":"ephemeral"}`, // 5m is default, no TTL field
-		},
-		{
-			name:     "cache control with 1h TTL",
-			control:  NewCacheControlWithTTL("1h"),
-			expected: `{"type":"ephemeral","ttl":"1h"}`,
-		},
 	}
 
 	for _, tt := range tests {
@@ -337,23 +327,33 @@ func TestCacheOptions(t *testing.T) {
 		assert.True(t, opts.CacheConfig.CacheConversation)
 	})
 
-	t.Run("WithCacheTTL", func(t *testing.T) {
-		opts := &interfaces.GenerateOptions{}
-		WithCacheTTL("1h")(opts)
-
-		require.NotNil(t, opts.CacheConfig)
-		assert.Equal(t, "1h", opts.CacheConfig.CacheTTL)
-	})
-
 	t.Run("multiple options", func(t *testing.T) {
 		opts := &interfaces.GenerateOptions{}
 		WithCacheSystemMessage()(opts)
 		WithCacheTools()(opts)
-		WithCacheTTL("1h")(opts)
+		WithCacheConversation()(opts)
 
 		require.NotNil(t, opts.CacheConfig)
 		assert.True(t, opts.CacheConfig.CacheSystemMessage)
 		assert.True(t, opts.CacheConfig.CacheTools)
-		assert.Equal(t, "1h", opts.CacheConfig.CacheTTL)
+		assert.True(t, opts.CacheConfig.CacheConversation)
 	})
+}
+
+// TestCacheControl_NeverEmitsTTL guards the fix for the extended-cache-TTL bug:
+// the client emitted {"type":"ephemeral","ttl":"1h"} without the anthropic-beta
+// header that makes the API honor it, so callers who configured hourly caching
+// were silently billed at the 5-minute rate. No cache_control block this client
+// produces may carry a ttl field.
+func TestCacheControl_NeverEmitsTTL(t *testing.T) {
+	builder := &cacheRequestBuilder{config: &interfaces.CacheConfig{
+		CacheSystemMessage: true,
+		CacheTools:         true,
+		CacheConversation:  true,
+	}}
+
+	got, err := json.Marshal(builder.getCacheControl())
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"ephemeral"}`, string(got))
+	assert.NotContains(t, string(got), "ttl")
 }

@@ -74,3 +74,21 @@ func (m *TracedMemory) Clear(ctx context.Context) error {
 
 	return err
 }
+
+// Unwrap returns the Memory this decorator wraps, satisfying
+// interfaces.MemoryUnwrapper.
+//
+// Without this, wrapping a RedisMemory in tracing silently disabled
+// Agent.GetAllConversations, GetConversationMessages and GetMemoryStatistics:
+// each does a type assertion for interfaces.ConversationMemory, TracedMemory
+// implements only the three core Memory methods, so the assertion missed and
+// the accessors returned empty results rather than failing.
+func (m *TracedMemory) Unwrap() interfaces.Memory {
+	return m.memory
+}
+
+// Compile-time assertions. Nothing else in this repo catches interface drift.
+var (
+	_ interfaces.Memory          = (*TracedMemory)(nil)
+	_ interfaces.MemoryUnwrapper = (*TracedMemory)(nil)
+)

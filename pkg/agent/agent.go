@@ -24,7 +24,6 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools"
 	"github.com/Ingenimax/agent-sdk-go/pkg/tools/imagegen"
-	"github.com/Ingenimax/agent-sdk-go/pkg/tracing"
 
 	// Import storage backends for side-effect registration
 	_ "github.com/Ingenimax/agent-sdk-go/pkg/storage/local"
@@ -75,6 +74,7 @@ type Agent struct {
 	requirePlanApproval  bool                     // New field to control whether execution plans require approval
 	planStore            *executionplan.Store     // Store for execution plans
 	planGenerator        *executionplan.Generator // Generator for execution plans
+	toolPipeline         []ToolDecorator          // Ordered per-tool decorators; see decorateTools
 	planExecutor         *executionplan.Executor  // Executor for execution plans
 	generatedAgentConfig *AgentConfig
 	generatedTaskConfigs TaskConfigs
@@ -702,7 +702,16 @@ func validateLocalAgent(agent *Agent) (*Agent, error) {
 	// Initialize execution plan components
 	agent.planStore = executionplan.NewStore()
 	agent.planGenerator = executionplan.NewGenerator(agent.llm, allTools, agent.systemPrompt, agent.requirePlanApproval)
-	agent.planExecutor = executionplan.NewExecutor(allTools)
+	// The execution-plan executor calls tool.Execute directly, bypassing the
+	// provider tool loop entirely. requirePlanApproval defaults to true, so this
+	// is the SDK's default path and must see the same decorators.
+	//
+	// The tracker is nil here and that is a known gap, not an oversight: the
+	// executor is built once at construction while the usage tracker is created
+	// per run, so there is nothing to pass. Pipeline decorators apply on this
+	// path; usage accounting does not. Fixing it means building the executor per
+	// run, which is deferred to the Runner work.
+	agent.planExecutor = executionplan.NewExecutor(agent.decorateTools(allTools, nil))
 
 	return agent, nil
 }
@@ -837,9 +846,20 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 		if err != nil {
 			return nil, err
 		}
+		// A custom run function replaces the entire local run path, so it never
+		// reaches finishRun. Guard its output here. Note that input guardrails,
+		// the memory write and tracing are still skipped for a custom function --
+		// that is inherent to replacing the run path, and is documented.
+		if response, err = a.guardOutput(ctx, response); err != nil {
+			return nil, err
+		}
 	} else if a.isRemote {
 		response, err = a.runRemoteWithTracking(ctx, input)
 		if err != nil {
+			return nil, err
+		}
+		// The remote path returns another agent's answer; guard it locally too.
+		if response, err = a.guardOutput(ctx, response); err != nil {
 			return nil, err
 		}
 	} else {
@@ -897,11 +917,7 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 }
 
 func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string, error) {
-	ctx = tracing.WithAgentName(ctx, a.name)
-
-	if a.orgID != "" {
-		ctx = multitenancy.WithOrgID(ctx, a.orgID)
-	}
+	ctx = a.applyRunIdentity(ctx)
 
 	var span interfaces.Span
 	if a.tracer != nil {
@@ -909,21 +925,10 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		defer span.End()
 	}
 
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add user message to memory: %w", err)
-		}
-	}
-
-	if a.guardrails != nil {
-		guardedInput, err := a.guardrails.ProcessInput(ctx, input)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		input = guardedInput
+	var err error
+	ctx, input, err = a.beginRun(ctx, input)
+	if err != nil {
+		return "", err
 	}
 
 	taskID, action, planInput := a.extractPlanAction(input)
@@ -932,44 +937,13 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	}
 
 	if a.systemPrompt != "" && a.isAskingAboutRole(input) {
-		response := a.generateRoleResponse()
-
-		if a.memory != nil {
-			if err := a.memory.AddMessage(ctx, interfaces.Message{
-				Role:    interfaces.MessageRoleAssistant,
-				Content: response,
-			}); err != nil {
-				return "", fmt.Errorf("failed to add role response to memory: %w", err)
-			}
-		}
-
-		return response, nil
+		return a.finishRun(ctx, a.generateRoleResponse(ctx))
 	}
 
-	// Use pre-initialized tools (manual + MCP tools already combined during agent creation).
-	// initializeMCPTools already populated a.tools, so re-collecting here can append duplicates;
-	// always run the merged slice through deduplicateTools to defend against that and against
-	// MCP servers re-listing tools they already exposed at startup.
-	allTools := a.tools
-
-	if len(a.mcpServers) > 0 {
-		mcpTools, err := a.collectMCPTools(ctx)
-		if err != nil {
-			// Log warning but continue - MCP tools are optional
-			a.logger.Warn(context.Background(), fmt.Sprintf("Failed to collect MCP tools: %v", err), nil)
-		} else if len(mcpTools) > 0 {
-			allTools = deduplicateTools(append(allTools, mcpTools...))
-		}
-	}
-
-	if len(a.lazyMCPConfigs) > 0 {
-		lazyMCPTools := a.createLazyMCPTools()
-		allTools = deduplicateTools(append(allTools, lazyMCPTools...))
-	}
+	allTools := a.assembleTools(ctx)
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
-		a.planGenerator = executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
-		return a.runWithExecutionPlan(ctx, input)
+		return a.runWithExecutionPlan(ctx, input, a.planGeneratorFor(allTools))
 	}
 
 	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, allTools)
@@ -1283,7 +1257,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 	if len(tools) > 0 {
 		// Record tool invocations as the LLM actually calls them, not the
 		// full set of available tools (#305).
-		toolsForLLM := wrapToolsWithTracker(tools, tracker)
+		toolsForLLM := a.decorateTools(tools, tracker)
 
 		if tracker != nil && tracker.detailed {
 			llmResp, err := a.llm.GenerateWithToolsDetailed(ctx, prompt, toolsForLLM, generateOptions...)
@@ -1314,26 +1288,7 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 		}
 	}
 
-	// Apply guardrails to output if available
-	if a.guardrails != nil {
-		guardedResponse, err := a.guardrails.ProcessOutput(ctx, response)
-		if err != nil {
-			return "", fmt.Errorf("guardrails error: %w", err)
-		}
-		response = guardedResponse
-	}
-
-	// Add agent message to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: response,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add agent message to memory: %w", err)
-		}
-	}
-
-	return response, nil
+	return a.finishRun(ctx, response)
 }
 
 // extractPlanAction attempts to extract a plan action from the user input
@@ -1386,17 +1341,7 @@ func (a *Agent) approvePlan(ctx context.Context, plan *executionplan.ExecutionPl
 		return "", fmt.Errorf("failed to execute plan: %w", err)
 	}
 
-	// Add the execution result to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: result,
-		}); err != nil {
-			return "", fmt.Errorf("failed to add execution result to memory: %w", err)
-		}
-	}
-
-	return result, nil
+	return a.finishRun(ctx, result)
 }
 
 // modifyPlan modifies a plan based on user input
@@ -1423,17 +1368,7 @@ func (a *Agent) modifyPlan(ctx context.Context, plan *executionplan.ExecutionPla
 	// Format the modified plan
 	formattedPlan := executionplan.FormatExecutionPlan(modifiedPlan)
 
-	// Add the modified plan to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: "I've updated the execution plan based on your feedback:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it further if needed.",
-		}); err != nil {
-			return "", fmt.Errorf("failed to add modified plan to memory: %w", err)
-		}
-	}
-
-	return "I've updated the execution plan based on your feedback:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it further if needed.", nil
+	return a.finishRun(ctx, "I've updated the execution plan based on your feedback:\n\n"+formattedPlan+"\nDo you approve this plan? You can modify it further if needed.")
 }
 
 // cancelPlan cancels a plan
@@ -1451,10 +1386,30 @@ func (a *Agent) getPlanStatus(plan *executionplan.ExecutionPlan) (string, error)
 	return fmt.Sprintf("Current plan status: %s\n\n%s", status, formattedPlan), nil
 }
 
-// runWithExecutionPlan runs the agent with an execution plan
-func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string, error) {
+// planGeneratorFor returns an execution-plan generator scoped to one run.
+//
+// Tools are not fully known at construction time -- MCP servers are contacted
+// per run and lazy MCP tools are materialised per run -- so the generator has
+// to be built from the tool set this run actually assembled. It is returned
+// rather than stored on the Agent: writing a.planGenerator from inside the run
+// path raced with concurrent runs reading it, and did so on the default
+// configuration, since requirePlanApproval defaults to true and sub-agents are
+// shared *Agent pointers.
+func (a *Agent) planGeneratorFor(allTools []interfaces.Tool) *executionplan.Generator {
+	return executionplan.NewGenerator(a.llm, allTools, a.systemPrompt, a.requirePlanApproval)
+}
+
+// runWithExecutionPlan runs the agent with an execution plan.
+//
+// gen is the run-scoped generator from planGeneratorFor. When nil, the
+// construction-time generator is used.
+func (a *Agent) runWithExecutionPlan(ctx context.Context, input string, gen *executionplan.Generator) (string, error) {
+	if gen == nil {
+		gen = a.planGenerator
+	}
+
 	// Generate an execution plan
-	plan, err := a.planGenerator.GenerateExecutionPlan(ctx, input)
+	plan, err := gen.GenerateExecutionPlan(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate execution plan: %w", err)
 	}
@@ -1465,18 +1420,8 @@ func (a *Agent) runWithExecutionPlan(ctx context.Context, input string) (string,
 	// Format the plan for display
 	formattedPlan := executionplan.FormatExecutionPlan(plan)
 
-	// Add the plan to memory
-	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleAssistant,
-			Content: "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.",
-		}); err != nil {
-			return "", fmt.Errorf("failed to add plan to memory: %w", err)
-		}
-	}
-
 	// Return the plan for user approval
-	return "I've created an execution plan for your request:\n\n" + formattedPlan + "\nDo you approve this plan? You can modify it if needed.", nil
+	return a.finishRun(ctx, "I've created an execution plan for your request:\n\n"+formattedPlan+"\nDo you approve this plan? You can modify it if needed.")
 }
 
 // isStructuredJSONResponse checks if a message content is a structured JSON response
@@ -1582,8 +1527,14 @@ func (a *Agent) isAskingAboutRole(input string) bool {
 	return false
 }
 
-// generateRoleResponse creates a response based on the agent's system prompt
-func (a *Agent) generateRoleResponse() string {
+// generateRoleResponse creates a response based on the agent's system prompt.
+//
+// ctx is threaded through so this call is cancellable. It previously used
+// context.Background(), making it the one LLM call on a normal run path that
+// ignored caller cancellation entirely -- and it is reached whenever a
+// system prompt is set and the input looks like a question about the agent's
+// role, so it is not a rare path.
+func (a *Agent) generateRoleResponse(ctx context.Context) string {
 	// If the prompt is empty, return a generic response
 	if a.systemPrompt == "" || a.llm == nil {
 		return "I'm an AI assistant designed to help you with various tasks and answer your questions. How can I assist you today?"
@@ -1619,7 +1570,7 @@ Response:`, agentName, a.systemPrompt, agentName)
 	generateOptions = append(generateOptions, openai.WithSystemMessage(a.systemPrompt))
 
 	// Generate the response
-	response, err := a.llm.Generate(context.Background(), prompt, generateOptions...)
+	response, err := a.llm.Generate(ctx, prompt, generateOptions...)
 	if err != nil {
 		// Fallback to a simple response in case of errors
 		if a.name != "" {
@@ -1739,7 +1690,7 @@ func (a *Agent) GetAllConversations(ctx context.Context) ([]string, error) {
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetAllConversations(ctx)
 	}
 
@@ -1754,7 +1705,7 @@ func (a *Agent) GetConversationMessages(ctx context.Context, conversationID stri
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetConversationMessages(ctx, conversationID)
 	}
 
@@ -1769,7 +1720,7 @@ func (a *Agent) GetMemoryStatistics(ctx context.Context) (totalConversations, to
 	}
 
 	// Check if memory supports conversation operations
-	if convMem, ok := a.memory.(interfaces.ConversationMemory); ok {
+	if convMem, ok := interfaces.AsConversationMemory(a.memory); ok {
 		return convMem.GetMemoryStatistics(ctx)
 	}
 

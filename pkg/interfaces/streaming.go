@@ -126,3 +126,19 @@ type streamForwarderContextKey struct{}
 
 // StreamForwarderKey is the exported context key for stream forwarders
 var StreamForwarderKey = streamForwarderContextKey{}
+
+// Metadata keys carried on an AgentEventComplete event.
+//
+// Token accounting rides on the completion event so that a consumer wrapping an
+// agent -- notably a sub-agent tool -- can recover usage without running the
+// agent a second time.
+const (
+	// MetadataKeyUsage holds a *TokenUsage for the completed run.
+	MetadataKeyUsage = "usage"
+
+	// MetadataKeyModel holds the primary model name as a string.
+	MetadataKeyModel = "model"
+
+	// MetadataKeyExecutionSummary holds an ExecutionSummary value.
+	MetadataKeyExecutionSummary = "execution_summary"
+)

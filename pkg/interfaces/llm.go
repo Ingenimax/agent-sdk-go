@@ -50,8 +50,6 @@ type CacheConfig struct {
 	// CacheConversation marks conversation history for caching (cache_control on last message)
 	// Each new turn just appends to the cached prefix
 	CacheConversation bool
-	// CacheTTL sets the cache duration: "5m" (default) or "1h"
-	CacheTTL string
 }
 
 type LLMConfig struct {

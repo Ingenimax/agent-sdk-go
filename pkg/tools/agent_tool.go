@@ -155,28 +155,26 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	ctx = context.WithValue(ctx, parentAgentKey, "main")
 	ctx = context.WithValue(ctx, recursionDepthKey, depth+1)
 
-	// Check if parent context has a deadline that would expire before our timeout
-	var cancel context.CancelFunc
+	// Bound the sub-agent by its own timeout, but always keep it a child of the
+	// caller's context so cancelling the parent run cancels the sub-agent too.
+	//
+	// This previously called context.WithoutCancel when the parent deadline was
+	// shorter than at.timeout, in order to "extend" the sub-agent's budget. That
+	// also severed cancellation propagation, which the comment did not say: with
+	// the default 30 minute timeout, cancelling a parent run left the sub-agent
+	// running for up to half an hour, still writing into shared memory, long
+	// after the caller had gone. A sub-agent outliving the run that spawned it is
+	// never what the caller asked for, so the parent deadline now wins.
 	parentDeadline, hasDeadline := ctx.Deadline()
-	desiredDeadline := time.Now().Add(at.timeout)
-
-	if hasDeadline && parentDeadline.Before(desiredDeadline) {
-		// Parent context has a shorter deadline - we need to extend it
-		// Create a new context that preserves values but has our longer timeout
-		at.logger.Warn(ctx, "Parent context has shorter deadline, extending timeout for sub-agent", map[string]interface{}{
+	if hasDeadline && parentDeadline.Before(time.Now().Add(at.timeout)) {
+		at.logger.Warn(ctx, "Parent deadline is earlier than the sub-agent timeout; the parent deadline applies", map[string]interface{}{
 			"parent_deadline": parentDeadline.Format(time.RFC3339),
 			"desired_timeout": at.timeout.String(),
 			"sub_agent":       agentName,
 		})
-
-		// Use context.WithoutCancel to remove parent's deadline while preserving values
-		// This is available in Go 1.21+, otherwise we need to manually copy values
-		newCtx := context.WithoutCancel(ctx)
-		ctx, cancel = context.WithTimeout(newCtx, at.timeout)
-	} else {
-		// Parent context doesn't have a shorter deadline, use normal timeout
-		ctx, cancel = context.WithTimeout(ctx, at.timeout)
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, at.timeout)
 	defer cancel()
 
 	// Log sub-agent invocation with debug details
@@ -193,18 +191,15 @@ func (at *AgentTool) Run(ctx context.Context, input string) (string, error) {
 	var err error
 
 	if forwarder, ok := ctx.Value(interfaces.StreamForwarderKey).(interfaces.StreamForwarder); ok && forwarder != nil {
-		// Use streaming to forward events to parent
-		result, streamErr := at.runWithStreaming(ctx, input, forwarder, span, agentName)
-		if streamErr != nil {
-			err = streamErr
-		} else {
-			// After streaming completes, get detailed response for tracking
-			response, err = at.agent.RunDetailed(ctx, input)
-			if err == nil && response.Content == "" {
-				// If detailed response is empty, use streamed result
-				response.Content = result
-			}
-		}
+		// Stream the sub-agent's events to the parent and build the response from
+		// what was observed.
+		//
+		// This used to call at.agent.RunDetailed(ctx, input) after streaming had
+		// already completed, purely to recover Usage for logging and span
+		// attributes -- which ran the entire sub-agent a second time and billed
+		// for it. Any parent that streamed paid twice for every sub-agent call.
+		// Usage now rides on the completion event instead.
+		response, err = at.runWithStreaming(ctx, input, forwarder, span, agentName)
 	} else {
 		// Fall back to detailed execution for full tracking
 		response, err = at.agent.RunDetailed(ctx, input)
@@ -369,7 +364,13 @@ func withSubAgentContext(ctx context.Context, parentAgent, subAgentName string) 
 }
 
 // runWithStreaming runs the sub-agent with streaming and forwards events to the parent
-func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forwarder interfaces.StreamForwarder, span interfaces.Span, agentName string) (string, error) {
+// runWithStreaming forwards the sub-agent's events to the parent and builds an
+// AgentResponse from what it observed.
+//
+// It returns a response rather than a bare string so the caller does not have to
+// run the sub-agent again to recover token accounting. Usage rides on the
+// completion event's metadata (see interfaces.MetadataKeyUsage).
+func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forwarder interfaces.StreamForwarder, span interfaces.Span, agentName string) (*interfaces.AgentResponse, error) {
 	// Start streaming from the sub-agent
 	eventChan, err := at.agent.RunStream(ctx, input)
 	if err != nil {
@@ -377,7 +378,7 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 			"sub_agent": agentName,
 			"error":     err.Error(),
 		})
-		return "", fmt.Errorf("failed to start sub-agent streaming: %w", err)
+		return nil, fmt.Errorf("failed to start sub-agent streaming: %w", err)
 	}
 
 	// Log that we're streaming
@@ -389,6 +390,7 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 	// Collect content for final result
 	var contentBuilder strings.Builder
 	var finalError error
+	response := &interfaces.AgentResponse{AgentName: agentName}
 
 	// Forward all events and collect content
 	for event := range eventChan {
@@ -398,6 +400,20 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 		// Collect content for the final result
 		if event.Type == interfaces.AgentEventContent {
 			contentBuilder.WriteString(event.Content)
+		}
+
+		// The completion event carries the sub-agent's token accounting. Reading
+		// it here is what makes a second execution unnecessary.
+		if event.Type == interfaces.AgentEventComplete && event.Metadata != nil {
+			if usage, ok := event.Metadata[interfaces.MetadataKeyUsage].(*interfaces.TokenUsage); ok {
+				response.Usage = usage
+			}
+			if model, ok := event.Metadata[interfaces.MetadataKeyModel].(string); ok {
+				response.Model = model
+			}
+			if summary, ok := event.Metadata[interfaces.MetadataKeyExecutionSummary].(interfaces.ExecutionSummary); ok {
+				response.ExecutionSummary = summary
+			}
 		}
 
 		// Track errors
@@ -427,13 +443,76 @@ func (at *AgentTool) runWithStreaming(ctx context.Context, input string, forward
 
 	// Return error if we encountered one
 	if finalError != nil {
-		return "", finalError
+		return nil, finalError
 	}
 
-	return contentBuilder.String(), nil
+	response.Content = contentBuilder.String()
+	return response, nil
 }
 
 // WithStreamForwarder adds a stream forwarder to the context
 func WithStreamForwarder(ctx context.Context, forwarder interfaces.StreamForwarder) context.Context {
 	return context.WithValue(ctx, interfaces.StreamForwarderKey, forwarder)
+}
+
+// The exported helpers below make pkg/tools the single owner of sub-agent
+// context keys.
+//
+// pkg/agent previously declared its own `type ContextKey string` with the same
+// string values ("recursion_depth", "sub_agent_name", ...). Go context keys
+// compare by type AND value, so those were a completely separate set of keys:
+// two independent recursion counters that could not observe each other. The
+// live guard is the one in this package, reached through AgentTool.Execute;
+// the pkg/agent copy was exercised only by a test and by
+// examples/subagents/depth_validation, which therefore demonstrated a recursion
+// guard that did not protect anything. pkg/agent now delegates here, since it
+// already imports pkg/tools and the dependency cannot run the other way.
+
+// WithSubAgentContext records a sub-agent invocation on ctx, incrementing the
+// recursion depth.
+func WithSubAgentContext(ctx context.Context, parentAgent, subAgentName string) context.Context {
+	return withSubAgentContext(ctx, parentAgent, subAgentName)
+}
+
+// GetRecursionDepth returns the current sub-agent recursion depth.
+func GetRecursionDepth(ctx context.Context) int {
+	return getRecursionDepth(ctx)
+}
+
+// GetSubAgentName returns the name of the sub-agent being invoked, or "".
+func GetSubAgentName(ctx context.Context) string {
+	if name, ok := ctx.Value(subAgentNameKey).(string); ok {
+		return name
+	}
+	return ""
+}
+
+// GetParentAgent returns the name of the invoking parent agent, or "".
+func GetParentAgent(ctx context.Context) string {
+	if parent, ok := ctx.Value(parentAgentKey).(string); ok {
+		return parent
+	}
+	return ""
+}
+
+// GetInvocationID returns the invocation ID for this sub-agent call, or "".
+func GetInvocationID(ctx context.Context) string {
+	if id, ok := ctx.Value(invocationIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// IsSubAgentCall reports whether ctx is inside a sub-agent invocation.
+func IsSubAgentCall(ctx context.Context) bool {
+	return GetRecursionDepth(ctx) > 0
+}
+
+// ValidateRecursionDepth reports an error when the sub-agent recursion depth
+// has exceeded MaxRecursionDepth.
+func ValidateRecursionDepth(ctx context.Context) error {
+	if depth := GetRecursionDepth(ctx); depth > MaxRecursionDepth {
+		return fmt.Errorf("maximum recursion depth %d exceeded (current: %d)", MaxRecursionDepth, depth)
+	}
+	return nil
 }

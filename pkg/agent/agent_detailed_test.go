@@ -258,10 +258,11 @@ func TestUsageTrackerAggregation(t *testing.T) {
 	}
 	tracker.addLLMUsage(usage3, "model1")
 
-	// Add tool calls
+	// Add tool calls. Three invocations across two distinct tools: ToolCalls
+	// counts invocations, UsedTools is the distinct set.
 	tracker.addToolCall("tool1")
 	tracker.addToolCall("tool2")
-	tracker.addToolCall("tool1") // Duplicate should not be added again
+	tracker.addToolCall("tool1") // Repeat invocation; UsedTools must not grow
 
 	// Set execution time
 	tracker.setExecutionTime(1500)
@@ -292,8 +293,13 @@ func TestUsageTrackerAggregation(t *testing.T) {
 	}, execSummary.UsageByModel["model2"])
 
 	// Verify execution summary
+	// Three LLM calls (PR #351 added the third) and three tool invocations.
 	assert.Equal(t, 3, execSummary.LLMCalls)
-	assert.Equal(t, 2, execSummary.ToolCalls)
+	// Three invocations, not two: ToolCalls counts calls, not distinct tools.
+	// This previously asserted 2, which pinned a bug where addToolCall returned
+	// from inside its dedup loop before incrementing, making ToolCalls always
+	// equal to len(UsedTools).
+	assert.Equal(t, 3, execSummary.ToolCalls)
 	assert.Equal(t, int64(1500), execSummary.ExecutionTimeMs)
 	assert.Len(t, execSummary.UsedTools, 2)
 	assert.Contains(t, execSummary.UsedTools, "tool1")

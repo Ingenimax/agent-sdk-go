@@ -318,3 +318,58 @@ Potential improvements for the sub-agents feature:
 - Sub-agent result caching
 - Priority-based delegation
 - Load balancing across sub-agents
+
+## Cancellation and lifetime
+
+A sub-agent is always a child of the caller's context. Its own timeout bounds
+it — 30 minutes by default, configurable with `WithTimeout` — but **the parent
+deadline wins when it is shorter**. Cancelling a parent run cancels every
+sub-agent it started.
+
+```go
+tool := tools.NewAgentTool(researchAgent).WithTimeout(2 * time.Minute)
+```
+
+> **Changed:** `AgentTool.Execute` previously called `context.WithoutCancel`
+> when the parent deadline was earlier than its own timeout, intending to extend
+> the sub-agent's budget. That also severed cancellation propagation, so
+> cancelling a parent left the sub-agent running for up to its full timeout —
+> half an hour by default — still writing into shared memory after the caller
+> was gone. See [Upgrading](upgrading.md#cancelling-a-run-now-stops-its-sub-agents).
+
+If you genuinely want work to outlive the request that started it, start it
+yourself with a context you control rather than relying on a sub-agent tool.
+
+## Recursion depth
+
+Sub-agents can invoke sub-agents. Depth is tracked on the context and capped at
+`tools.MaxRecursionDepth` (5). `AgentTool.Execute` checks it before invoking and
+returns an error when exceeded.
+
+```go
+depth := tools.GetRecursionDepth(ctx)
+if err := tools.ValidateRecursionDepth(ctx); err != nil {
+    // too deep
+}
+
+if tools.IsSubAgentCall(ctx) {
+    parent := tools.GetParentAgent(ctx)
+    name := tools.GetSubAgentName(ctx)
+}
+```
+
+The identically-named helpers in `pkg/agent` delegate to these, so either import
+works and both read the same counter.
+
+> **Changed:** `pkg/agent` previously declared its own context keys with the same
+> string values as the ones in `pkg/tools`. Go context keys compare by type *and*
+> value, so those were two independent counters — depth recorded through
+> `pkg/agent` was invisible to the guard that actually runs. Only the `pkg/tools`
+> counter ever guarded anything.
+
+## Concurrency
+
+Sub-agents registered on a parent are shared `*Agent` pointers, so a parent
+fanning out to several sub-agent tool calls runs the same `*Agent` concurrently.
+That is safe: `Agent` no longer mutates shared state from the run path. See
+[Upgrading](upgrading.md#agent-is-safe-for-concurrent-run).
