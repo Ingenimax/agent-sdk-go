@@ -499,7 +499,8 @@ func TestClassifyError(t *testing.T) {
 			}
 
 			// If already MCPError, should return the same
-			if mcpErr, ok := tt.err.(*MCPError); ok {
+			var mcpErr *MCPError
+			if errors.As(tt.err, &mcpErr) {
 				assert.Equal(t, mcpErr, result)
 				return
 			}

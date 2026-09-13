@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
@@ -142,4 +143,22 @@ func (a *Agent) guardOutput(ctx context.Context, response string) (string, error
 		return "", fmt.Errorf("guardrails error: %w", err)
 	}
 	return guarded, nil
+}
+
+// applyRunTimeout bounds a run by the agent's configured runtime timeout.
+//
+// a.timeout is set from `runtime.timeout` in YAML and, before this, was read
+// nowhere in the module -- so configuring it did nothing at all.
+//
+// The returned cancel must be deferred by the caller. An existing shorter
+// deadline is left alone: whichever bound is tighter should win, and a config
+// default must not extend a deadline the caller deliberately set.
+func (a *Agent) applyRunTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if a.timeout <= 0 {
+		return ctx, func() {}
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Add(a.timeout).Before(deadline) {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, a.timeout)
 }

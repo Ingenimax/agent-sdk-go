@@ -1,0 +1,68 @@
+# golangci-lint configuration.
+#
+# This file exists so that a local `golangci-lint run` and the CI job agree.
+# Without it CI used whatever the action's defaults happened to be, which
+# notably did NOT include formatting -- so unformatted files accumulated with CI
+# green, and a contributor running the linter locally could see different
+# results from the pipeline.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+
+  # Correctness linters worth enabling, held back because the tree has known
+  # pre-existing violations. Enabling one today would make the gate permanently
+  # red, which trains people to ignore it. Counts as of this commit, so the
+  # cleanup can be scoped rather than guessed at:
+  #
+  #   errorlint  10  wrapped errors defeat == comparisons and type assertions
+  #   noctx      10  mostly net.Listen / http.Get without a context
+  #   nilerr      5  returning nil after a non-nil error
+  #   bodyclose   3  response bodies not closed on some retry paths
+  #
+  # A batch of each was already fixed in this commit; what remains is listed
+  # above rather than silently tolerated.
+  #
+  # enable:
+  #   - errorlint
+  #   - bodyclose
+  #   - nilerr
+  #   - noctx
+
+  settings:
+    errcheck:
+      # Deliberately ignored: a failed Close on a read-only handle, or a
+      # Rollback after the commit path already failed, is not actionable.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.Tx).Rollback
+
+  exclusions:
+    rules:
+      # Tests deliberately construct odd states and ignore returns.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+      # Generated protobuf code is not ours to lint.
+      - path: pkg/grpc/(pb|proto)/
+        linters:
+          - errcheck
+          - staticcheck
+          - unused
+
+# Formatting is enforced rather than assumed. Twelve files were unformatted when
+# this config was added, with CI green throughout, because gofmt is not one of
+# golangci-lint's default linters.
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - pkg/grpc/pb
+      - pkg/grpc/proto

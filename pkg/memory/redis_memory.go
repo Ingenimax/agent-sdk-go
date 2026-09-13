@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -30,6 +31,8 @@ type RedisMemory struct {
 	messageThreshold     int
 	summaryCount         int
 	summaryKeyPrefix     string
+	archiveKeyPrefix     string
+	archiveDisabled      bool
 }
 
 // RetryOptions configures retry behavior for Redis operations
@@ -81,6 +84,27 @@ func WithMaxMessageSize(size int) RedisOption {
 func WithRetryOptions(options *RetryOptions) RedisOption {
 	return func(r *RedisMemory) {
 		r.retryOptions = options
+	}
+}
+
+// WithoutArchive stops summarization from preserving the raw messages it
+// replaces.
+//
+// By default summarized messages are moved to an archive list rather than
+// deleted, because summarization is lossy and the raw text exists nowhere else.
+// Disable it only when storage cost matters more than being able to recover
+// what a summary dropped.
+func WithoutArchive() RedisOption {
+	return func(r *RedisMemory) {
+		r.archiveDisabled = true
+	}
+}
+
+// WithArchiveKeyPrefix sets the key prefix for archived messages. Defaults to
+// the conversation key with an ":archive" suffix.
+func WithArchiveKeyPrefix(prefix string) RedisOption {
+	return func(r *RedisMemory) {
+		r.archiveKeyPrefix = prefix
 	}
 }
 
@@ -405,6 +429,9 @@ func (r *RedisMemory) checkAndSummarize(ctx context.Context) error {
 	// Get messages to summarize (all but the most recent ones)
 	keepRecent := r.messageThreshold / 3 // Keep 1/3 of threshold as recent messages
 	summarizeCount := int(count) - keepRecent
+	if summarizeCount <= 0 {
+		return nil
+	}
 
 	// Get messages to summarize
 	results, err := r.client.LRange(ctx, key, 0, int64(summarizeCount-1)).Result()
@@ -422,6 +449,21 @@ func (r *RedisMemory) checkAndSummarize(ctx context.Context) error {
 		messages = append(messages, message)
 	}
 
+	// Pull the boundary back so a tool_call is never separated from its result.
+	//
+	// summarizeCount is a raw message count, so it can land between an assistant
+	// turn carrying tool_calls and the tool messages answering them. That leaves
+	// the live conversation starting with an orphaned tool message, which both
+	// the OpenAI and Anthropic APIs reject outright -- the conversation would be
+	// unusable from the next turn onward.
+	if trimmed := pairSafeBoundary(messages); trimmed < len(messages) {
+		messages = messages[:trimmed]
+		summarizeCount = trimmed
+	}
+	if summarizeCount == 0 {
+		return nil
+	}
+
 	// Create summary
 	summary, err := r.createSummary(ctx, messages)
 	if err != nil {
@@ -433,11 +475,18 @@ func (r *RedisMemory) checkAndSummarize(ctx context.Context) error {
 		return fmt.Errorf("failed to store summary: %w", err)
 	}
 
-	// Remove summarized messages from the main list
-	for i := 0; i < summarizeCount; i++ {
-		if err := r.client.LPop(ctx, key).Err(); err != nil {
-			return fmt.Errorf("failed to remove summarized message: %w", err)
-		}
+	// Archive the summarized messages and trim them from the live list in a
+	// single atomic step.
+	//
+	// This previously stored the summary and then issued summarizeCount separate
+	// LPOP calls, which was wrong twice over. The messages were destroyed: the
+	// raw text existed nowhere else, so a summary that lost detail lost it
+	// permanently. And the sequence LLEN -> LRANGE -> N x LPOP is not atomic, so
+	// a concurrent AddMessage shifted the list and the pops removed messages
+	// that had never been summarized -- silent loss of the newest turns, which
+	// are the ones the model most needs.
+	if err := r.archiveAndTrim(ctx, key, summarizeCount); err != nil {
+		return err
 	}
 
 	// Rotate summaries if needed
@@ -446,6 +495,123 @@ func (r *RedisMemory) checkAndSummarize(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// archiveAndTrimScript moves the first n messages of a conversation onto its
+// archive list and removes them from the live list, atomically.
+//
+// KEYS[1] live list, KEYS[2] archive list. ARGV[1] how many to move,
+// ARGV[2] archive TTL in seconds (0 to leave it unset), ARGV[3] "1" to skip
+// archiving entirely.
+var archiveAndTrimScript = redis.NewScript(`
+local n = tonumber(ARGV[1])
+if n <= 0 then return 0 end
+
+local live = redis.call('LLEN', KEYS[1])
+if n > live then n = live end
+if n == 0 then return 0 end
+
+if ARGV[3] ~= '1' then
+  local moved = redis.call('LRANGE', KEYS[1], 0, n - 1)
+  for i = 1, #moved do
+    redis.call('RPUSH', KEYS[2], moved[i])
+  end
+  local ttl = tonumber(ARGV[2])
+  if ttl > 0 then redis.call('EXPIRE', KEYS[2], ttl) end
+end
+
+redis.call('LTRIM', KEYS[1], n, -1)
+return n
+`)
+
+// archiveAndTrim preserves summarized messages before removing them from the
+// live conversation.
+//
+// Summarization is lossy by construction, so the raw messages are kept on an
+// archive list rather than deleted. They are no longer replayed to the model --
+// which is the point of summarizing -- but remain recoverable for debugging, an
+// audit, or rebuilding a better summary later. Disable with WithoutArchive if
+// storage cost matters more than recoverability.
+func (r *RedisMemory) archiveAndTrim(ctx context.Context, liveKey string, n int) error {
+	skipArchive := "0"
+	if r.archiveDisabled {
+		skipArchive = "1"
+	}
+
+	ttlSeconds := 0
+	if r.ttl > 0 {
+		ttlSeconds = int(r.ttl.Seconds())
+	}
+
+	err := archiveAndTrimScript.Run(ctx, r.client,
+		[]string{liveKey, r.archiveKey(liveKey)},
+		n, ttlSeconds, skipArchive,
+	).Err()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return fmt.Errorf("failed to archive and trim summarized messages: %w", err)
+	}
+	return nil
+}
+
+// archiveKey derives a conversation's archive list key from its live key.
+// archiveKeySuffix is appended to a conversation key to hold its archive.
+const archiveKeySuffix = ":archive"
+
+func (r *RedisMemory) archiveKey(liveKey string) string {
+	// A custom prefix equal to keyPrefix would rebuild the live key exactly,
+	// so the archive would be the conversation itself: RPUSH followed by LTRIM
+	// on the same list, destroying what it was meant to preserve. Fall back to
+	// the suffix scheme rather than corrupt the conversation.
+	if r.archiveKeyPrefix != "" && r.archiveKeyPrefix != r.keyPrefix {
+		return r.archiveKeyPrefix + strings.TrimPrefix(liveKey, r.keyPrefix)
+	}
+	return liveKey + archiveKeySuffix
+}
+
+// isArchiveKey reports whether key holds archived messages rather than a live
+// conversation.
+//
+// The listing and statistics helpers scan keyPrefix-rooted patterns, and the
+// default archive key sits inside that namespace -- "{prefix}{org}:{conv}"
+// gains a ":archive" suffix and still matches "{prefix}{org}:*". Without this
+// check every summarized conversation was reported twice: once for itself and
+// once as a phantom conversation named "{conv}:archive", whose messages were
+// counted again in the totals.
+func (r *RedisMemory) isArchiveKey(key string) bool {
+	if r.archiveKeyPrefix != "" && r.archiveKeyPrefix != r.keyPrefix {
+		return strings.HasPrefix(key, r.archiveKeyPrefix)
+	}
+	return strings.HasSuffix(key, archiveKeySuffix)
+}
+
+// ArchivedMessages returns the raw messages that summarization moved out of the
+// live conversation, oldest first.
+//
+// Summarization is lossy, so this is how a caller recovers what the summary
+// dropped -- for debugging, for an audit, or to rebuild a better summary.
+func (r *RedisMemory) ArchivedMessages(ctx context.Context) ([]interfaces.Message, error) {
+	liveKey := r.conversationKey(ctx)
+	if liveKey == "" {
+		return nil, fmt.Errorf("conversation ID not found in context")
+	}
+
+	results, err := r.client.LRange(ctx, r.archiveKey(liveKey), 0, -1).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read archived messages: %w", err)
+	}
+
+	messages := make([]interfaces.Message, 0, len(results))
+	for _, result := range results {
+		var message interfaces.Message
+		if err := json.Unmarshal([]byte(result), &message); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal archived message: %w", err)
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
 }
 
 // createSummary generates a summary of the given messages using the LLM
@@ -610,6 +776,9 @@ func (r *RedisMemory) GetAllConversations(ctx context.Context) ([]string, error)
 	expectedPrefix := fmt.Sprintf("%s%s:", r.keyPrefix, orgID)
 
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
 		if strings.HasPrefix(key, expectedPrefix) {
 			conversationID := strings.TrimPrefix(key, expectedPrefix)
 			conversations = append(conversations, conversationID)
@@ -663,11 +832,18 @@ func (r *RedisMemory) GetMemoryStatistics(ctx context.Context) (totalConversatio
 		return 0, 0, fmt.Errorf("failed to get conversation keys: %w", err)
 	}
 
-	totalConversations = len(keys)
+	totalConversations = 0
 	totalMessages = 0
 
-	// Count messages in each conversation
+	// Count messages in each conversation. Archives hold copies of messages
+	// already counted under their live conversation, so including them would
+	// report both a phantom conversation and double the message total.
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
+		totalConversations++
+
 		count, err := r.client.LLen(ctx, key).Result()
 		if err != nil {
 			continue // Skip if we can't get count
@@ -692,6 +868,9 @@ func (r *RedisMemory) GetAllConversationsAcrossOrgs() (map[string][]string, erro
 	orgConversations := make(map[string][]string)
 
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
 		// Extract orgID and conversationID from key
 		// Key format: keyPrefix + orgID + ":" + conversationID
 		if strings.HasPrefix(key, r.keyPrefix) {
@@ -718,6 +897,16 @@ func (r *RedisMemory) GetConversationMessagesAcrossOrgs(conversationID string) (
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to search for conversation: %w", err)
 	}
+
+	// Drop archives: they are copies of a live conversation, and returning one
+	// would hand back the summarized history in place of the conversation.
+	live := keys[:0]
+	for _, key := range keys {
+		if !r.isArchiveKey(key) {
+			live = append(live, key)
+		}
+	}
+	keys = live
 
 	if len(keys) == 0 {
 		return []interfaces.Message{}, "", nil // Conversation not found
@@ -766,11 +955,18 @@ func (r *RedisMemory) GetMemoryStatisticsAcrossOrgs() (totalConversations, total
 		return 0, 0, fmt.Errorf("failed to get all conversation keys: %w", err)
 	}
 
-	totalConversations = len(keys)
+	totalConversations = 0
 	totalMessages = 0
 
-	// Count messages in each conversation
+	// Count messages in each conversation. Archives hold copies of messages
+	// already counted under their live conversation, so including them would
+	// report both a phantom conversation and double the message total.
 	for _, key := range keys {
+		if r.isArchiveKey(key) {
+			continue
+		}
+		totalConversations++
+
 		count, err := r.client.LLen(ctx, key).Result()
 		if err != nil {
 			continue // Skip if we can't get count
@@ -787,4 +983,44 @@ func (r *RedisMemory) Close() error {
 		return r.client.Close()
 	}
 	return nil
+}
+
+// pairSafeBoundary returns how many of messages can be summarized without
+// separating an assistant tool-call turn from the tool results answering it.
+//
+// Walking backwards, any trailing tool messages belong to the assistant turn
+// before them; if that turn is inside the window but its results are not, the
+// whole group has to stay.
+func pairSafeBoundary(messages []interfaces.Message) int {
+	n := len(messages)
+	if n == 0 {
+		return 0
+	}
+
+	// Walk back over trailing tool results.
+	i := n
+	for i > 0 && messages[i-1].Role == interfaces.MessageRoleTool {
+		i--
+	}
+
+	// If we skipped any, the assistant turn that requested them must go with
+	// them -- so exclude it from the window too.
+	if i < n && i > 0 && len(messages[i-1].ToolCalls) > 0 {
+		i--
+	}
+
+	return i
+}
+
+// conversationKey returns the Redis key holding a conversation's live messages.
+func (r *RedisMemory) conversationKey(ctx context.Context) string {
+	conversationID, err := getConversationID(ctx)
+	if err != nil {
+		return ""
+	}
+	orgID, err := multitenancy.GetOrgID(ctx)
+	if err != nil {
+		orgID = "default"
+	}
+	return fmt.Sprintf("%s%s:%s", r.keyPrefix, orgID, conversationID)
 }

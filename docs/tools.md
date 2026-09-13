@@ -177,16 +177,22 @@ The Agent SDK provides a flexible way to execute tools:
 ```go
 import "github.com/Ingenimax/agent-sdk-go/pkg/tools"
 
-// Create a tool executor
-executor := tools.NewExecutor(registry)
+// Look the tool up in the registry, then run it.
+tool, ok := registry.Get("websearch")
+if !ok {
+    log.Fatal("tool not registered: websearch")
+}
 
-// Execute a tool by name
-result, err := executor.Execute(ctx, "websearch", "latest AI news")
+result, err := tool.Execute(ctx, `{"query": "latest AI news"}`)
 if err != nil {
     log.Fatalf("Failed to execute tool: %v", err)
 }
 fmt.Println(result)
 ```
+
+`Execute` takes the tool's arguments as a JSON object matching its
+`Parameters()` schema — the same string the model produces in a tool call — not
+a bare query string.
 
 ## Advanced Tool Usage
 

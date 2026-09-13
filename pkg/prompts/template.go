@@ -502,14 +502,36 @@ func (m *Manager) RenderLatest(ctx context.Context, id string, data map[string]i
 	return tmpl.Render(data)
 }
 
-// isPathSafe checks if a file path is safe to access
+// isPathSafe reports whether filePath resolves to a location inside basePath.
+//
+// The check used to be a bare strings.HasPrefix, which has no notion of a path
+// boundary: with basePath "/srv/prompts" it accepted "/srv/prompts-evil/x",
+// because that string does start with the base. A sibling directory whose name
+// merely begins with the base name escaped the sandbox.
+//
+// filepath.Rel compares path elements rather than bytes, so a sibling no longer
+// matches. Symlinks are resolved on both sides first: resolving only one is the
+// mirror-image bug, rejecting legitimate paths when a parent is itself a link.
 func isPathSafe(filePath string, basePath string) bool {
-	// Get absolute path
-	absPath, err := filepath.Abs(filePath)
+	root, err := filepath.Abs(basePath)
 	if err != nil {
 		return false
 	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 
-	// Ensure path is within base directory
-	return strings.HasPrefix(absPath, basePath)
+	target, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = resolved
+	}
+
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

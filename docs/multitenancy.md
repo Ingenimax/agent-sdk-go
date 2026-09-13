@@ -79,15 +79,39 @@ agent.WithMemory(mem)
 
 ### Vector Stores
 
-Vector stores can be partitioned by organization:
+> **Correction:** earlier revisions of this page showed
+> `weaviate.WithOrgID("org-123")` and described the store as isolated per
+> organization. **No such option exists, and `pkg/vectorstore/weaviate` has no
+> concept of an organization at all** — it never reads the org from the context.
+> Do not rely on it for tenant isolation.
+
+`weaviate.New` takes a config struct, not a URL:
 
 ```go
-// Create a vector store with organization isolation
-vectorStore := weaviate.New(
-    cfg.VectorStore.Weaviate.URL,
-    weaviate.WithOrgID("org-123"),
-)
+store := weaviate.New(&interfaces.VectorStoreConfig{
+    Host:   "localhost:8080",
+    Scheme: "http",
+    APIKey: cfg.VectorStore.Weaviate.APIKey,
+}, weaviate.WithEmbedder(embedder))
 ```
+
+The config carries `Host`, `Scheme`, `APIKey`, `ClassPrefix` and
+`DistanceMetric`; the available options are `WithClassPrefix`, `WithEmbedder`,
+`WithDistanceMetric` and `WithLogger`.
+
+To separate tenants, give each organization its own class prefix and select the
+store for the org yourself:
+
+```go
+store := weaviate.New(&interfaces.VectorStoreConfig{
+    Host:   "localhost:8080",
+    Scheme: "http",
+}, weaviate.WithClassPrefix("org_"+orgID+"_"))
+```
+
+That is a naming convention you enforce, not an isolation guarantee the SDK
+provides: nothing stops another caller from constructing a store with a
+different prefix and reading across tenants.
 
 ### Data Stores
 

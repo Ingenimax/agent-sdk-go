@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -170,8 +171,10 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 		return nil
 	}
 
-	// If it's already an MCPError, return it
-	if mcpErr, ok := err.(*MCPError); ok {
+	// If it's already an MCPError, return it. errors.As rather than a type
+	// assertion, so a wrapped MCPError is still recognised.
+	var mcpErr *MCPError
+	if errors.As(err, &mcpErr) {
 		return mcpErr
 	}
 
@@ -241,8 +244,8 @@ func ClassifyError(err error, operation, serverName, serverType string) *MCPErro
 
 // FormatUserFriendlyError creates a user-friendly error message
 func FormatUserFriendlyError(err error) string {
-	mcpErr, ok := err.(*MCPError)
-	if !ok {
+	var mcpErr *MCPError
+	if !errors.As(err, &mcpErr) {
 		return err.Error()
 	}
 

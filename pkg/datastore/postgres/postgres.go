@@ -84,7 +84,7 @@ func (c *Client) Transaction(ctx context.Context, fn func(tx interfaces.Transact
 	if err := fn(tx); err != nil {
 		// Rollback on error
 		if rbErr := tx.Rollback(); rbErr != nil {
-			return fmt.Errorf("transaction failed with error: %v, rollback failed with error: %w", err, rbErr)
+			return fmt.Errorf("transaction failed with error: %w, rollback failed with error: %w", err, rbErr)
 		}
 		return err
 	}

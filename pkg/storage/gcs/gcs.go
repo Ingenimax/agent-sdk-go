@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -157,7 +158,7 @@ func (s *Storage) Delete(ctx context.Context, url string) error {
 	obj := bucket.Object(objectPath)
 
 	if err := obj.Delete(ctx); err != nil {
-		if err == storage.ErrObjectNotExist {
+		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil // Already deleted
 		}
 		return fmt.Errorf("failed to delete from GCS: %w", err)

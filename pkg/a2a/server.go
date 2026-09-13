@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	defaultShutdownTimeout    = 30 * time.Second
-	defaultReadHeaderTimeout  = 10 * time.Second
+	defaultShutdownTimeout   = 30 * time.Second
+	defaultReadHeaderTimeout = 10 * time.Second
 )
 
 // Server wraps an agent-sdk-go agent and exposes it as an A2A-compliant HTTP server.

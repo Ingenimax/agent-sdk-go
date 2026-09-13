@@ -26,10 +26,10 @@ type AgentAdapter interface {
 
 // agentExecutor implements a2asrv.AgentExecutor by delegating to an AgentAdapter.
 type agentExecutor struct {
-	agent     AgentAdapter
-	logger    logging.Logger
-	cancels   sync.Map // map[a2a.TaskID]context.CancelFunc
-	canceled  sync.Map // map[a2a.TaskID]struct{} -- tracks externally-canceled tasks
+	agent    AgentAdapter
+	logger   logging.Logger
+	cancels  sync.Map // map[a2a.TaskID]context.CancelFunc
+	canceled sync.Map // map[a2a.TaskID]struct{} -- tracks externally-canceled tasks
 }
 
 func newAgentExecutor(agent AgentAdapter, logger logging.Logger) *agentExecutor {
@@ -232,4 +232,3 @@ func extractTextFromMessage(ctx context.Context, logger logging.Logger, msg *a2a
 	}
 	return strings.Join(parts, "\n")
 }
-
