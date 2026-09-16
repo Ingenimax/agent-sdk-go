@@ -53,6 +53,8 @@ type evalCommandOptions struct {
 	cleanupTimeout      time.Duration
 	maxSpans            int
 	maxContentBytes     int
+	judgeProvider       string
+	judgeModel          string
 }
 
 func runEvalCommand(args []string, stdout, stderr io.Writer) int {
@@ -70,12 +72,21 @@ func runEvalCommand(args []string, stdout, stderr io.Writer) int {
 		return evalExitError
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	evaluators, err := createEvalEvaluators(ctx, options)
+	if err != nil {
+		evalDiagnostic(stderr, "evaluation: %v\n", err)
+		return evalExitError
+	}
+
 	datasetFile, err := os.Open(options.datasetPath) // #nosec G304 -- explicitly supplied CLI input
 	if err != nil {
 		evalDiagnostic(stderr, "evaluation: open dataset: %v\n", err)
 		return evalExitError
 	}
-	dataset, loadErr := agenteval.LoadDataset(datasetFile)
+	dataset, loadErr := agenteval.LoadDatasetWithEvaluators(datasetFile, evaluators)
 	closeErr := datasetFile.Close()
 	if loadErr != nil {
 		evalDiagnostic(stderr, "evaluation: %v\n", loadErr)
@@ -86,15 +97,12 @@ func runEvalCommand(args []string, stdout, stderr io.Writer) int {
 		return evalExitError
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	var report agenteval.Report
 	var runErr error
 	if options.observationsPath != "" {
-		report, runErr = regradeFromFile(ctx, dataset, options.observationsPath)
+		report, runErr = regradeFromFile(ctx, dataset, options.observationsPath, evaluators)
 	} else {
-		report, runErr = runLiveEvaluation(ctx, dataset, options)
+		report, runErr = runLiveEvaluation(ctx, dataset, options, evaluators)
 	}
 	if report.SchemaVersion != "" {
 		if err := writeEvaluationReport(stdout, options, report); err != nil {
@@ -141,6 +149,8 @@ func parseEvalFlags(args []string, stderr io.Writer) (evalCommandOptions, error)
 	flags.DurationVar(&options.cleanupTimeout, "cleanup-timeout", 10*time.Second, "deadline for cleanup of each case")
 	flags.IntVar(&options.maxSpans, "max-spans", agenteval.DefaultMaxSpans, "maximum retained tool spans per case")
 	flags.IntVar(&options.maxContentBytes, "max-content-bytes", agenteval.DefaultMaxContentBytes, "maximum retained output, trace, and export content bytes")
+	flags.StringVar(&options.judgeProvider, "judge-provider", "", "provider for model_judge checks")
+	flags.StringVar(&options.judgeModel, "judge-model", "", "model for model_judge checks")
 	if err := flags.Parse(args); err != nil {
 		return options, err
 	}
@@ -165,6 +175,10 @@ func parseEvalFlags(args []string, stderr io.Writer) (evalCommandOptions, error)
 		evalDiagnostic(stderr, "evaluation: durations cannot be negative\n")
 		return options, errors.New("invalid duration")
 	}
+	if (options.judgeProvider == "") != (options.judgeModel == "") {
+		evalDiagnostic(stderr, "evaluation: --judge-provider and --judge-model must be set together\n")
+		return options, errors.New("incomplete model judge configuration")
+	}
 	return options, nil
 }
 
@@ -172,13 +186,29 @@ func evalDiagnostic(writer io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(writer, format, args...)
 }
 
-func runLiveEvaluation(ctx context.Context, dataset agenteval.Dataset, options evalCommandOptions) (agenteval.Report, error) {
+func runLiveEvaluation(ctx context.Context, dataset agenteval.Dataset, options evalCommandOptions, evaluators agenteval.Evaluators) (agenteval.Report, error) {
 	config, configBytes, err := loadEvalConfig(options.configPath)
 	if err != nil {
 		return agenteval.Report{}, err
 	}
-	digest := sha256.Sum256(configBytes)
+	fingerprintBytes := configBytes
+	if options.judgeProvider != "" {
+		fingerprintBytes, err = json.Marshal(struct {
+			Agent         json.RawMessage `json:"agent"`
+			JudgeProvider string          `json:"judge_provider"`
+			JudgeModel    string          `json:"judge_model"`
+		}{
+			Agent:         configBytes,
+			JudgeProvider: options.judgeProvider,
+			JudgeModel:    options.judgeModel,
+		})
+		if err != nil {
+			return agenteval.Report{}, fmt.Errorf("encode evaluation fingerprint: %w", err)
+		}
+	}
+	digest := sha256.Sum256(fingerprintBytes)
 	runner := agenteval.Runner{
+		Evaluators: evaluators,
 		Options: agenteval.RunnerOptions{
 			Concurrency:       options.concurrency,
 			CaseTimeout:       options.caseTimeout,
@@ -239,7 +269,7 @@ func evaluationBuildRevision() string {
 	return "agent-cli-" + version
 }
 
-func regradeFromFile(ctx context.Context, dataset agenteval.Dataset, path string) (agenteval.Report, error) {
+func regradeFromFile(ctx context.Context, dataset agenteval.Dataset, path string, evaluators agenteval.Evaluators) (agenteval.Report, error) {
 	file, err := os.Open(path) // #nosec G304 -- explicitly supplied CLI input
 	if err != nil {
 		return agenteval.Report{}, fmt.Errorf("open observations: %w", err)
@@ -252,7 +282,7 @@ func regradeFromFile(ctx context.Context, dataset agenteval.Dataset, path string
 	if closeErr != nil {
 		return agenteval.Report{}, fmt.Errorf("close observations: %w", closeErr)
 	}
-	return agenteval.Regrade(ctx, dataset, previous, nil)
+	return agenteval.Regrade(ctx, dataset, previous, evaluators)
 }
 
 func writeEvaluationReport(stdout io.Writer, options evalCommandOptions, report agenteval.Report) error {
@@ -366,29 +396,64 @@ func createEvalAgent(ctx context.Context, config *CLIConfig, recorder *agenteval
 	return agent.NewAgent(options...)
 }
 
+func createEvalEvaluators(ctx context.Context, options evalCommandOptions) (agenteval.Evaluators, error) {
+	evaluators := agenteval.BuiltinEvaluators()
+	if options.judgeProvider == "" {
+		return evaluators, nil
+	}
+	model, err := createEvalJudgeLLM(ctx, options.judgeProvider, options.judgeModel)
+	if err != nil {
+		return nil, fmt.Errorf("configure model judge: %w", err)
+	}
+	evaluators[agenteval.EvaluatorModelJudge] = agenteval.NewModelJudge(model)
+	return evaluators, nil
+}
+
+func createEvalJudgeLLM(ctx context.Context, provider, model string) (interfaces.LLM, error) { //nolint:staticcheck
+	return createEvalLLMWithOverrides(ctx, &CLIConfig{Provider: provider, Model: model},
+		"AGENT_EVAL_JUDGE_API_KEY",
+		"AGENT_EVAL_JUDGE_BASE_URL",
+		"AGENT_EVAL_JUDGE_PROJECT_ID",
+	)
+}
+
 func createEvalLLM(ctx context.Context, config *CLIConfig) (interfaces.LLM, error) { //nolint:staticcheck
+	return createEvalLLMWithOverrides(ctx, config, "", "", "")
+}
+
+func createEvalLLMWithOverrides(
+	ctx context.Context,
+	config *CLIConfig,
+	apiKeyOverride string,
+	baseURLOverride string,
+	projectIDOverride string,
+) (interfaces.LLM, error) { //nolint:staticcheck
 	if config == nil {
 		return nil, errors.New("agent configuration is nil")
 	}
 	switch config.Provider {
 	case "openai":
-		apiKey := os.Getenv("OPENAI_API_KEY")
+		apiKey := evalEnvironmentValue(apiKeyOverride, "OPENAI_API_KEY")
 		if apiKey == "" {
 			return nil, errors.New("OPENAI_API_KEY is required for the OpenAI provider")
 		}
 		options := []openai.Option{openai.WithModel(config.Model)}
-		if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
+		if baseURL := evalEnvironmentValue(baseURLOverride, "OPENAI_BASE_URL"); baseURL != "" {
 			options = append(options, openai.WithBaseURL(baseURL))
 		}
 		return openai.NewClient(apiKey, options...), nil
 	case "anthropic":
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		apiKey := evalEnvironmentValue(apiKeyOverride, "ANTHROPIC_API_KEY")
 		if apiKey == "" {
 			return nil, errors.New("ANTHROPIC_API_KEY is required for the Anthropic provider")
 		}
-		return anthropic.NewClient(apiKey, anthropic.WithModel(config.Model)), nil
+		options := []anthropic.Option{anthropic.WithModel(config.Model)}
+		if baseURL := evalEnvironmentValue(baseURLOverride, "ANTHROPIC_BASE_URL"); baseURL != "" {
+			options = append(options, anthropic.WithBaseURL(baseURL))
+		}
+		return anthropic.NewClient(apiKey, options...), nil
 	case "vertex":
-		projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+		projectID := evalEnvironmentValue(projectIDOverride, "GOOGLE_CLOUD_PROJECT")
 		if projectID == "" {
 			return nil, errors.New("GOOGLE_CLOUD_PROJECT is required for the Vertex AI provider")
 		}
@@ -402,13 +467,13 @@ func createEvalLLM(ctx context.Context, config *CLIConfig) (interfaces.LLM, erro
 		}
 		return client, nil
 	case "ollama":
-		baseURL := os.Getenv("OLLAMA_BASE_URL")
+		baseURL := evalEnvironmentValue(baseURLOverride, "OLLAMA_BASE_URL")
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
 		}
 		return ollama.NewClient(ollama.WithBaseURL(baseURL), ollama.WithModel(config.Model)), nil
 	case "vllm":
-		baseURL := os.Getenv("VLLM_BASE_URL")
+		baseURL := evalEnvironmentValue(baseURLOverride, "VLLM_BASE_URL")
 		if baseURL == "" {
 			baseURL = "http://localhost:8000"
 		}
@@ -416,6 +481,15 @@ func createEvalLLM(ctx context.Context, config *CLIConfig) (interfaces.LLM, erro
 	default:
 		return nil, fmt.Errorf("unknown LLM provider %q", config.Provider)
 	}
+}
+
+func evalEnvironmentValue(override, fallback string) string {
+	if override != "" {
+		if value := os.Getenv(override); value != "" {
+			return value
+		}
+	}
+	return os.Getenv(fallback)
 }
 
 type cliEvalSubject struct {

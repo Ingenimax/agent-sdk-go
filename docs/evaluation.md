@@ -1,8 +1,8 @@
 # Agent evaluation
 
 The evaluation framework runs independent agent cases, records observable tool
-behavior, and grades the resulting observations without depending on a hosted
-evaluation service. It supports live execution and offline regrading.
+behavior, and grades the resulting observations. Deterministic checks need no
+hosted evaluation service; an optional model judge handles subjective rubrics.
 
 ## Dataset format
 
@@ -58,6 +58,10 @@ The built-in check types are:
 | `max_latency_ms` | `maximum` |
 | `max_total_tokens` | `maximum`; requires complete provider usage data |
 
+The optional `model_judge` check uses `rubric` and the check's normal
+`threshold`. It must be registered with a judge model before loading the
+dataset.
+
 Trajectory modes are `exact`, `subsequence`, and `unordered`. Argument matching
 is `full`, `subset`, or `raw`. JSON object key order is ignored, arrays retain
 their order, and numbers compare by exact numeric value.
@@ -110,6 +114,50 @@ required checks become unavailable when their input was truncated or could not
 be observed completely. Target factories and custom evaluators must be safe for
 concurrent calls when concurrency is greater than one.
 
+## Model judge
+
+Use `model_judge` when correctness cannot be expressed as an exact string,
+regular expression, schema, or tool trajectory:
+
+```json
+{
+  "id": "explanation-quality",
+  "input": "Explain why the sky appears blue.",
+  "reference": "Shorter blue wavelengths are scattered more strongly by the atmosphere.",
+  "checks": [
+    {
+      "id": "quality",
+      "type": "model_judge",
+      "threshold": 0.8,
+      "config": {
+        "rubric": "Score scientific correctness, clarity, and completeness."
+      }
+    }
+  ]
+}
+```
+
+The judge receives the case input, optional reference, rubric, and captured
+agent response. It has no tools or access to the evaluated agent's memory. It
+must return strict JSON containing a score from 0 to 1 and a reason. Invalid
+judge output or a provider failure becomes an evaluation error rather than an
+ordinary failed expectation.
+
+Library users inject any compatible SDK model explicitly:
+
+```go
+evaluators := eval.BuiltinEvaluators()
+evaluators[eval.EvaluatorModelJudge] = eval.NewModelJudge(judgeLLM)
+
+dataset, err := eval.LoadDatasetWithEvaluators(datasetFile, evaluators)
+runner.Evaluators = evaluators
+report, err := runner.Run(ctx, dataset)
+```
+
+Judge evidence records the actual judge model, provider, duration, token usage,
+rubric digest, and reason separately from the evaluated agent's usage. Scores
+from different models or model versions should not be assumed equivalent.
+
 ## CLI
 
 Run a dataset with the configured provider:
@@ -132,6 +180,26 @@ export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
 agent-cli eval --dataset dataset.json --config config.json
 ```
 
+Configure `model_judge` checks with a separate provider and model. Judge-specific
+credentials take precedence over the normal provider variables, so the tested
+agent and judge can use different accounts or endpoints:
+
+```sh
+export AGENT_EVAL_JUDGE_API_KEY="$OPENROUTER_API_KEY"
+export AGENT_EVAL_JUDGE_BASE_URL="https://openrouter.ai/api/v1"
+
+agent-cli eval \
+  --dataset examples/evaluation/judge-dataset.json \
+  --config ~/.agent-cli/config.json \
+  --judge-provider openai \
+  --judge-model openrouter/free
+```
+
+Supported judge providers match the evaluation CLI: `openai`, `anthropic`,
+`vertex`, `ollama`, and `vllm`. `AGENT_EVAL_JUDGE_PROJECT_ID` selects a separate
+Vertex project. If a judge-specific variable is absent, the corresponding
+normal provider variable is used.
+
 JSON exports omit full observations by default. Include them when the report
 will be regraded later:
 
@@ -147,6 +215,10 @@ agent-cli eval \
   --format junit \
   --output evaluation.xml
 ```
+
+Regrading is fully offline for deterministic checks. A dataset containing
+`model_judge` calls the configured judge again, consumes tokens, and may produce
+a different score.
 
 Exit code `0` means all cases passed, `1` means one or more expectations failed,
 `2` means execution, evaluation, configuration, or report output failed, and
@@ -175,3 +247,11 @@ The framework records observable calls at tool decorators. It does not expose a
 provider's hidden reasoning, provider-rejected unknown tool calls, or internals
 of remote agents that were not instrumented. Such coverage must be declared
 partial or unavailable so required checks cannot pass on missing data.
+
+A model judge sends the case input, optional reference, rubric, and agent output
+to the configured judge provider. Do not enable it for content that must remain
+local. Candidate content is delimited as untrusted data, but model-based grading
+is still probabilistic and should be calibrated against human-labeled examples
+before it becomes a release gate. Judge reasons remain in metric messages and
+evidence even when full observations are omitted; apply an export redactor when
+those reasons may contain sensitive content.

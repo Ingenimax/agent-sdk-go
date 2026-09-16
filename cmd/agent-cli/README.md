@@ -88,6 +88,16 @@ agent-cli eval --dataset ./dataset.json \
   --observations ./observations.json --output ./regraded.json
 ```
 
+Run subjective rubric checks with a separate judge model:
+
+```bash
+export AGENT_EVAL_JUDGE_API_KEY="$OPENROUTER_API_KEY"
+export AGENT_EVAL_JUDGE_BASE_URL="https://openrouter.ai/api/v1"
+
+agent-cli eval --dataset ./judge-dataset.json --config ./config.json \
+  --judge-provider openai --judge-model openrouter/free
+```
+
 See [Agent evaluation](../../docs/evaluation.md) for dataset fields, built-in
 checks, exit codes, and the library API.
 

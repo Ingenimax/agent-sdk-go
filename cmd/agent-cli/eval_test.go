@@ -93,6 +93,31 @@ func TestEvalCommandRequiresDataset(t *testing.T) {
 	}
 }
 
+func TestEvalFlagsRequireCompleteJudgeConfiguration(t *testing.T) {
+	var stderr bytes.Buffer
+	if _, err := parseEvalFlags([]string{
+		"--dataset", "dataset.json",
+		"--judge-provider", "openai",
+	}, &stderr); err == nil {
+		t.Fatal("incomplete judge configuration was accepted")
+	}
+	if !strings.Contains(stderr.String(), "--judge-provider and --judge-model") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	options, err := parseEvalFlags([]string{
+		"--dataset", "dataset.json",
+		"--judge-provider", "openai",
+		"--judge-model", "openrouter/free",
+	}, ioDiscard{})
+	if err != nil {
+		t.Fatalf("parseEvalFlags: %v", err)
+	}
+	if options.judgeProvider != "openai" || options.judgeModel != "openrouter/free" {
+		t.Fatalf("options = %#v", options)
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }

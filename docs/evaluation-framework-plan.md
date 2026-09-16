@@ -1,7 +1,7 @@
 # Evaluation framework: technical implementation plan
 
-Status: first release implemented in `pkg/eval`, `pkg/eval/sdk`, and the
-`agent-cli eval` command. The optional model-judge phase remains future work.
+Status: implemented in `pkg/eval`, `pkg/eval/sdk`, and the `agent-cli eval`
+command, including the optional model-judge phase.
 
 ## Objective and first release
 
@@ -12,8 +12,7 @@ arguments, and resource use without a hosted evaluation service.
 
 The first release supports single-input cases, local agents through
 `RunDetailed`, isolated execution, deterministic graders, offline regrading of
-saved traces, JSON/JUnit reports, and CLI execution. Model-based judges are a
-separate extension.
+saved traces, JSON/JUnit reports, CLI execution, and opt-in model-based judges.
 
 Deterministic grading means identical results for identical observations and
 configuration. Live agent execution remains nondeterministic, even at zero
@@ -49,24 +48,25 @@ pkg/eval/
   recorder.go        correlated tool spans and bounded trace snapshots
   grade.go           offline grading of observations
   graders.go         built-in deterministic evaluators and config validation
+  model_judge.go     optional injected-model rubric evaluator
   report.go          versioned JSON and JUnit export/import
   sdk/
     target.go        adapter for agent.Agent and its tool decorators
-  judge/             later: model judge implementing eval.Evaluator
   testdata/          datasets, traces and report fixtures
 cmd/agent-cli/
-  eval.go            later: command parsing and library integration
+  eval.go            command parsing and library integration
 examples/evaluation/
   main.go            runnable example with fake tools
   dataset.json
-docs/evaluation.md   later: user guide for the implemented API
+docs/evaluation.md   user guide for the implemented API
 ```
 
 Dependency direction: `eval/sdk -> eval + agent + interfaces`; core `eval` may
-import `interfaces`, but must not import `agent` or a provider. `eval/judge` depends
-on `eval` and `interfaces.LLM`. Existing agent/provider packages never import
-`eval`. Keep concrete built-in graders in `eval` initially; avoid a plugin registry
-or dynamic loading beyond an explicit evaluator map supplied by the caller.
+import `interfaces`, but must not import `agent` or a provider. The model judge
+accepts an injected model interface. Existing agent/provider packages never
+import `eval`. Keep concrete built-in graders in `eval` initially; avoid a plugin
+registry or dynamic loading beyond an explicit evaluator map supplied by the
+caller.
 
 Reuse the repository's existing YAML and JSON Schema dependencies after checking
 their supported schema dialect during implementation. Do not introduce a second
@@ -340,14 +340,13 @@ status takes precedence over ordinary failures; interrupted runs retain partial
 reports where possible. Credentials remain in the existing environment/config
 path. No network services are required for deterministic fixtures or regrading.
 
-## Later extension: model judges
+## Optional model judges
 
-Implement an opt-in `eval/judge` evaluator using an injected `interfaces.LLM` and
-`GenerateDetailed`. Request a structured score, rationale, and evidence using a
-versioned rubric/prompt. Treat input, reference, and tool results as untrusted
-evaluation data. Do not give the judge tools or access to the evaluated agent's
-memory. Validate every judge response and score range; invalid output is an
-evaluation error, with no hidden retry.
+The opt-in `model_judge` evaluator uses an injected model and
+`GenerateDetailed`. It requests a structured score and rationale, treats input,
+reference, and agent output as untrusted evaluation data, and never gives the
+judge tools or access to the evaluated agent's memory. Every response and score
+range is validated; invalid output is an evaluation error with no hidden retry.
 
 Record judge model, configuration, rubric version/hash, duration, and usage
 separately from the evaluated agent. Grade thresholds and judge agreement need
@@ -388,7 +387,7 @@ Cross-model results are not assumed comparable. Live judge tests are opt-in.
 - Acceptance: parseable JSON/XML, correct exit codes, no stdout contamination,
   refusal to regrade incomplete data, and no changes to existing command behavior.
 
-### PR 5: optional model judges
+### PR 5: optional model judges (implemented)
 
 - Add rubric-based evaluator with structured output validation and separate usage.
 - Acceptance: malformed output is an error, judge data is isolated, configuration
@@ -418,5 +417,4 @@ go test ./cmd/agent-cli/...
 go test ./...
 ```
 
-These commands target future code; this document-only contribution does not add
-packages or require running the implementation tests.
+These commands validate the implemented packages and CLI integration.
