@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
@@ -116,3 +118,96 @@ func TestDecoratorRecordsAndRepanics(t *testing.T) {
 		t.Fatalf("trace = %#v", trace)
 	}
 }
+
+func TestDecoratorForwardsToolContractAndRecordsRunErrors(t *testing.T) {
+	recorder := coreeval.NewRecorder(coreeval.RecorderOptions{})
+	parameters := map[string]interfaces.ParameterSpec{
+		"city": {Type: "string", Required: true},
+	}
+	toolErr := errors.New("weather unavailable")
+	tool := &testutil.FakeTool{
+		ToolName:   "weather",
+		Desc:       "fetch weather",
+		Params:     parameters,
+		Display:    "Weather",
+		IsInternal: true,
+		Err:        toolErr,
+	}
+	wrapped := Decorator(recorder, "", coreeval.ToolLayerExecution)([]interfaces.Tool{tool})[0]
+	if wrapped.Name() != tool.Name() || wrapped.Description() != tool.Description() {
+		t.Fatalf("metadata was not forwarded: %q, %q", wrapped.Name(), wrapped.Description())
+	}
+	if !reflect.DeepEqual(wrapped.Parameters(), parameters) {
+		t.Fatalf("parameters = %#v", wrapped.Parameters())
+	}
+	if named := wrapped.(interfaces.ToolWithDisplayName).DisplayName(); named != "Weather" {
+		t.Fatalf("DisplayName = %q", named)
+	}
+	if !wrapped.(interfaces.InternalTool).Internal() {
+		t.Fatal("Internal = false")
+	}
+	if unwrapped := wrapped.(agent.ToolUnwrapper).Unwrap(); unwrapped != tool {
+		t.Fatalf("Unwrap = %#v", unwrapped)
+	}
+	if _, err := wrapped.Run(context.Background(), `{"city":"Madrid"}`); !errors.Is(err, toolErr) {
+		t.Fatalf("Run error = %v", err)
+	}
+	trace := recorder.Snapshot()
+	if len(trace.Spans) != 1 || trace.Spans[0].Status != coreeval.ToolSpanError || trace.Spans[0].Method != "Run" {
+		t.Fatalf("trace = %#v", trace)
+	}
+	if trace.Spans[0].AgentPath != coreeval.RootAgentPath {
+		t.Fatalf("agent path = %q", trace.Spans[0].AgentPath)
+	}
+
+	plain := &plainTool{}
+	plainWrapped := Decorator(recorder, "child", coreeval.ToolLayerAttempt)([]interfaces.Tool{plain})[0]
+	if plainWrapped.(interfaces.ToolWithDisplayName).DisplayName() != plain.Name() {
+		t.Fatal("display-name fallback did not use Name")
+	}
+	if plainWrapped.(interfaces.InternalTool).Internal() {
+		t.Fatal("plain tool was marked internal")
+	}
+}
+
+func TestDecoratorNoOpAndNewTargetCapabilities(t *testing.T) {
+	tool := &testutil.FakeTool{ToolName: "tool"}
+	toolSet := []interfaces.Tool{tool}
+	decorated := Decorator(nil, "", coreeval.ToolLayerExecution)(toolSet)
+	if len(decorated) != 1 || decorated[0] != tool {
+		t.Fatalf("nil-recorder decoration changed tools: %#v", decorated)
+	}
+	if got := Decorator(coreeval.NewRecorder(coreeval.RecorderOptions{}), "", coreeval.ToolLayerExecution)(nil); got != nil {
+		t.Fatalf("empty decoration = %#v", got)
+	}
+
+	closed := false
+	closeTarget := func(context.Context) error {
+		closed = true
+		return nil
+	}
+	subject, err := agent.NewAgent(agent.WithLLM(&testutil.FakeLLM{DefaultResponse: "done"}))
+	if err != nil {
+		t.Fatalf("NewAgent: %v", err)
+	}
+	target := NewTarget(subject, closeTarget)
+	if target.Subject != subject || target.Close == nil {
+		t.Fatalf("target = %#v", target)
+	}
+	if target.Capabilities.ToolCapture != coreeval.CoverageComplete ||
+		target.Capabilities.Usage != coreeval.CoverageComplete ||
+		target.Capabilities.Output != coreeval.CoverageComplete {
+		t.Fatalf("capabilities = %#v", target.Capabilities)
+	}
+	if err := target.Close(context.Background()); err != nil || !closed {
+		t.Fatalf("close: closed=%v err=%v", closed, err)
+	}
+}
+
+type plainTool struct{}
+
+func (*plainTool) Name() string                                    { return "plain" }
+func (*plainTool) Description() string                             { return "plain tool" }
+func (*plainTool) Parameters() map[string]interfaces.ParameterSpec { return nil }
+func (*plainTool) Run(context.Context, string) (string, error)     { return "run", nil }
+func (*plainTool) Execute(context.Context, string) (string, error) { return "execute", nil }
