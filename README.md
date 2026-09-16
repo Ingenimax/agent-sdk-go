@@ -39,6 +39,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 🕸️ **Multi-Agent Patterns** *(NEW)*: Sequential, parallel, loop and graph composition over a registry of agents. [Docs](docs/multi-agent.md)
 - 🔀 **Agent Transfer** *(NEW)*: Let the model hand a conversation to a better-suited agent through a constrained tool call. [Docs](docs/capabilities.md#llm-driven-transfer)
 - 🧩 **Tool Pipeline** *(NEW)*: One ordered decorator chain around every tool call, reaching all providers without touching any. [Docs](docs/tool-pipeline.md)
+- 🧪 **Agent Evaluation** *(NEW)*: Versioned datasets, correlated tool traces, deterministic graders, offline regrading, and JSON/JUnit reports. [Docs](docs/evaluation.md)
 
 > **Upgrading an existing deployment?** This line removes remote configuration
 > loading (it allowed the config service to execute local binaries) and fixes
@@ -1080,6 +1081,7 @@ For more detailed information, you can also refer to the following documents:
 - [Multi-Agent Patterns](docs/multi-agent.md) - sequential, parallel, loop, graph
 - [Agent Capabilities](docs/capabilities.md) - sessions, runs, hooks, skills, consolidation
 - [Token Usage Tracking](docs/token-usage-tracking.md)
+- [Agent Evaluation](docs/evaluation.md) - deterministic checks, tool trajectories, reports, and CLI execution
 - [Development](docs/development.md)
 - [Upgrading](docs/upgrading.md) - breaking changes and migration paths
 

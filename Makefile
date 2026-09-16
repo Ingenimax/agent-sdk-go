@@ -73,10 +73,10 @@ dev-setup:
 release: clean
 	@echo "🚀 Creating release build..."
 	@mkdir -p bin
-	@GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-linux-amd64 cmd/agent-cli/main.go
-	@GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-darwin-amd64 cmd/agent-cli/main.go
-	@GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o bin/agent-cli-darwin-arm64 cmd/agent-cli/main.go
-	@GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-windows-amd64.exe cmd/agent-cli/main.go
+	@GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-linux-amd64 ./cmd/agent-cli
+	@GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-darwin-amd64 ./cmd/agent-cli
+	@GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o bin/agent-cli-darwin-arm64 ./cmd/agent-cli
+	@GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/agent-cli-windows-amd64.exe ./cmd/agent-cli
 	@echo "✅ Release builds created in bin/"
 
 # Quick start - initialize and run a simple example
