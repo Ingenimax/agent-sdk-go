@@ -81,10 +81,10 @@ func (weatherTool) Run(_ context.Context, city string) (string, error) {
 	return fmt.Sprintf("%s: 22°C", city), nil
 }
 func (weatherTool) Execute(_ context.Context, arguments string) (string, error) {
-	if arguments != `{"city":"Madrid"}` {
+	if arguments != `{"city":"Example City"}` {
 		return "", fmt.Errorf("unexpected fixture arguments %s", arguments)
 	}
-	return "Madrid: 22°C", nil
+	return "Example City: 22°C", nil
 }
 
 type weatherLLM struct{}
@@ -92,16 +92,16 @@ type weatherLLM struct{}
 func (weatherLLM) Name() string            { return "fixture" }
 func (weatherLLM) SupportsStreaming() bool { return false }
 func (weatherLLM) Generate(context.Context, string, ...interfaces.GenerateOption) (string, error) {
-	return "Madrid is 22°C", nil
+	return "Example City is 22°C", nil
 }
 func (weatherLLM) GenerateWithTools(ctx context.Context, _ string, tools []interfaces.Tool, _ ...interfaces.GenerateOption) (string, error) {
 	if len(tools) != 1 {
 		return "", fmt.Errorf("got %d tools, want 1", len(tools))
 	}
-	if _, err := tools[0].Execute(ctx, `{"city":"Madrid"}`); err != nil {
+	if _, err := tools[0].Execute(ctx, `{"city":"Example City"}`); err != nil {
 		return "", err
 	}
-	return "Madrid is 22°C", nil
+	return "Example City is 22°C", nil
 }
 func (llm weatherLLM) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	content, err := llm.Generate(ctx, prompt, options...)

@@ -10,7 +10,7 @@ import (
 )
 
 func TestModelJudgeScoresResponseAndCapturesProvenance(t *testing.T) {
-	reference := "Madrid"
+	reference := "Example City"
 	model := &scriptedJudgeModel{response: &interfaces.LLMResponse{
 		Content: `{"score":0.85,"reason":"Correct and concise."}`,
 		Model:   "judge-model-v1",
@@ -19,9 +19,9 @@ func TestModelJudgeScoresResponseAndCapturesProvenance(t *testing.T) {
 	check := testCheck("quality", EvaluatorModelJudge, `{"rubric":"The answer must be correct and concise."}`)
 	threshold := 0.8
 	check.Threshold = &threshold
-	output := "Madrid"
+	output := "Example City"
 	result, err := Grade(context.Background(), Case{
-		ID: "capital", Input: "What is Spain's capital?", Reference: &reference, Checks: []Check{check},
+		ID: "capital", Input: "What is Exampleland's capital?", Reference: &reference, Checks: []Check{check},
 	}, Observation{
 		CaseID: "capital", Status: RunStatusCompleted, Output: &output,
 		Capabilities: Capabilities{Output: CoverageComplete},
@@ -39,7 +39,7 @@ func TestModelJudgeScoresResponseAndCapturesProvenance(t *testing.T) {
 	if metric.Evidence["judge_model"] != "judge-model-v1" || metric.Evidence["judge_provider"] != "fixture-judge" {
 		t.Fatalf("evidence = %#v", metric.Evidence)
 	}
-	if !strings.Contains(model.prompt, `"reference":"Madrid"`) || !strings.Contains(model.prompt, `"candidate_response":"Madrid"`) {
+	if !strings.Contains(model.prompt, `"reference":"Example City"`) || !strings.Contains(model.prompt, `"candidate_response":"Example City"`) {
 		t.Fatalf("prompt = %s", model.prompt)
 	}
 	if model.options.ResponseFormat == nil || model.options.LLMConfig == nil || model.options.LLMConfig.Temperature != 0 {

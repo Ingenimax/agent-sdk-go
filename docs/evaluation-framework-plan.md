@@ -135,8 +135,8 @@ Threshold defaults to `1`; required defaults to `true`.
   "id": "weather-agent",
   "cases": [
     {
-      "id": "madrid-weather",
-      "input": "What is the temperature in Madrid?",
+      "id": "example-city-weather",
+      "input": "What is the temperature in Example City?",
       "checks": [
         {
           "id": "answer",
@@ -150,7 +150,7 @@ Threshold defaults to `1`; required defaults to `true`.
             "layer": "execution",
             "mode": "exact",
             "calls": [
-              {"name": "weather", "arguments": {"city": "Madrid"}}
+              {"name": "weather", "arguments": {"city": "Example City"}}
             ]
           }
         },

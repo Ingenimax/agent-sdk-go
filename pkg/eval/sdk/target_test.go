@@ -18,7 +18,7 @@ func TestOptionsCaptureAttemptAndModifiedExecution(t *testing.T) {
 	registry := hooks.NewRegistry(hooks.Plugin{
 		Name: "normalize-city",
 		BeforeTool: func(context.Context, hooks.ToolCall) (hooks.Outcome, error) {
-			return hooks.Outcome{Decision: hooks.Modify, Arguments: `{"city":"Madrid"}`}, nil
+			return hooks.Outcome{Decision: hooks.Modify, Arguments: `{"city":"Example City"}`}, nil
 		},
 		AfterTool: func(_ context.Context, _ hooks.ToolCall, result string) (string, error) {
 			return result + "C", nil
@@ -50,13 +50,13 @@ func TestOptionsCaptureAttemptAndModifiedExecution(t *testing.T) {
 	if attempt.Layer != coreeval.ToolLayerAttempt || attempt.Arguments != `{}` || attempt.Result != "22C" {
 		t.Fatalf("attempt span = %#v", attempt)
 	}
-	if execution.Layer != coreeval.ToolLayerExecution || execution.Arguments != `{"city":"Madrid"}` || execution.Result != "22" {
+	if execution.Layer != coreeval.ToolLayerExecution || execution.Arguments != `{"city":"Example City"}` || execution.Result != "22" {
 		t.Fatalf("execution span = %#v", execution)
 	}
 	if execution.ParentID != attempt.ID {
 		t.Fatalf("execution parent = %q, want %q", execution.ParentID, attempt.ID)
 	}
-	if calls := tool.Calls(); len(calls) != 1 || calls[0] != `{"city":"Madrid"}` {
+	if calls := tool.Calls(); len(calls) != 1 || calls[0] != `{"city":"Example City"}` {
 		t.Fatalf("tool calls = %#v", calls)
 	}
 }
@@ -149,7 +149,7 @@ func TestDecoratorForwardsToolContractAndRecordsRunErrors(t *testing.T) {
 	if unwrapped := wrapped.(agent.ToolUnwrapper).Unwrap(); unwrapped != tool {
 		t.Fatalf("Unwrap = %#v", unwrapped)
 	}
-	if _, err := wrapped.Run(context.Background(), `{"city":"Madrid"}`); !errors.Is(err, toolErr) {
+	if _, err := wrapped.Run(context.Background(), `{"city":"Example City"}`); !errors.Is(err, toolErr) {
 		t.Fatalf("Run error = %v", err)
 	}
 	trace := recorder.Snapshot()

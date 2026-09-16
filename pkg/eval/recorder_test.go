@@ -16,14 +16,14 @@ func TestRecorderCorrelatesPairedLayersAndShortCircuits(t *testing.T) {
 		Layer:     ToolLayerAttempt,
 		Tool:      "weather",
 		Method:    "Execute",
-		Arguments: `{"city":"madrid"}`,
+		Arguments: `{"city":"example city"}`,
 	})
 	_, execution := recorder.Begin(attemptContext, SpanStart{
 		AgentPath: RootAgentPath,
 		Layer:     ToolLayerExecution,
 		Tool:      "weather",
 		Method:    "Execute",
-		Arguments: `{"city":"Madrid"}`,
+		Arguments: `{"city":"Example City"}`,
 	})
 	recorder.End(execution, SpanEnd{Err: errors.New("upstream unavailable")})
 	recorder.End(attempt, SpanEnd{Result: "fallback"})

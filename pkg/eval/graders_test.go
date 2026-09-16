@@ -7,12 +7,12 @@ import (
 )
 
 func TestGradeDeterministicOutputAndSchemaChecks(t *testing.T) {
-	output := `{"answer":"Madrid","temperature":22}`
+	output := `{"answer":"Example City","temperature":22}`
 	evalCase := Case{
 		ID:    "weather",
 		Input: "weather",
 		Checks: []Check{
-			testCheck("contains", EvaluatorOutputContains, `{"value":"Madrid"}`),
+			testCheck("contains", EvaluatorOutputContains, `{"value":"Example City"}`),
 			testCheck("regex", EvaluatorOutputRegex, `{"pattern":"temperature.*22"}`),
 			testCheck("schema", EvaluatorOutputJSONSchema, `{"schema":{"type":"object","required":["temperature"],"properties":{"temperature":{"type":"integer"}}}}`),
 		},
@@ -50,7 +50,7 @@ func TestToolTrajectoryMatchesExactNumbersAndObjectSubsets(t *testing.T) {
 				"mode":"exact",
 				"argument_match":"subset",
 				"calls":[
-					{"name":"weather","arguments":{"city":"Madrid","scale":1e0}},
+					{"name":"weather","arguments":{"city":"Example City","scale":1e0}},
 					{"name":"format"}
 				]
 			}`),
@@ -64,7 +64,7 @@ func TestToolTrajectoryMatchesExactNumbersAndObjectSubsets(t *testing.T) {
 			ToolCapture: CoverageComplete,
 		},
 		Trace: Trace{Spans: []ToolSpan{
-			{ID: "1", Sequence: 1, AgentPath: RootAgentPath, Layer: ToolLayerExecution, Tool: "weather", Arguments: `{"city":"Madrid","scale":1.00,"extra":true}`},
+			{ID: "1", Sequence: 1, AgentPath: RootAgentPath, Layer: ToolLayerExecution, Tool: "weather", Arguments: `{"city":"Example City","scale":1.00,"extra":true}`},
 			{ID: "2", Sequence: 2, AgentPath: RootAgentPath, Layer: ToolLayerExecution, Tool: "format", Arguments: `{}`},
 		}},
 	}

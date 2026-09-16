@@ -3,8 +3,8 @@
   "id": "offline-weather-agent",
   "cases": [
     {
-      "id": "madrid-weather",
-      "input": "What is the temperature in Madrid?",
+      "id": "example-city-weather",
+      "input": "What is the temperature in Example City?",
       "checks": [
         {
           "id": "answer",
@@ -23,7 +23,7 @@
               {
                 "name": "weather",
                 "arguments": {
-                  "city": "Madrid"
+                  "city": "Example City"
                 }
               }
             ]
