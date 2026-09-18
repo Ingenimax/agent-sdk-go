@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -41,6 +42,11 @@ const (
 
 // Global logger instance
 var logger = logging.New()
+
+// evalCommand is registered by eval.go when the complete CLI package is built.
+// Keeping the hook optional preserves the historical single-file invocation:
+// go run cmd/agent-cli/main.go <command>.
+var evalCommand func([]string, io.Writer, io.Writer) int
 
 type CLIConfig struct {
 	Provider       string            `json:"provider"`        // openai, anthropic, vertex, ollama, vllm
@@ -87,11 +93,13 @@ func main() {
 		printUsage()
 		return
 	}
-
 	// Check for direct execution flags first
 	if hasDirectExecutionFlags() {
 		executeDirectPrompt()
 		return
+	}
+	if os.Args[1] == "eval" && evalCommand != nil {
+		os.Exit(evalCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	command := os.Args[1]
@@ -428,6 +436,7 @@ COMMANDS:
     init                Initialize CLI configuration
     config              Manage configuration settings
     run                 Run agent with a single prompt
+    eval                Run or regrade an evaluation dataset
     task                Execute predefined tasks from YAML
     chat                Start interactive chat session
     generate            Generate agent/task configurations
@@ -1665,8 +1674,11 @@ func createLLM(config *CLIConfig) interfaces.LLM { //nolint:staticcheck
 		if apiKey == "" {
 			log.Fatal("OPENAI_API_KEY environment variable is required for OpenAI provider")
 		}
-		return openai.NewClient(apiKey,
-			openai.WithModel(config.Model))
+		options := []openai.Option{openai.WithModel(config.Model)}
+		if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
+			options = append(options, openai.WithBaseURL(baseURL))
+		}
+		return openai.NewClient(apiKey, options...)
 
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")

@@ -70,6 +70,37 @@ agent-cli run "Explain quantum computing in simple terms"
 agent-cli run "Write a Python function to calculate fibonacci numbers"
 ```
 
+### `eval` - Evaluate an Agent
+
+Run a strict JSON dataset and emit a JSON or JUnit report:
+
+```bash
+agent-cli eval --dataset ./dataset.json --output ./evaluation.json
+agent-cli eval --dataset ./dataset.json --format junit --output ./evaluation.xml
+```
+
+Use `--include-observations` when saving a report for later offline regrading:
+
+```bash
+agent-cli eval --dataset ./dataset.json \
+  --include-observations --output ./observations.json
+agent-cli eval --dataset ./dataset.json \
+  --observations ./observations.json --output ./regraded.json
+```
+
+Run subjective rubric checks with a separate judge model:
+
+```bash
+export AGENT_EVAL_JUDGE_API_KEY="$OPENROUTER_API_KEY"
+export AGENT_EVAL_JUDGE_BASE_URL="https://openrouter.ai/api/v1"
+
+agent-cli eval --dataset ./judge-dataset.json --config ./config.json \
+  --judge-provider openai --judge-model openrouter/free
+```
+
+See [Agent evaluation](../../docs/evaluation.md) for dataset fields, built-in
+checks, exit codes, and the library API.
+
 ### Direct Execution Mode
 
 Execute prompts directly without subcommands, perfect for one-off tasks and automation.
@@ -383,6 +414,10 @@ export LLM_PROVIDER=openai          # or anthropic, vertex, ollama, vllm
 # OpenAI
 export OPENAI_API_KEY=your_openai_key
 export OPENAI_MODEL=gpt-4o-mini
+
+# OpenAI-compatible endpoint (for example, OpenRouter)
+export OPENAI_API_KEY=your_compatible_provider_key
+export OPENAI_BASE_URL=https://openrouter.ai/api/v1
 
 # Anthropic
 export ANTHROPIC_API_KEY=your_anthropic_key

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "id": "subjective-answer-quality",
+  "cases": [
+    {
+      "id": "clear-science-explanation",
+      "input": "Explain why the sky appears blue in two short sentences.",
+      "reference": "Air molecules scatter shorter blue wavelengths of sunlight more strongly than longer wavelengths, so scattered blue light reaches our eyes from across the sky.",
+      "checks": [
+        {
+          "id": "quality",
+          "type": "model_judge",
+          "threshold": 0.8,
+          "config": {
+            "rubric": "Score scientific correctness, clarity, and compliance with the two-sentence limit."
+          }
+        }
+      ]
+    }
+  ]
+}

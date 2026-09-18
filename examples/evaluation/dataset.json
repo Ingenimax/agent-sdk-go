@@ -1,0 +1,50 @@
+{
+  "schema_version": "1",
+  "id": "offline-weather-agent",
+  "cases": [
+    {
+      "id": "example-city-weather",
+      "input": "What is the temperature in Example City?",
+      "checks": [
+        {
+          "id": "answer",
+          "type": "output_contains",
+          "config": {
+            "value": "22°C"
+          }
+        },
+        {
+          "id": "tools",
+          "type": "tool_trajectory",
+          "config": {
+            "layer": "execution",
+            "mode": "exact",
+            "calls": [
+              {
+                "name": "weather",
+                "arguments": {
+                  "city": "Example City"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "call-limit",
+          "type": "max_tool_calls",
+          "config": {
+            "layer": "execution",
+            "maximum": 1
+          }
+        },
+        {
+          "id": "token-limit",
+          "type": "max_total_tokens",
+          "config": {
+            "maximum": 20
+          }
+        }
+      ]
+    }
+  ]
+}
