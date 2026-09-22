@@ -908,6 +908,13 @@ The SDK follows a modular architecture with these key components:
 - **Execution Plan**: Manages planning, approval, and execution of complex tasks
 - **Configuration**: YAML-based agent and task definitions
 
+### Decision Models
+
+- **TypeSafe AI Jev**: Native System One client for typed `noul`, `choice`, and
+  `score` decisions, plus a calibrated agent router. Jev complements an LLM; it
+  is intentionally not exposed as a text-generating `interfaces.LLM`. See the
+  [Jev router example](examples/orchestration/jev_router).
+
 ### Supported LLM Providers
 
 - **OpenAI**: GPT-4, GPT-3.5, and other OpenAI models
