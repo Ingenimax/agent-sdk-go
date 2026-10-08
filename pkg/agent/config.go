@@ -106,6 +106,7 @@ type LLMConfigYAML struct {
 	EnableReasoning  *bool    `yaml:"enable_reasoning,omitempty"`
 	ReasoningBudget  *int     `yaml:"reasoning_budget,omitempty"`
 	Reasoning        *string  `yaml:"reasoning,omitempty"`
+	MaxTokens        *int     `yaml:"max_tokens,omitempty"`
 }
 
 // LLMProviderYAML represents LLM provider configuration in YAML
@@ -795,6 +796,9 @@ func convertLLMConfigYAMLToInterface(config *LLMConfigYAML) *interfaces.LLMConfi
 	}
 	if config.Reasoning != nil {
 		llmConfig.Reasoning = *config.Reasoning
+	}
+	if config.MaxTokens != nil {
+		llmConfig.MaxTokens = *config.MaxTokens
 	}
 
 	return llmConfig

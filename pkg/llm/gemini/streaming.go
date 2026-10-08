@@ -88,7 +88,7 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	}
 
 	// Apply max output tokens if configured at client level
-	c.applyMaxOutputTokens(&genConfig)
+	c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
@@ -427,7 +427,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 		}
 
 		// Apply max output tokens if configured at client level
-		c.applyMaxOutputTokens(&genConfig)
+		c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 		// Create config
 		config := &genai.GenerateContentConfig{
@@ -683,7 +683,7 @@ func (c *GeminiClient) generateWithToolsAndStream(ctx context.Context, prompt st
 	}
 
 	// Apply max output tokens if configured at client level
-	c.applyMaxOutputTokens(&genConfig)
+	c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 	// Add ResponseFormat if specified
 	if params.ResponseFormat != nil {

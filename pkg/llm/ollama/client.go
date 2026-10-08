@@ -196,6 +196,7 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string, options ...i
 			Temperature: params.LLMConfig.Temperature,
 			TopP:        params.LLMConfig.TopP,
 			Stop:        params.LLMConfig.StopSequences,
+			NumPredict:  params.LLMConfig.MaxTokens,
 		},
 		System: params.SystemMessage,
 	}
@@ -294,6 +295,7 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 				Temperature: params.LLMConfig.Temperature,
 				TopP:        params.LLMConfig.TopP,
 				Stop:        params.LLMConfig.StopSequences,
+				NumPredict:  params.LLMConfig.MaxTokens,
 			},
 		}
 
@@ -476,6 +478,7 @@ func (c *OllamaClient) Chat(ctx context.Context, messages []llm.Message, params 
 			Temperature: params.Temperature,
 			TopP:        params.TopP,
 			Stop:        params.StopSequences,
+			NumPredict:  params.MaxTokens,
 		},
 	}
 

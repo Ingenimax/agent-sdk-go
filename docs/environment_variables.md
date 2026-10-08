@@ -9,7 +9,6 @@ This document lists all environment variables used by the Agent SDK.
 - `OPENAI_API_KEY`: API key for OpenAI
 - `OPENAI_MODEL`: Model to use (default: "gpt-4o-mini")
 - `OPENAI_TEMPERATURE`: Temperature for generation (default: 0.7)
-- `OPENAI_MAX_TOKENS`: Maximum tokens to generate (default: 2048)
 - `OPENAI_BASE_URL`: Base URL for API calls (default: "https://api.openai.com/v1")
 - `OPENAI_TIMEOUT_SECONDS`: Timeout in seconds (default: 60)
 
@@ -18,7 +17,6 @@ This document lists all environment variables used by the Agent SDK.
 - `ANTHROPIC_API_KEY`: API key for Anthropic
 - `ANTHROPIC_MODEL`: Model to use (default: "claude-3-haiku-20240307")
 - `ANTHROPIC_TEMPERATURE`: Temperature for generation (default: 0.7)
-- `ANTHROPIC_MAX_TOKENS`: Maximum tokens to generate (default: 2048)
 - `ANTHROPIC_BASE_URL`: Base URL for API calls (default: "https://api.anthropic.com")
 - `ANTHROPIC_TIMEOUT_SECONDS`: Timeout in seconds (default: 60)
 
@@ -86,3 +84,32 @@ This document lists all environment variables used by the Agent SDK.
 - `LOG_LEVEL`: Log level (default: "info"). Options: "debug", "info", "warn", "error"
 - `LOG_FORMAT`: Log format (default: "console"). Set to "json" for JSON output
 - `LOG_JSON`: Alternative way to enable JSON logging. Set to "true", "1", or "yes" to enable
+
+## Output token limits
+
+There is no environment variable for the output token limit. `OPENAI_MAX_TOKENS`
+and `ANTHROPIC_MAX_TOKENS` were documented here but never read by any code, so
+they have been removed rather than left as a trap (#347).
+
+Set the limit through configuration instead, in order of precedence:
+
+```go
+// Per request, highest precedence.
+agent.Run(ctx, prompt, interfaces.WithMaxTokens(4096))
+
+// Per agent.
+agent.NewAgent(
+    agent.WithLLM(llm),
+    agent.WithLLMConfig(interfaces.LLMConfig{MaxTokens: 4096}),
+)
+```
+
+```yaml
+# Per agent, in YAML. Note this is llm_config, not llm_provider.config.
+my_agent:
+  llm_config:
+    max_tokens: 4096
+```
+
+Leaving it unset keeps each provider's own default: Anthropic sends 2048, and
+the OpenAI-compatible providers omit the field so the model's default applies.

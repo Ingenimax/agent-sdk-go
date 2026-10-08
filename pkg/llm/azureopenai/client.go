@@ -265,6 +265,8 @@ func (c *AzureOpenAIClient) generateInternal(ctx context.Context, prompt string,
 		Messages: messages,
 	}
 
+	applyMaxTokens(&req, params.LLMConfig)
+
 	if params.LLMConfig != nil {
 		req.Temperature = openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature))
 		// Reasoning models don't support top_p parameter
@@ -436,6 +438,8 @@ func (c *AzureOpenAIClient) Chat(ctx context.Context, messages []llm.Message, pa
 		PresencePenalty:  openai.Float(params.PresencePenalty),
 	}
 
+	applyMaxTokensValue(&req, params.MaxTokens)
+
 	// Reasoning models don't support top_p parameter
 	if !isReasoningModel(c.Model) {
 		req.TopP = openai.Float(params.TopP)
@@ -606,6 +610,8 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
 	}
+
+	applyMaxTokens(&req, params.LLMConfig)
 
 	// Reasoning models don't support top_p parameter
 	if !isReasoningModel(c.Model) {
@@ -1066,6 +1072,8 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 		FrequencyPenalty: openai.Float(params.LLMConfig.FrequencyPenalty),
 		PresencePenalty:  openai.Float(params.LLMConfig.PresencePenalty),
 	}
+
+	applyMaxTokens(&finalReq, params.LLMConfig)
 
 	// Reasoning models don't support top_p parameter
 	if !isReasoningModel(c.Model) {

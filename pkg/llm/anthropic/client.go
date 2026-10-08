@@ -532,12 +532,7 @@ Example output:
 Return only the JSON object, with no additional text or markdown formatting.`, prompt, string(schemaJSON), string(exampleStr))
 	}
 
-	// Calculate maxTokens - must be greater than budget_tokens when reasoning is enabled
-	maxTokens := 2048 // default
-	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && params.LLMConfig.ReasoningBudget > 0 {
-		// Ensure max_tokens > budget_tokens for reasoning
-		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
-	}
+	maxTokens := resolveMaxTokens(params.LLMConfig)
 
 	// Create request
 	req := CompletionRequest{
@@ -787,7 +782,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 	req := CompletionRequest{
 		Model:         c.Model,
 		Messages:      filteredMessages,
-		MaxTokens:     2048,
+		MaxTokens:     maxTokensOrDefault(params.MaxTokens),
 		Temperature:   params.Temperature,
 		TopP:          params.TopP,
 		StopSequences: params.StopSequences,
@@ -1061,12 +1056,7 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 	// Build messages with memory and current prompt
 	messages := c.buildMessagesWithMemory(ctx, prompt, params)
 
-	// Calculate maxTokens - must be greater than budget_tokens when reasoning is enabled
-	maxTokens := 2048 // default
-	if params.LLMConfig != nil && params.LLMConfig.EnableReasoning && params.LLMConfig.ReasoningBudget > 0 {
-		// Ensure max_tokens > budget_tokens for reasoning
-		maxTokens = params.LLMConfig.ReasoningBudget + 4000 // Add buffer for actual response
-	}
+	maxTokens := resolveMaxTokens(params.LLMConfig)
 
 	// Track the last response content from the tool-calling loop
 	var lastContent string
