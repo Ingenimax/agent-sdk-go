@@ -1,6 +1,6 @@
 # Agent Capabilities
 
-Seven subsystems, each usable on its own. They compose, but nothing here
+Eight subsystems, each usable on its own. They compose, but nothing here
 requires adopting the rest.
 
 | Package | What it gives you |
@@ -11,7 +11,8 @@ requires adopting the rest.
 | [`pkg/skill`](#skills) | SKILL.md bundles with progressive disclosure |
 | [`pkg/consolidation`](#memory-consolidation) | Idle distillation of memory into facts |
 | [`pkg/llm/cachepolicy`](#prompt-caching) | Honest per-provider caching capability |
-| [`pkg/orchestration`](#llm-driven-transfer) | Model-chosen handoff between agents |
+| [`pkg/orchestration`](#model-driven-transfer) | Model-chosen handoff between agents |
+| [`pkg/jev`](#jev-typed-decisions) | Jev System One typed decisions and probabilities |
 
 ---
 
@@ -270,7 +271,7 @@ caching happened.
 
 ---
 
-## LLM-driven transfer
+## Model-driven transfer
 
 ```go
 reg := orchestration.NewAgentRegistry()
@@ -295,6 +296,57 @@ bespoke syntax and broke whenever the model paraphrased it.
 Transfer chains are bounded twice — by `maxTransfers` and by a repeat-visit
 counter — because two agents can otherwise bounce a request between them, each
 pass costing a request.
+
+### Route with Jev
+
+Jev is a decision model, not a text-generating LLM. `JevRouter` asks one
+`choice` question using the available agent IDs as the only valid outcomes:
+
+```go
+client := jev.NewClient(os.Getenv("TYPESAFE_API_KEY"))
+router, err := orchestration.NewJevRouter(
+    client,
+    orchestration.WithJevMinimumConfidence(0.8),
+)
+if err != nil {
+    return err // the confidence threshold is validated here, not per request
+}
+
+decision, err := router.RouteDetailed(ctx, query, map[string]interface{}{
+    "agents": map[string]string{
+        "triage":  "Route general support requests",
+        "billing": "Answer invoicing and payment questions",
+    },
+})
+```
+
+`RouteDetailed` keeps the selected agent, confidence, full probability map,
+model, and token usage available to the caller. `Route` implements the existing
+orchestration `Router` interface.
+
+---
+
+## Jev typed decisions
+
+Use the client directly when the decision is not agent routing. Multiple named
+questions share one state and one API request:
+
+```go
+response, err := client.SystemOne(ctx, jev.Request{
+    State: ticket,
+    Questions: map[string]jev.Question{
+        "urgent": jev.Noul("Does this need attention now?"),
+        "team": jev.Choice("Which team should handle it?", map[string]interface{}{
+            "billing": "Charges, invoices, and refunds",
+            "technical": "Bugs, outages, and integrations",
+        }),
+        "severity": jev.Score("How severe is it?", "low", "medium", "high"),
+    },
+})
+```
+
+The client validates questions before sending them and checks that every answer
+matches the requested primitive and caller-defined choice set.
 
 ---
 
