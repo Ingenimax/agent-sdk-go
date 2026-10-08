@@ -33,7 +33,6 @@ my_agent:
     model: "${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}"
     config:
       temperature: 0.7
-      max_tokens: 4096
       api_key: "${ANTHROPIC_API_KEY}"  # Always use env vars for credentials
 ```
 
@@ -104,7 +103,6 @@ llm_provider:
   config:
     api_key: "${ANTHROPIC_API_KEY}"           # Required
     temperature: 0.7                           # Optional (0.0-1.0)
-    max_tokens: 4096                          # Optional
     top_p: 0.95                               # Optional
     top_k: 40                                 # Optional
 
@@ -188,7 +186,6 @@ llm_provider:
     organization: "${OPENAI_ORG_ID}"          # Optional
     base_url: "${OPENAI_BASE_URL}"            # Optional (for custom endpoints)
     temperature: 0.7                           # Optional (0.0-2.0)
-    max_tokens: 4096                          # Optional
     top_p: 1.0                                # Optional
     frequency_penalty: 0.0                    # Optional (-2.0-2.0)
     presence_penalty: 0.0                     # Optional (-2.0-2.0)
@@ -233,7 +230,6 @@ llm_provider:
     api_version: "${AZURE_API_VERSION:-2024-02-01}"  # Required
     deployment: "${AZURE_OPENAI_DEPLOYMENT}"  # Required
     temperature: 0.7                           # Optional
-    max_tokens: 4096                          # Optional
     top_p: 1.0                                # Optional
 
     # Advanced options
@@ -250,7 +246,6 @@ llm_provider:
   config:
     base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
     temperature: 0.7
-    max_tokens: 4096
 
     # Ollama-specific options
     num_ctx: 4096                             # Context window size
@@ -268,7 +263,6 @@ llm_provider:
     base_url: "${VLLM_BASE_URL}"              # Required
     api_key: "${VLLM_API_KEY}"                # Optional
     temperature: 0.7
-    max_tokens: 4096
     top_p: 0.95
 
     # vLLM-specific options
@@ -388,7 +382,6 @@ llm_provider:
   config:
     api_key: "${ANTHROPIC_API_KEY}"
     temperature: 0.3
-    max_tokens: 4096
     enable_reasoning: true
 
 # development.yaml
@@ -398,7 +391,6 @@ llm_provider:
   config:
     base_url: "http://localhost:11434"
     temperature: 0.7
-    max_tokens: 2048
 ```
 
 ### Combining with Programmatic Configuration
@@ -461,8 +453,9 @@ agent, _ := agent.NewAgentFromConfig("my_agent", configs, nil)
 llm := anthropic.NewClient(apiKey,
     anthropic.WithModel("claude-3-5-sonnet-latest"),
     anthropic.WithTemperature(0.7),
-    anthropic.WithMaxTokens(4096),
 )
+// Output token limits are not a provider client option; see "Output token
+// limits" below.
 ```
 
 **After:**
@@ -473,7 +466,6 @@ llm_provider:
   config:
     api_key: "${ANTHROPIC_API_KEY}"
     temperature: 0.7
-    max_tokens: 4096
 ```
 
 ### Complete Migration Example: StarOps DeepOps Agent
@@ -779,3 +771,43 @@ agent-cli test-llm agents.yaml my_agent
 - [Environment Variables](environment_variables.md)
 - [LLM Providers](llm.md)
 - [Security Best Practices](../README.md#security)
+
+## Output token limits
+
+`max_tokens` is **not** read from `llm_provider.config`. The provider factories
+only consume the specific keys listed per provider above, so a `max_tokens`
+there was silently ignored. It used to appear in these examples anyway, which
+is what #347 reported.
+
+The limit belongs in `llm_config`, which the agent passes to the provider on
+every request:
+
+```yaml
+my_agent:
+  role: "Assistant"
+  llm_provider:
+    provider: "anthropic"
+    model: "${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}"
+    config:
+      api_key: "${ANTHROPIC_API_KEY}"
+
+  llm_config:
+    temperature: 0.7
+    max_tokens: 4096
+```
+
+Equivalents in code, highest precedence first:
+
+```go
+agent.Run(ctx, prompt, interfaces.WithMaxTokens(4096))        // per request
+agent.WithLLMConfig(interfaces.LLMConfig{MaxTokens: 4096})    // per agent
+```
+
+This works for every provider. Leaving it unset preserves each provider's prior
+default: Anthropic sends 2048, the OpenAI-compatible providers omit the field,
+and Gemini falls back to its client-level `WithMaxOutputTokens` if one was set.
+
+One Anthropic-specific detail: when reasoning is enabled with a budget,
+Anthropic rejects a request whose `max_tokens` does not exceed `budget_tokens`.
+An explicit `max_tokens` below `reasoning_budget + 4000` is therefore raised to
+that floor rather than sent as-is.

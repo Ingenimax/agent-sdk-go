@@ -61,6 +61,14 @@ type LLMConfig struct {
 	Reasoning        string   // Reasoning mode (minimal, low, medium, high) to control reasoning effort
 	EnableReasoning  bool     // Enable native reasoning tokens (Anthropic thinking/OpenAI o1)
 	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only), minimum 1024
+
+	// MaxTokens caps the output tokens a single generation may produce.
+	//
+	// Zero means "provider default", which keeps each provider's prior
+	// behaviour rather than imposing a cross-provider number: Anthropic
+	// defaults to 2048 and the OpenAI-compatible providers omit the field so
+	// the model's own default applies.
+	MaxTokens int
 }
 
 // WithMaxIterations creates a GenerateOption to set the maximum number of tool-calling iterations
@@ -144,6 +152,22 @@ type TokenUsage struct {
 func WithSystemMessage(systemMessage string) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.SystemMessage = systemMessage
+	}
+}
+
+// WithMaxTokens creates a GenerateOption to cap output tokens for one request.
+//
+// A value of zero or less is ignored, leaving the provider default in place, so
+// callers can pass a config value through without special-casing "unset".
+func WithMaxTokens(maxTokens int) GenerateOption {
+	return func(options *GenerateOptions) {
+		if maxTokens <= 0 {
+			return
+		}
+		if options.LLMConfig == nil {
+			options.LLMConfig = &LLMConfig{}
+		}
+		options.LLMConfig.MaxTokens = maxTokens
 	}
 }
 

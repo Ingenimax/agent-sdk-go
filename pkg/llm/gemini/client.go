@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -166,16 +167,34 @@ func WithMaxOutputTokens(maxTokens int32) Option {
 	}
 }
 
-// applyMaxOutputTokens applies the client's max output tokens to the generation config if set
-func (c *GeminiClient) applyMaxOutputTokens(genConfig **genai.GenerationConfig) {
+// applyMaxOutputTokens applies the output token cap to the generation config.
+//
+// A per-request MaxTokens wins over the client-level WithMaxOutputTokens
+// default, matching how temperature and the other per-request knobs already
+// behave. Gemini was the only provider with any knob at all before #347, and it
+// was construction-time only.
+func (c *GeminiClient) applyMaxOutputTokens(genConfig **genai.GenerationConfig, config *interfaces.LLMConfig) {
+	var maxTokens int32
 	if c.maxOutputTokens != nil {
-		if *genConfig == nil {
-			*genConfig = &genai.GenerationConfig{}
-		}
-		// MaxOutputTokens expects int32 value, not pointer
-		maxTokens := *c.maxOutputTokens
-		(*genConfig).MaxOutputTokens = maxTokens
+		maxTokens = *c.maxOutputTokens
 	}
+	if config != nil && config.MaxTokens > 0 {
+		// Clamp rather than wrap: a caller asking for more than int32 wants
+		// "as much as possible", not a negative limit.
+		if config.MaxTokens > math.MaxInt32 {
+			maxTokens = math.MaxInt32
+		} else {
+			maxTokens = int32(config.MaxTokens)
+		}
+	}
+	if maxTokens <= 0 {
+		return
+	}
+	if *genConfig == nil {
+		*genConfig = &genai.GenerationConfig{}
+	}
+	// MaxOutputTokens expects int32 value, not pointer
+	(*genConfig).MaxOutputTokens = maxTokens
 }
 
 // NewClient creates a new Gemini client
@@ -358,7 +377,7 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 	}
 
 	// Apply max output tokens if configured at client level
-	c.applyMaxOutputTokens(&genConfig)
+	c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {
@@ -632,7 +651,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 
 		// Apply max output tokens if configured at client level
-		c.applyMaxOutputTokens(&genConfig)
+		c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 		// Set response format if provided
 		if params.ResponseFormat != nil {
@@ -1002,7 +1021,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 	}
 
 	// Apply max output tokens if configured at client level
-	c.applyMaxOutputTokens(&genConfig)
+	c.applyMaxOutputTokens(&genConfig, params.LLMConfig)
 
 	// Set response format if provided
 	if params.ResponseFormat != nil {

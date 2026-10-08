@@ -17,6 +17,7 @@ type GenerateParams struct {
 	TopK             int      // Limit vocabulary to top K tokens
 	RepeatPenalty    float64  // Penalize token repetition
 	Reasoning        string   // Reasoning mode for Claude models (none, minimal, comprehensive)
+	MaxTokens        int      // Cap on output tokens; zero means the provider default
 }
 
 // DefaultGenerateParams returns default generation parameters

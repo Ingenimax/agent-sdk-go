@@ -173,6 +173,8 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 		Messages: messages,
 	}
 
+	applyMaxTokens(&req, params.LLMConfig)
+
 	if params.LLMConfig != nil {
 		req.Temperature = openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature))
 		// Reasoning models don't support top_p parameter
@@ -344,6 +346,8 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []llm.Message, params 
 		Temperature: openai.Float(c.getTemperatureForModel(params.Temperature)),
 	}
 
+	applyMaxTokensValue(&req, params.MaxTokens)
+
 	// Only send penalties when explicitly set. Some OpenAI-compatible
 	// providers (e.g. xAI Grok reasoning models) reject the parameters
 	// outright, returning a 400 even for a 0 value.
@@ -514,6 +518,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Tools:       openaiTools,
 		Temperature: openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
 	}
+
+	applyMaxTokens(&req, params.LLMConfig)
 
 	// Only send penalties when explicitly set. Some OpenAI-compatible
 	// providers (e.g. xAI Grok reasoning models) reject the parameters
@@ -991,6 +997,8 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		Tools:       nil, // No tools for final call
 		Temperature: openai.Float(c.getTemperatureForModel(params.LLMConfig.Temperature)),
 	}
+
+	applyMaxTokens(&finalReq, params.LLMConfig)
 
 	// Only send penalties when explicitly set. Some OpenAI-compatible
 	// providers (e.g. xAI Grok reasoning models) reject the parameters
