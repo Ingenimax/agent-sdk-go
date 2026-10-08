@@ -298,6 +298,11 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 	go func() {
 		defer close(eventChan)
 
+		// Aggregates token usage across every tool-loop iteration and the
+		// final synthesis call. GenerateWithToolsStream hands back only an
+		// event channel, so this rides out on the terminal event (#327).
+		streamUsage := &usageAccumulator{}
+
 		// Convert tools to OpenAI format
 		openaiTools := make([]openai.ChatCompletionToolUnionParam, len(tools))
 		for i, tool := range tools {
@@ -417,6 +422,12 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				}
 			}
 
+			// Always ask for usage: without include_usage the chunks carry no
+			// token counts at all, so there is nothing to aggregate.
+			streamParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+				IncludeUsage: openai.Bool(true),
+			}
+
 			// Create stream
 			stream := c.ChatService.Completions.NewStreaming(ctx, streamParams)
 			if stream.Err() != nil {
@@ -440,6 +451,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			// Process stream chunks
 			for stream.Next() {
 				chunk := stream.Current()
+				c.recordStreamUsage(ctx, streamUsage, chunk.Usage)
 
 				for _, choice := range chunk.Choices {
 					// Handle content
@@ -683,10 +695,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			c.logger.Debug(ctx, "Skipping final synthesis call - already got complete response", map[string]interface{}{
 				"maxIterations": maxIterations,
 			})
-			eventChan <- interfaces.StreamEvent{
-				Type:      interfaces.StreamEventMessageStop,
-				Timestamp: time.Now(),
-			}
+			eventChan <- messageStopWithUsage(streamUsage, c.Model)
 			return
 		}
 
@@ -695,10 +704,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			c.logger.Info(ctx, "DisableFinalSummary enabled, skipping final synthesis call", map[string]interface{}{
 				"maxIterations": maxIterations,
 			})
-			eventChan <- interfaces.StreamEvent{
-				Type:      interfaces.StreamEventMessageStop,
-				Timestamp: time.Now(),
-			}
+			eventChan <- messageStopWithUsage(streamUsage, c.Model)
 			return
 		}
 
@@ -759,6 +765,10 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			"model": c.Model,
 		})
 
+		finalStreamParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		}
+
 		// Create final stream
 		finalStream := c.ChatService.Completions.NewStreaming(ctx, finalStreamParams)
 		if finalStream.Err() != nil {
@@ -779,6 +789,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 		// Process final stream
 		for finalStream.Next() {
 			chunk := finalStream.Current()
+			c.recordStreamUsage(ctx, streamUsage, chunk.Usage)
 
 			for _, choice := range chunk.Choices {
 				// Handle final content
@@ -824,11 +835,9 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			return
 		}
 
-		// Send final message stop event
-		eventChan <- interfaces.StreamEvent{
-			Type:      interfaces.StreamEventMessageStop,
-			Timestamp: time.Now(),
-		}
+		// Send final message stop event, carrying usage aggregated across every
+		// tool-loop iteration plus this synthesis call (#327).
+		eventChan <- messageStopWithUsage(streamUsage, c.Model)
 
 		c.logger.Debug(ctx, "Successfully completed OpenAI streaming request with tools", map[string]interface{}{
 			"model": c.Model,

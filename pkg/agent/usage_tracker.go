@@ -130,3 +130,21 @@ func getUsageTracker(ctx context.Context) *usageTracker {
 	tracker, _ := ctx.Value(usageTrackerKey).(*usageTracker)
 	return tracker
 }
+
+// llmUsageFromEvent extracts provider-reported token usage from a stream event.
+//
+// Streaming providers cannot return an *interfaces.LLMResponse, so they publish
+// usage as metadata on the terminal event under interfaces.MetadataKeyUsage.
+// Returns ok=false for every event that carries none, which is nearly all of
+// them.
+func llmUsageFromEvent(event interfaces.StreamEvent) (*interfaces.TokenUsage, string, bool) {
+	if len(event.Metadata) == 0 {
+		return nil, "", false
+	}
+	usage, ok := event.Metadata[interfaces.MetadataKeyUsage].(*interfaces.TokenUsage)
+	if !ok || usage == nil {
+		return nil, "", false
+	}
+	model, _ := event.Metadata[interfaces.MetadataKeyModel].(string)
+	return usage, model, true
+}
