@@ -359,6 +359,19 @@ func (a *Agent) runStreamingGeneration(
 			toolResults[llmEvent.ToolCall.ID] = llmEvent.Content
 		}
 
+		// Feed provider-reported token usage into the tracker.
+		//
+		// The streaming LLM methods return only an event channel, with no
+		// *interfaces.LLMResponse for runLocalWithTracking to read, so the
+		// terminal event's metadata is the only path by which token counts
+		// reach the tracker. Without this, RunDetailed via the streaming path
+		// reported zero tokens whenever the agent had tools (#327).
+		if usage, model, ok := llmUsageFromEvent(llmEvent); ok {
+			if tracker := getUsageTracker(ctx); tracker != nil {
+				tracker.addLLMUsage(usage, model)
+			}
+		}
+
 		// Track errors
 		if llmEvent.Error != nil {
 			finalError = llmEvent.Error
