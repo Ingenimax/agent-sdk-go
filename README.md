@@ -37,7 +37,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 📄 **Declarative Configuration**: Define sophisticated agents and tasks using intuitive YAML definitions
 - 🧙 **Zero-Effort Bootstrapping**: Auto-generate complete agent configurations from simple system prompts
 - 🕸️ **Multi-Agent Patterns** *(NEW)*: Sequential, parallel, loop and graph composition over a registry of agents. [Docs](docs/multi-agent.md)
-- 🔀 **Agent Transfer** *(NEW)*: Let the model hand a conversation to a better-suited agent through a constrained tool call. [Docs](docs/capabilities.md#llm-driven-transfer)
+- 🔀 **Agent Transfer** *(NEW)*: Let the model hand a conversation to a better-suited agent through a constrained tool call. [Docs](docs/capabilities.md#model-driven-transfer)
 - 🧩 **Tool Pipeline** *(NEW)*: One ordered decorator chain around every tool call, reaching all providers without touching any. [Docs](docs/tool-pipeline.md)
 - 🧪 **Agent Evaluation** *(NEW)*: Versioned datasets, correlated tool traces, deterministic graders, optional model judges, and JSON/JUnit reports. [Docs](docs/evaluation.md)
 

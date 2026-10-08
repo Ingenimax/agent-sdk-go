@@ -34,7 +34,8 @@ func TestJevRouterRouteDetailed(t *testing.T) {
 		},
 		Usage: jev.Usage{InputTokens: 12},
 	}}
-	router := NewJevRouter(client, WithJevMinimumConfidence(0.8))
+	router, err := NewJevRouter(client, WithJevMinimumConfidence(0.8))
+	require.NoError(t, err)
 
 	decision, err := router.RouteDetailed(context.Background(), "Find the latest release", map[string]interface{}{
 		"agents": map[string]string{
@@ -66,7 +67,9 @@ func TestJevRouterImplementsRouter(t *testing.T) {
 			},
 		},
 	}}
-	var router Router = NewJevRouter(client)
+	built, err := NewJevRouter(client)
+	require.NoError(t, err)
+	var router Router = built
 
 	agentID, err := router.Route(context.Background(), "hello", map[string]interface{}{
 		"agents": map[string]string{"a": "A", "b": "B"},
@@ -86,7 +89,9 @@ func TestJevRouterRejectsLowConfidence(t *testing.T) {
 			},
 		},
 	}}
-	_, err := NewJevRouter(client, WithJevMinimumConfidence(0.8)).Route(
+	router, err := NewJevRouter(client, WithJevMinimumConfidence(0.8))
+	require.NoError(t, err)
+	_, err = router.Route(
 		context.Background(), "hello", map[string]interface{}{
 			"agents": map[string]string{"a": "A", "b": "B"},
 		},
@@ -96,15 +101,67 @@ func TestJevRouterRejectsLowConfidence(t *testing.T) {
 }
 
 func TestJevRouterRejectsMissingAgents(t *testing.T) {
-	_, err := NewJevRouter(&fakeJevClient{}).Route(context.Background(), "hello", nil)
+	router, err := NewJevRouter(&fakeJevClient{})
+	require.NoError(t, err)
+	_, err = router.Route(context.Background(), "hello", nil)
 	assert.ErrorIs(t, err, ErrJevRouterAgents)
 }
 
 func TestJevRouterWrapsClientError(t *testing.T) {
 	client := &fakeJevClient{err: errors.New("offline")}
-	_, err := NewJevRouter(client).Route(context.Background(), "hello", map[string]interface{}{
+	router, err := NewJevRouter(client)
+	require.NoError(t, err)
+	_, err = router.Route(context.Background(), "hello", map[string]interface{}{
 		"agents": map[string]string{"a": "A", "b": "B"},
 	})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "offline")
+}
+
+func TestNewJevRouterRejectsBadConfidence(t *testing.T) {
+	_, err := NewJevRouter(&fakeJevClient{}, WithJevMinimumConfidence(5))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrJevRouterConfidenceRange)
+
+	_, err = NewJevRouter(&fakeJevClient{}, WithJevMinimumConfidence(-0.1))
+	assert.ErrorIs(t, err, ErrJevRouterConfidenceRange)
+}
+
+func TestNewJevRouterRejectsNilClient(t *testing.T) {
+	_, err := NewJevRouter(nil)
+	require.Error(t, err)
+}
+
+func TestJevRouterNilLoggerKeepsDefault(t *testing.T) {
+	client := &fakeJevClient{response: &jev.Response{
+		Answers: map[string]jev.Answer{
+			"route": {
+				Type:          jev.QuestionTypeChoice,
+				Choice:        "a",
+				Confidence:    0.9,
+				Probabilities: map[string]float64{"a": 0.9, "b": 0.1},
+			},
+		},
+	}}
+	router, err := NewJevRouter(client, WithJevRouterLogger(nil))
+	require.NoError(t, err)
+
+	// Logging happens only once routing succeeds, so this is the path a nil
+	// logger used to panic on.
+	agentID, err := router.Route(context.Background(), "hello", map[string]interface{}{
+		"agents": map[string]string{"a": "A", "b": "B"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "a", agentID)
+}
+
+func TestJevRouterRejectsEmptyAgentID(t *testing.T) {
+	router, err := NewJevRouter(&fakeJevClient{})
+	require.NoError(t, err)
+	_, err = router.Route(context.Background(), "hello", map[string]interface{}{
+		"agents": map[string]string{"": "nameless", "b": "B"},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrJevRouterAgentID)
+	assert.NotErrorIs(t, err, ErrJevRouterAgents)
 }

@@ -304,10 +304,13 @@ Jev is a decision model, not a text-generating LLM. `JevRouter` asks one
 
 ```go
 client := jev.NewClient(os.Getenv("TYPESAFE_API_KEY"))
-router := orchestration.NewJevRouter(
+router, err := orchestration.NewJevRouter(
     client,
     orchestration.WithJevMinimumConfidence(0.8),
 )
+if err != nil {
+    return err // the confidence threshold is validated here, not per request
+}
 
 decision, err := router.RouteDetailed(ctx, query, map[string]interface{}{
     "agents": map[string]string{
@@ -320,6 +323,8 @@ decision, err := router.RouteDetailed(ctx, query, map[string]interface{}{
 `RouteDetailed` keeps the selected agent, confidence, full probability map,
 model, and token usage available to the caller. `Route` implements the existing
 orchestration `Router` interface.
+
+---
 
 ## Jev typed decisions
 

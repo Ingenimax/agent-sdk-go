@@ -12,8 +12,12 @@ import (
 var (
 	// ErrJevRouterAgents means the routing context omitted usable agent descriptions.
 	ErrJevRouterAgents = errors.New("jev router: context must contain at least two agents")
+	// ErrJevRouterAgentID means the routing context carried an agent with an empty ID.
+	ErrJevRouterAgentID = errors.New("jev router: agent IDs must not be empty")
 	// ErrJevLowConfidence means Jev's choice did not reach the configured threshold.
 	ErrJevLowConfidence = errors.New("jev router: confidence below threshold")
+	// ErrJevRouterConfidenceRange means the configured threshold is not a probability.
+	ErrJevRouterConfidenceRange = errors.New("jev router: minimum confidence must be between 0 and 1")
 )
 
 const defaultJevRouterInstructions = "Which specialized agent should handle this query?"
@@ -54,13 +58,23 @@ func WithJevRouterInstructions(instructions interface{}) JevRouterOption {
 	return func(r *JevRouter) { r.instructions = instructions }
 }
 
-// WithJevRouterLogger sets the router logger.
+// WithJevRouterLogger sets the router logger. A nil logger is ignored, so the
+// default logger stays in place rather than panicking on first use.
 func WithJevRouterLogger(logger logging.Logger) JevRouterOption {
-	return func(r *JevRouter) { r.logger = logger }
+	return func(r *JevRouter) {
+		if logger != nil {
+			r.logger = logger
+		}
+	}
 }
 
-// NewJevRouter creates a Jev-backed orchestration Router.
-func NewJevRouter(client JevSystemOne, options ...JevRouterOption) *JevRouter {
+// NewJevRouter creates a Jev-backed orchestration Router. Configuration is
+// validated here so a misconfigured router fails at startup rather than on
+// every request.
+func NewJevRouter(client JevSystemOne, options ...JevRouterOption) (*JevRouter, error) {
+	if client == nil {
+		return nil, errors.New("jev router: client must not be nil")
+	}
 	router := &JevRouter{
 		client:       client,
 		instructions: defaultJevRouterInstructions,
@@ -69,7 +83,10 @@ func NewJevRouter(client JevSystemOne, options ...JevRouterOption) *JevRouter {
 	for _, option := range options {
 		option(router)
 	}
-	return router
+	if router.minimumConfidence < 0 || router.minimumConfidence > 1 {
+		return nil, fmt.Errorf("%w: got %.3f", ErrJevRouterConfidenceRange, router.minimumConfidence)
+	}
+	return router, nil
 }
 
 // Route implements Router.
@@ -86,11 +103,9 @@ func (r *JevRouter) Route(ctx context.Context, query string, routingContext map[
 // routingContext must contain an "agents" map from agent ID to description. An
 // optional "routing_state" value is included alongside the query as Jev state.
 func (r *JevRouter) RouteDetailed(ctx context.Context, query string, routingContext map[string]interface{}) (*JevRoutingDecision, error) {
+	// NewJevRouter rejects a nil client; this guards a zero-value JevRouter.
 	if r.client == nil {
 		return nil, errors.New("jev router: client is nil")
-	}
-	if r.minimumConfidence < 0 || r.minimumConfidence > 1 {
-		return nil, fmt.Errorf("jev router: minimum confidence must be between 0 and 1")
 	}
 
 	agents, ok := routingContext["agents"].(map[string]string)
@@ -100,7 +115,7 @@ func (r *JevRouter) RouteDetailed(ctx context.Context, query string, routingCont
 	criteria := make(map[string]interface{}, len(agents))
 	for id, description := range agents {
 		if id == "" {
-			return nil, fmt.Errorf("%w: agent IDs must not be empty", ErrJevRouterAgents)
+			return nil, ErrJevRouterAgentID
 		}
 		criteria[id] = description
 	}

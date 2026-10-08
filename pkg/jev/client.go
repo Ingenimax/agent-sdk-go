@@ -20,6 +20,9 @@ const (
 	DefaultModel    = "jev-latest"
 	defaultTimeout  = 10 * time.Second
 	maxResponseSize = 4 << 20
+	// maxRetryDelay bounds a single backoff sleep. Retry-After is chosen by the
+	// server, so it is clamped to this before the client waits on it.
+	maxRetryDelay = 30 * time.Second
 )
 
 var (
@@ -53,6 +56,8 @@ type Client struct {
 	httpClient     *http.Client
 	maxRetries     int
 	initialBackoff time.Duration
+	// maxDelay caps any single backoff sleep. Defaults to maxRetryDelay.
+	maxDelay time.Duration
 }
 
 // Option configures a Client.
@@ -75,6 +80,8 @@ func WithHTTPClient(httpClient *http.Client) Option {
 
 // WithRetry configures retries after the initial attempt and their first delay.
 // Only connection failures, HTTP 408/429, and HTTP 5xx responses are retried.
+// No single backoff sleep exceeds maxRetryDelay, including one requested by a
+// Retry-After response header.
 func WithRetry(maxRetries int, initialBackoff time.Duration) Option {
 	return func(c *Client) {
 		c.maxRetries = maxRetries
@@ -91,6 +98,7 @@ func NewClient(apiKey string, options ...Option) *Client {
 		httpClient:     &http.Client{Timeout: defaultTimeout},
 		maxRetries:     2,
 		initialBackoff: 500 * time.Millisecond,
+		maxDelay:       maxRetryDelay,
 	}
 	for _, option := range options {
 		option(c)
@@ -118,28 +126,28 @@ func (c *Client) SystemOne(ctx context.Context, request Request) (*Response, err
 		return nil, fmt.Errorf("%w: state or questions are not JSON-compatible: %v", ErrInvalidRequest, err)
 	}
 
-	var lastErr error
+	maxAttempts := max(c.maxRetries, 0)
 	delay := c.initialBackoff
-	for attempt := 0; attempt <= max(c.maxRetries, 0); attempt++ {
+	// Every exit is a return, so the loop needs no condition of its own: the
+	// attempt == maxAttempts check below is what bounds it.
+	for attempt := 0; ; attempt++ {
 		response, retryAfter, retryable, err := c.attempt(ctx, body, request)
 		if err == nil {
 			return response, nil
 		}
-		lastErr = err
-		if !retryable || attempt == max(c.maxRetries, 0) {
+		if !retryable || attempt == maxAttempts {
 			return nil, err
 		}
 		if retryAfter > delay {
 			delay = retryAfter
 		}
+		// Clamp before waiting, not after: retryAfter comes from the server.
+		delay = min(delay, c.maxDelay)
 		if err := wait(ctx, delay); err != nil {
 			return nil, err
 		}
-		if delay > 0 {
-			delay = min(delay*2, 5*time.Second)
-		}
+		delay *= 2
 	}
-	return nil, lastErr
 }
 
 func (c *Client) attempt(ctx context.Context, body []byte, request Request) (*Response, time.Duration, bool, error) {
@@ -229,9 +237,21 @@ func validateResponse(request Request, response *Response) error {
 			if !probability(answer.Confidence) || !validProbabilities(answer.Probabilities) {
 				return fmt.Errorf("%w: answer %q has invalid probabilities", ErrInvalidResponse, name)
 			}
+			// Callers route on this distribution, so every key has to be an
+			// outcome the caller actually offered.
+			for label := range answer.Probabilities {
+				if _, ok := criteria[label]; !ok {
+					return fmt.Errorf("%w: answer %q has a probability for unknown choice %q", ErrInvalidResponse, name, label)
+				}
+			}
 		case QuestionTypeScore:
 			if answer.Score == nil || !probability(answer.Confidence) || !validProbabilities(answer.Probabilities) {
 				return fmt.Errorf("%w: answer %q has invalid score data", ErrInvalidResponse, name)
+			}
+			// Scores index the rubric, so the first level is 0 and the last is
+			// len(criteria)-1. Callers index label slices by this value.
+			if highest := float64(scoreLevels(question) - 1); *answer.Score < 0 || *answer.Score > highest {
+				return fmt.Errorf("%w: answer %q scored %v outside the 0..%v rubric", ErrInvalidResponse, name, *answer.Score, highest)
 			}
 		}
 	}
@@ -259,6 +279,17 @@ func choiceCriteria(question Question) map[string]interface{} {
 		return typed.Criteria
 	default:
 		return nil
+	}
+}
+
+func scoreLevels(question Question) int {
+	switch typed := question.(type) {
+	case ScoreQuestion:
+		return len(typed.Criteria)
+	case *ScoreQuestion:
+		return len(typed.Criteria)
+	default:
+		return 0
 	}
 }
 
