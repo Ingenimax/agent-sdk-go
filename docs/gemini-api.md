@@ -247,6 +247,15 @@ budget := int32(4096)
 response, err := client.Generate(ctx, "Analyze this document...",
     gemini.WithThinkingBudget(budget))
 
+// Gemini 3.x models use a thinking level instead of a token budget.
+// WithThinkingLevel and WithThinkingBudget are mutually exclusive;
+// NewClient returns an error if both are set.
+client, err := gemini.NewClient(ctx,
+    gemini.WithAPIKey(apiKey),
+    gemini.WithModel(gemini.ModelGemini3FlashPreview),
+    gemini.WithThinkingLevel(gemini.ThinkingLevelLow), // MINIMAL, LOW, MEDIUM or HIGH
+)
+
 // For models that do not support native thinking, the `WithReasoning` option
 // can be used to guide the verbosity of the explanation by modifying the system prompt.
 response, err := client.Generate(ctx, "Explain black holes",
