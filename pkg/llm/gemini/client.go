@@ -178,6 +178,23 @@ func (c *GeminiClient) applyMaxOutputTokens(genConfig **genai.GenerationConfig) 
 	}
 }
 
+// genaiThinkingConfig returns the genai thinking configuration for the client,
+// or nil when the model does not support thinking or nothing is configured.
+func (c *GeminiClient) genaiThinkingConfig() *genai.ThinkingConfig {
+	tc := c.thinkingConfig
+	if tc == nil || !SupportsThinking(c.model) {
+		return nil
+	}
+	if !tc.IncludeThoughts && tc.ThinkingBudget == nil && tc.ThinkingLevel == "" {
+		return nil
+	}
+	return &genai.ThinkingConfig{
+		IncludeThoughts: tc.IncludeThoughts,
+		ThinkingBudget:  tc.ThinkingBudget,
+		ThinkingLevel:   genai.ThinkingLevel(tc.ThinkingLevel),
+	}
+}
+
 // NewClient creates a new Gemini client
 func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 	// Create client with default options
@@ -206,6 +223,10 @@ func NewClient(ctx context.Context, options ...Option) (*GeminiClient, error) {
 
 	if credentialTypesProvided > 1 {
 		return nil, fmt.Errorf("only one credential type can be provided: choose between WithCredentialsFile or WithCredentialsJSON")
+	}
+
+	if client.thinkingConfig != nil && client.thinkingConfig.ThinkingBudget != nil && client.thinkingConfig.ThinkingLevel != "" {
+		return nil, fmt.Errorf("thinking budget and thinking level are mutually exclusive: choose between WithThinkingBudget or WithThinkingLevel")
 	}
 
 	// If an existing client was injected, use it
@@ -417,18 +438,13 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 		}
 
 		// Add thinking configuration if supported and enabled
-		if SupportsThinking(c.model) && c.thinkingConfig != nil {
-			if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
-				config.ThinkingConfig = &genai.ThinkingConfig{
-					IncludeThoughts: c.thinkingConfig.IncludeThoughts,
-					ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
-				}
-
-				c.logger.Debug(ctx, "Enabled thinking configuration", map[string]interface{}{
-					"includeThoughts": c.thinkingConfig.IncludeThoughts,
-					"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
-				})
-			}
+		if thinkingConfig := c.genaiThinkingConfig(); thinkingConfig != nil {
+			config.ThinkingConfig = thinkingConfig
+			c.logger.Debug(ctx, "Enabled thinking configuration", map[string]interface{}{
+				"includeThoughts": thinkingConfig.IncludeThoughts,
+				"thinkingBudget":  thinkingConfig.ThinkingBudget,
+				"thinkingLevel":   thinkingConfig.ThinkingLevel,
+			})
 		}
 
 		result, err = c.genaiClient.Models.GenerateContent(ctx, c.model, contents, config)

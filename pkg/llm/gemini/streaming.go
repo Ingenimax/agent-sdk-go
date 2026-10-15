@@ -134,18 +134,13 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 	}
 
 	// Add thinking configuration if supported and enabled
-	if SupportsThinking(c.model) && c.thinkingConfig != nil {
-		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
-			config.ThinkingConfig = &genai.ThinkingConfig{
-				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
-				ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
-			}
-
-			c.logger.Debug(ctx, "Enabled thinking configuration for streaming", map[string]interface{}{
-				"includeThoughts": c.thinkingConfig.IncludeThoughts,
-				"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
-			})
-		}
+	if thinkingConfig := c.genaiThinkingConfig(); thinkingConfig != nil {
+		config.ThinkingConfig = thinkingConfig
+		c.logger.Debug(ctx, "Enabled thinking configuration for streaming", map[string]interface{}{
+			"includeThoughts": thinkingConfig.IncludeThoughts,
+			"thinkingBudget":  thinkingConfig.ThinkingBudget,
+			"thinkingLevel":   thinkingConfig.ThinkingLevel,
+		})
 	}
 
 	// Create event channel
@@ -781,18 +776,13 @@ func (c *GeminiClient) executeStreamingRequestWithToolCapture(
 	})
 
 	// Add thinking configuration if supported and enabled
-	if SupportsThinking(c.model) && c.thinkingConfig != nil {
-		if c.thinkingConfig.IncludeThoughts || c.thinkingConfig.ThinkingBudget != nil {
-			config.ThinkingConfig = &genai.ThinkingConfig{
-				IncludeThoughts: c.thinkingConfig.IncludeThoughts,
-				ThinkingBudget:  c.thinkingConfig.ThinkingBudget,
-			}
-
-			c.logger.Debug(ctx, "Enabled thinking configuration for tool streaming", map[string]interface{}{
-				"includeThoughts": c.thinkingConfig.IncludeThoughts,
-				"thinkingBudget":  c.thinkingConfig.ThinkingBudget,
-			})
-		}
+	if thinkingConfig := c.genaiThinkingConfig(); thinkingConfig != nil {
+		config.ThinkingConfig = thinkingConfig
+		c.logger.Debug(ctx, "Enabled thinking configuration for tool streaming", map[string]interface{}{
+			"includeThoughts": thinkingConfig.IncludeThoughts,
+			"thinkingBudget":  thinkingConfig.ThinkingBudget,
+			"thinkingLevel":   thinkingConfig.ThinkingLevel,
+		})
 	}
 
 	// Generate content with tools using streaming
