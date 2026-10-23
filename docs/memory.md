@@ -126,7 +126,9 @@ How it behaves:
   rather than being replaced. `Metadata["count"]` on the stored summary
   accumulates across every round.
 - `GetMessages` returns the current summary first, followed by any messages
-  buffered since.
+  buffered since. `WithRoles` filters this combined sequence, then `WithLimit`
+  returns at most that many of the latest matching messages. The summary counts
+  toward the limit when it is included.
 - Assistant turns carrying only tool calls are rendered as
   `(called tools: name, name)` rather than as empty content, so the summarizer
   can see what the agent did.
