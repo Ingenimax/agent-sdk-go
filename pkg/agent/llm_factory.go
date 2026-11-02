@@ -158,8 +158,10 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 		if apiKey == "" {
 			// Fall back to Workload Identity Federation: config keys first, then the ANTHROPIC_* env vars
 			provider, federationOpts, ok := anthropic.FederationFromEnv(func(key string) string {
-				if value := getConfigString(config.Config, federationConfigKeys[key]); value != "" {
-					return value
+				if configKey, known := federationConfigKeys[key]; known {
+					if value := getConfigString(config.Config, configKey); value != "" {
+						return value
+					}
 				}
 				return GetEnvValue(key)
 			})

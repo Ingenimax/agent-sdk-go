@@ -185,6 +185,8 @@ if !ok {
 client := anthropic.NewClient("", anthropic.WithFederationTokenProvider(provider, opts))
 ```
 
+`IdentityToken` (and `ANTHROPIC_IDENTITY_TOKEN`) returns the same JWT on every exchange. Most identity providers set a `jti` claim, which makes the token single-use, so the first refresh is rejected as a replay. Use it only for short-lived jobs; long-running services should use `IdentityTokenFile` or a custom `IdentityTokenProvider` that mints a fresh JWT per call. The client runs one exchange at a time with a 30-second timeout, serves the cached token when a refresh fails up to 30 seconds before expiry, and waits 10 seconds before retrying a failed exchange. The CLI (`agent-cli`) still requires `ANTHROPIC_API_KEY`.
+
 Agents built from YAML config can set the same fields under `config` (`federation_rule_id`, `organization_id`, `service_account_id`, `workspace_id`, `identity_token_file` or `identity_token`); each falls back to its environment variable when `api_key` is empty.
 
 ### Step-by-Step Reasoning

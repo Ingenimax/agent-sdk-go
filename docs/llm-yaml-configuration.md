@@ -102,7 +102,7 @@ llm_provider:
   provider: "anthropic"
   model: "${ANTHROPIC_MODEL:-claude-3-5-sonnet-latest}"
   config:
-    api_key: "${ANTHROPIC_API_KEY}"           # Required
+    api_key: "${ANTHROPIC_API_KEY}"           # Required unless Vertex AI or federation is configured
     temperature: 0.7                           # Optional (0.0-1.0)
     max_tokens: 4096                          # Optional
     top_p: 0.95                               # Optional
@@ -120,7 +120,7 @@ llm_provider:
     service_account_id: "svac_..."            # or ANTHROPIC_SERVICE_ACCOUNT_ID
     workspace_id: "wrkspc_..."                # or ANTHROPIC_WORKSPACE_ID; only for multi-workspace rules
     identity_token_file: "/var/run/secrets/anthropic.com/token"  # or ANTHROPIC_IDENTITY_TOKEN_FILE
-    # identity_token: "${MY_OIDC_JWT}"        # or ANTHROPIC_IDENTITY_TOKEN; alternative to identity_token_file
+    # identity_token: "${MY_OIDC_JWT}"        # or ANTHROPIC_IDENTITY_TOKEN; single-exchange jobs only (jti tokens cannot be replayed)
 
     # Advanced options
     enable_streaming: true

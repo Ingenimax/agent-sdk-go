@@ -21,10 +21,23 @@ const (
 	// after mandatoryRefreshWindow it returns an error.
 	advisoryRefreshWindow  = 120 * time.Second
 	mandatoryRefreshWindow = 30 * time.Second
+
+	// exchangeTimeout bounds a single token exchange so a hung token endpoint
+	// cannot block every request on the client for the HTTP client's full timeout.
+	exchangeTimeout = 30 * time.Second
+
+	// exchangeBackoff is how long a failed exchange is remembered. Within it the
+	// cached token is served (advisory window) or the last error is returned
+	// (mandatory window) instead of replaying the identity token on every request.
+	exchangeBackoff = 10 * time.Second
+
+	// maxTokenResponseBytes caps how much of a token endpoint response is read into an error.
+	maxTokenResponseBytes = 64 << 10
 )
 
 // IdentityTokenProvider returns the OIDC JWT issued to the workload by its identity provider.
-// It is called on every token exchange, so it must return a fresh token each time.
+// It is called on every token exchange. Identity tokens that carry a jti claim are single-use,
+// so the provider must return a fresh token each time for long-running workloads.
 type IdentityTokenProvider func(ctx context.Context) (string, error)
 
 // IdentityTokenFile returns a provider that reads the JWT from path on every exchange,
@@ -44,6 +57,11 @@ func IdentityTokenFile(path string) IdentityTokenProvider {
 }
 
 // IdentityToken returns a provider that always returns the given JWT.
+//
+// Most identity providers set a jti claim, which makes the token single-use: the first
+// refresh after the access token's lifetime is rejected as a replay. Use this only for
+// short-lived jobs that need a single exchange. Long-running workloads should use
+// IdentityTokenFile or a custom IdentityTokenProvider that mints a fresh JWT per call.
 func IdentityToken(token string) IdentityTokenProvider {
 	return func(ctx context.Context) (string, error) {
 		if token == "" {
@@ -68,11 +86,7 @@ type FederationOptions struct {
 // See https://platform.claude.com/docs/en/manage-claude/workload-identity-federation
 func WithFederationTokenProvider(provider IdentityTokenProvider, opts FederationOptions) Option {
 	return func(c *AnthropicClient) {
-		c.federation = &federationTokenSource{
-			provider: provider,
-			opts:     opts,
-			now:      time.Now,
-		}
+		c.federation = newFederationTokenSource(provider, opts)
 	}
 }
 
@@ -104,15 +118,24 @@ func FederationFromEnv(getenv func(string) string) (IdentityTokenProvider, Feder
 }
 
 // federationTokenSource caches the Anthropic access token minted by the token exchange.
+// At most one exchange runs at a time; callers that need a token while one is in flight
+// wait for it (or for their context) instead of starting a second exchange, so the same
+// identity token is never presented twice.
 type federationTokenSource struct {
 	provider IdentityTokenProvider
 	opts     FederationOptions
 	now      func() time.Time
 
-	// mu also serializes exchanges, so concurrent requests never present the same JWT twice.
-	mu        sync.Mutex
-	token     string
-	expiresAt time.Time
+	mu          sync.Mutex
+	token       string
+	expiresAt   time.Time
+	inflight    chan struct{} // closed when the running exchange finishes
+	lastErr     error         // result of the last exchange, nil on success
+	lastAttempt time.Time
+}
+
+func newFederationTokenSource(provider IdentityTokenProvider, opts FederationOptions) *federationTokenSource {
+	return &federationTokenSource{provider: provider, opts: opts, now: time.Now}
 }
 
 type tokenExchangeRequest struct {
@@ -132,25 +155,72 @@ type tokenExchangeResponse struct {
 
 // Token returns a valid access token, exchanging a new identity token when the cached one is near expiry.
 func (s *federationTokenSource) Token(ctx context.Context, httpClient *http.Client, baseURL string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.now()
-	if s.token != "" && now.Before(s.expiresAt.Add(-advisoryRefreshWindow)) {
-		return s.token, nil
-	}
-
-	token, expiresIn, err := s.exchange(ctx, httpClient, baseURL)
-	if err != nil {
-		if s.token != "" && now.Before(s.expiresAt.Add(-mandatoryRefreshWindow)) {
-			return s.token, nil
+	for {
+		s.mu.Lock()
+		token, settled, err := s.resolveLocked()
+		if settled {
+			s.mu.Unlock()
+			return token, err
 		}
-		return "", err
-	}
+		done := s.inflight
+		if done == nil {
+			done = make(chan struct{})
+			s.inflight = done
+			go s.refresh(httpClient, baseURL, done)
+		}
+		s.mu.Unlock()
 
-	s.token = token
-	s.expiresAt = now.Add(expiresIn)
-	return s.token, nil
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return "", fmt.Errorf("workload identity federation: waiting for token exchange: %w", ctx.Err())
+		}
+	}
+}
+
+// resolveLocked decides from the cached state alone. settled is false when an exchange is needed.
+func (s *federationTokenSource) resolveLocked() (token string, settled bool, err error) {
+	now := s.now()
+	cached := s.token != ""
+	recentFailure := s.lastErr != nil && now.Sub(s.lastAttempt) < exchangeBackoff
+
+	switch {
+	case cached && now.Before(s.expiresAt.Add(-advisoryRefreshWindow)):
+		return s.token, true, nil
+	case cached && now.Before(s.expiresAt.Add(-mandatoryRefreshWindow)):
+		// Advisory window: refresh, but keep serving the cached token after a recent failure.
+		if recentFailure {
+			return s.token, true, nil
+		}
+		return "", false, nil
+	default:
+		// Mandatory window or no token: the cached token is too close to expiry to serve.
+		if recentFailure {
+			return "", true, s.lastErr
+		}
+		return "", false, nil
+	}
+}
+
+// refresh runs one exchange with its own bounded context, so neither a caller's cancellation nor
+// the HTTP client's long timeout affects the other callers waiting on it.
+func (s *federationTokenSource) refresh(httpClient *http.Client, baseURL string, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), exchangeTimeout)
+	defer cancel()
+
+	start := s.now()
+	token, expiresIn, err := s.exchange(ctx, httpClient, baseURL)
+
+	s.mu.Lock()
+	s.lastAttempt = start
+	s.lastErr = err
+	if err == nil {
+		s.token = token
+		s.expiresAt = start.Add(expiresIn)
+	}
+	s.inflight = nil
+	s.mu.Unlock()
+	close(done)
 }
 
 func (s *federationTokenSource) exchange(ctx context.Context, httpClient *http.Client, baseURL string) (string, time.Duration, error) {
@@ -188,7 +258,7 @@ func (s *federationTokenSource) exchange(ctx context.Context, httpClient *http.C
 		_ = resp.Body.Close()
 	}()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if err != nil {
 		return "", 0, fmt.Errorf("workload identity federation: failed to read token response: %w", err)
 	}
@@ -203,6 +273,12 @@ func (s *federationTokenSource) exchange(ctx context.Context, httpClient *http.C
 	}
 	if tokenResp.AccessToken == "" {
 		return "", 0, fmt.Errorf("workload identity federation: token response has no access_token")
+	}
+	if !strings.EqualFold(tokenResp.TokenType, "Bearer") {
+		return "", 0, fmt.Errorf("workload identity federation: unsupported token_type %q", tokenResp.TokenType)
+	}
+	if tokenResp.ExpiresIn <= 0 {
+		return "", 0, fmt.Errorf("workload identity federation: token response has invalid expires_in %d", tokenResp.ExpiresIn)
 	}
 	return tokenResp.AccessToken, time.Duration(tokenResp.ExpiresIn) * time.Second, nil
 }

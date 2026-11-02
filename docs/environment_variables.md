@@ -22,6 +22,15 @@ This document lists all environment variables used by the Agent SDK.
 - `ANTHROPIC_BASE_URL`: Base URL for API calls (default: "https://api.anthropic.com")
 - `ANTHROPIC_TIMEOUT_SECONDS`: Timeout in seconds (default: 60)
 
+Workload Identity Federation (used by YAML-configured agents when `ANTHROPIC_API_KEY` is unset; see [Workload Identity Federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation)):
+
+- `ANTHROPIC_FEDERATION_RULE_ID`: Federation rule to evaluate (`fdrl_...`)
+- `ANTHROPIC_ORGANIZATION_ID`: Anthropic organization UUID
+- `ANTHROPIC_SERVICE_ACCOUNT_ID`: Service account the minted token acts as (`svac_...`)
+- `ANTHROPIC_WORKSPACE_ID`: Workspace to scope the token to (`wrkspc_...`); required only when the rule covers more than one workspace
+- `ANTHROPIC_IDENTITY_TOKEN_FILE`: Path to the identity provider's JWT; re-read on every exchange
+- `ANTHROPIC_IDENTITY_TOKEN`: The JWT itself; only for single-exchange jobs, since tokens with a `jti` claim cannot be exchanged twice
+
 ## Memory Configuration
 
 ### Redis
