@@ -146,7 +146,12 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 			apiKey = GetEnvValue("ANTHROPIC_API_KEY")
 		}
 		if apiKey == "" {
-			return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or config.api_key) or configure Vertex AI (set VERTEX_AI_PROJECT and optionally VERTEX_AI_REGION)")
+			// Fall back to Workload Identity Federation from the ANTHROPIC_* environment variables
+			provider, federationOpts, ok := anthropic.FederationFromEnv(GetEnvValue)
+			if !ok {
+				return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or config.api_key), configure Workload Identity Federation (set ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID and ANTHROPIC_IDENTITY_TOKEN_FILE), or configure Vertex AI (set VERTEX_AI_PROJECT and optionally VERTEX_AI_REGION)")
+			}
+			options = append(options, anthropic.WithFederationTokenProvider(provider, federationOpts))
 		}
 	}
 
