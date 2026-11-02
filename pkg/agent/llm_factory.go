@@ -92,6 +92,16 @@ func parseGoogleCredentials(input string) (string, error) {
 	return "", fmt.Errorf("invalid credentials format: not a valid file path, base64-encoded JSON, or raw JSON content")
 }
 
+// federationConfigKeys maps the Workload Identity Federation env vars to their YAML config keys
+var federationConfigKeys = map[string]string{
+	"ANTHROPIC_FEDERATION_RULE_ID":  "federation_rule_id",
+	"ANTHROPIC_ORGANIZATION_ID":     "organization_id",
+	"ANTHROPIC_SERVICE_ACCOUNT_ID":  "service_account_id",
+	"ANTHROPIC_WORKSPACE_ID":        "workspace_id",
+	"ANTHROPIC_IDENTITY_TOKEN_FILE": "identity_token_file",
+	"ANTHROPIC_IDENTITY_TOKEN":      "identity_token",
+}
+
 // createAnthropicClient creates an Anthropic LLM client
 func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 	var options []anthropic.Option
@@ -146,10 +156,15 @@ func createAnthropicClient(config *LLMProviderYAML) (interfaces.LLM, error) {
 			apiKey = GetEnvValue("ANTHROPIC_API_KEY")
 		}
 		if apiKey == "" {
-			// Fall back to Workload Identity Federation from the ANTHROPIC_* environment variables
-			provider, federationOpts, ok := anthropic.FederationFromEnv(GetEnvValue)
+			// Fall back to Workload Identity Federation: config keys first, then the ANTHROPIC_* env vars
+			provider, federationOpts, ok := anthropic.FederationFromEnv(func(key string) string {
+				if value := getConfigString(config.Config, federationConfigKeys[key]); value != "" {
+					return value
+				}
+				return GetEnvValue(key)
+			})
 			if !ok {
-				return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or config.api_key), configure Workload Identity Federation (set ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID and ANTHROPIC_IDENTITY_TOKEN_FILE), or configure Vertex AI (set VERTEX_AI_PROJECT and optionally VERTEX_AI_REGION)")
+				return nil, fmt.Errorf("api_key is required for Anthropic provider (set ANTHROPIC_API_KEY or config.api_key), configure Workload Identity Federation (set federation_rule_id, organization_id, service_account_id and identity_token_file in config, or the ANTHROPIC_* equivalents), or configure Vertex AI (set VERTEX_AI_PROJECT and optionally VERTEX_AI_REGION)")
 			}
 			options = append(options, anthropic.WithFederationTokenProvider(provider, federationOpts))
 		}

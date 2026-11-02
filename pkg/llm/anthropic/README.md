@@ -185,7 +185,7 @@ if !ok {
 client := anthropic.NewClient("", anthropic.WithFederationTokenProvider(provider, opts))
 ```
 
-Agents built from YAML config use these variables automatically when no API key is set.
+Agents built from YAML config can set the same fields under `config` (`federation_rule_id`, `organization_id`, `service_account_id`, `workspace_id`, `identity_token_file` or `identity_token`); each falls back to its environment variable when `api_key` is empty.
 
 ### Step-by-Step Reasoning
 

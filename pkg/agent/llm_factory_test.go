@@ -141,3 +141,73 @@ func TestParseGoogleCredentialsFormats(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateAnthropicClientFederation(t *testing.T) {
+	for _, key := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_WORKSPACE_ID", "ANTHROPIC_IDENTITY_TOKEN_FILE", "ANTHROPIC_IDENTITY_TOKEN", "VERTEX_AI_PROJECT"} {
+		t.Setenv(key, "")
+	}
+
+	tests := []struct {
+		name    string
+		config  map[string]interface{}
+		env     map[string]string
+		wantErr bool
+	}{
+		{
+			name: "federation from config",
+			config: map[string]interface{}{
+				"federation_rule_id": "fdrl_1",
+				"organization_id":    "org-1",
+				"service_account_id": "svac_1",
+				"identity_token":     "jwt",
+			},
+		},
+		{
+			name: "federation from env",
+			env: map[string]string{
+				"ANTHROPIC_FEDERATION_RULE_ID":  "fdrl_1",
+				"ANTHROPIC_ORGANIZATION_ID":     "org-1",
+				"ANTHROPIC_SERVICE_ACCOUNT_ID":  "svac_1",
+				"ANTHROPIC_IDENTITY_TOKEN_FILE": "/var/run/secrets/anthropic.com/token",
+			},
+		},
+		{
+			name: "config fills missing env fields",
+			config: map[string]interface{}{
+				"federation_rule_id": "fdrl_1",
+				"identity_token":     "jwt",
+			},
+			env: map[string]string{
+				"ANTHROPIC_ORGANIZATION_ID":    "org-1",
+				"ANTHROPIC_SERVICE_ACCOUNT_ID": "svac_1",
+			},
+		},
+		{
+			name: "incomplete federation config",
+			config: map[string]interface{}{
+				"federation_rule_id": "fdrl_1",
+				"organization_id":    "org-1",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "no credentials",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			client, err := createAnthropicClient(&LLMProviderYAML{Provider: "anthropic", Model: "claude-sonnet-4-5", Config: tt.config})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("createAnthropicClient() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && client == nil {
+				t.Fatal("createAnthropicClient() returned nil client")
+			}
+		})
+	}
+}

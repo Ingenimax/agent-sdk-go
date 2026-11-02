@@ -113,6 +113,15 @@ llm_provider:
     vertex_ai_region: "${VERTEX_AI_REGION}"   # Use 'region' for global endpoints
     google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
 
+    # Workload Identity Federation (optional, used when api_key is empty).
+    # Each key falls back to its ANTHROPIC_* environment variable.
+    federation_rule_id: "fdrl_..."            # or ANTHROPIC_FEDERATION_RULE_ID
+    organization_id: "00000000-0000-0000-0000-000000000000"  # or ANTHROPIC_ORGANIZATION_ID
+    service_account_id: "svac_..."            # or ANTHROPIC_SERVICE_ACCOUNT_ID
+    workspace_id: "wrkspc_..."                # or ANTHROPIC_WORKSPACE_ID; only for multi-workspace rules
+    identity_token_file: "/var/run/secrets/anthropic.com/token"  # or ANTHROPIC_IDENTITY_TOKEN_FILE
+    # identity_token: "${MY_OIDC_JWT}"        # or ANTHROPIC_IDENTITY_TOKEN; alternative to identity_token_file
+
     # Advanced options
     enable_streaming: true
     enable_reasoning: true
