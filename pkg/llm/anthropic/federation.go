@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	jwtBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+	jwtBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" // #nosec G101 - OAuth grant type URN, not a credential
 
 	// Refresh schedule from the Anthropic Workload Identity Federation docs.
 	// After advisoryRefreshWindow a failed exchange still serves the cached token;
@@ -166,7 +166,7 @@ func (s *federationTokenSource) Token(ctx context.Context, httpClient *http.Clie
 		if done == nil {
 			done = make(chan struct{})
 			s.inflight = done
-			go s.refresh(httpClient, baseURL, done)
+			go s.refresh(httpClient, baseURL, done) // #nosec G118 - exchange is shared by all waiters, so it must outlive any single caller's ctx
 		}
 		s.mu.Unlock()
 
