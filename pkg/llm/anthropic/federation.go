@@ -31,8 +31,18 @@ const (
 	// (mandatory window) instead of replaying the identity token on every request.
 	exchangeBackoff = 10 * time.Second
 
-	// maxTokenResponseBytes caps how much of a token endpoint response is read into an error.
+	// maxTokenResponseBytes caps how much of a token endpoint response is read.
 	maxTokenResponseBytes = 64 << 10
+
+	// maxTokenErrorBytes caps how much of an error response is quoted in the returned
+	// error, which propagates into the retry executor and is logged there.
+	maxTokenErrorBytes = 512
+
+	// maxTokenLifetime bounds expires_in. time.Duration is int64 nanoseconds, so an
+	// unbounded expires_in of 2^34 seconds or more overflowed to a negative lifetime and
+	// dated the token in the past. The cap is far above any real access-token lifetime,
+	// so it rejects only values that are a bug or an attack.
+	maxTokenLifetime = 30 * 24 * time.Hour
 )
 
 // IdentityTokenProvider returns the OIDC JWT issued to the workload by its identity provider.
@@ -44,6 +54,11 @@ type IdentityTokenProvider func(ctx context.Context) (string, error)
 // so rotated projected tokens (for example Kubernetes service-account tokens) are picked up.
 func IdentityTokenFile(path string) IdentityTokenProvider {
 	return func(ctx context.Context) (string, error) {
+		// os.ReadFile cannot be interrupted, so at least do not start a read for an
+		// exchange that has already been cancelled.
+		if err := ctx.Err(); err != nil {
+			return "", fmt.Errorf("failed to read identity token file: %w", err)
+		}
 		data, err := os.ReadFile(path) // #nosec G304 -- path comes from client configuration
 		if err != nil {
 			return "", fmt.Errorf("failed to read identity token file: %w", err)
@@ -131,11 +146,42 @@ type federationTokenSource struct {
 	expiresAt   time.Time
 	inflight    chan struct{} // closed when the running exchange finishes
 	lastErr     error         // result of the last exchange, nil on success
-	lastAttempt time.Time
+	lastAttempt time.Time     // when the last exchange finished
+
+	// configErr is a configuration the token endpoint is certain to reject. Options
+	// cannot return errors, so it is held here and returned by every Token call
+	// before the identity token is read or a request is sent.
+	configErr error
 }
 
 func newFederationTokenSource(provider IdentityTokenProvider, opts FederationOptions) *federationTokenSource {
-	return &federationTokenSource{provider: provider, opts: opts, now: time.Now}
+	return &federationTokenSource{
+		provider:  provider,
+		opts:      opts,
+		now:       time.Now,
+		configErr: validateFederation(provider, opts),
+	}
+}
+
+// validateFederation reports a missing provider or required field.
+func validateFederation(provider IdentityTokenProvider, opts FederationOptions) error {
+	if provider == nil {
+		return fmt.Errorf("workload identity federation: no identity token provider configured")
+	}
+	var missing []string
+	if opts.FederationRuleID == "" {
+		missing = append(missing, "federation_rule_id")
+	}
+	if opts.OrganizationID == "" {
+		missing = append(missing, "organization_id")
+	}
+	if opts.ServiceAccountID == "" {
+		missing = append(missing, "service_account_id")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("workload identity federation: missing required %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 type tokenExchangeRequest struct {
@@ -154,19 +200,36 @@ type tokenExchangeResponse struct {
 }
 
 // Token returns a valid access token, exchanging a new identity token when the cached one is near expiry.
+//
+// The loop runs at most twice: once to start or join an exchange, and once to read its
+// result. It used to be unbounded, and a token whose lifetime was at or below
+// advisoryRefreshWindow could never satisfy resolveLocked, so every pass started another
+// exchange: one call made tens of thousands of them and still returned an error.
 func (s *federationTokenSource) Token(ctx context.Context, httpClient *http.Client, baseURL string) (string, error) {
-	for {
+	if s.configErr != nil {
+		return "", s.configErr
+	}
+	for waited := false; ; waited = true {
 		s.mu.Lock()
 		token, settled, err := s.resolveLocked()
 		if settled {
 			s.mu.Unlock()
 			return token, err
 		}
+		if waited {
+			// resolveLocked settles after every completed exchange except one whose token
+			// had already expired on arrival. Exchanging again cannot fix that.
+			err := s.unservableLocked()
+			s.mu.Unlock()
+			return "", err
+		}
 		done := s.inflight
 		if done == nil {
 			done = make(chan struct{})
 			s.inflight = done
-			go s.refresh(httpClient, baseURL, done) // #nosec G118 - exchange is shared by all waiters, so it must outlive any single caller's ctx
+			// WithoutCancel keeps the starting caller's values (trace, org) on the exchange
+			// while detaching its lifetime, since the exchange is shared by every waiter.
+			go s.refresh(context.WithoutCancel(ctx), httpClient, baseURL, done) // #nosec G118 - exchange is shared by all waiters, so it must outlive any single caller's ctx
 		}
 		s.mu.Unlock()
 
@@ -181,11 +244,19 @@ func (s *federationTokenSource) Token(ctx context.Context, httpClient *http.Clie
 // resolveLocked decides from the cached state alone. settled is false when an exchange is needed.
 func (s *federationTokenSource) resolveLocked() (token string, settled bool, err error) {
 	now := s.now()
-	cached := s.token != ""
-	recentFailure := s.lastErr != nil && now.Sub(s.lastAttempt) < exchangeBackoff
+	cached := s.token != "" && now.Before(s.expiresAt)
+	// recentAttempt spaces exchanges, successful or not, by at least exchangeBackoff.
+	recentAttempt := !s.lastAttempt.IsZero() && now.Sub(s.lastAttempt) < exchangeBackoff
+	recentFailure := recentAttempt && s.lastErr != nil
 
 	switch {
 	case cached && now.Before(s.expiresAt.Add(-advisoryRefreshWindow)):
+		return s.token, true, nil
+	case cached && recentAttempt && s.lastErr == nil:
+		// An exchange just succeeded and this is what it minted. A token already inside a
+		// refresh window on arrival means the rule issues short-lived tokens; exchanging
+		// again cannot produce a longer one, and doing so on every call is the storm
+		// this case exists to prevent.
 		return s.token, true, nil
 	case cached && now.Before(s.expiresAt.Add(-mandatoryRefreshWindow)):
 		// Advisory window: refresh, but keep serving the cached token after a recent failure.
@@ -202,20 +273,34 @@ func (s *federationTokenSource) resolveLocked() (token string, settled bool, err
 	}
 }
 
+// unservableLocked explains why a completed exchange left nothing to serve.
+func (s *federationTokenSource) unservableLocked() error {
+	if s.lastErr != nil {
+		return s.lastErr
+	}
+	return fmt.Errorf("workload identity federation: access token expired before it could be used; " +
+		"the token exchange took longer than the token's expires_in")
+}
+
 // refresh runs one exchange with its own bounded context, so neither a caller's cancellation nor
-// the HTTP client's long timeout affects the other callers waiting on it.
-func (s *federationTokenSource) refresh(httpClient *http.Client, baseURL string, done chan struct{}) {
-	ctx, cancel := context.WithTimeout(context.Background(), exchangeTimeout)
+// the HTTP client's long timeout affects the other callers waiting on it. parent supplies context
+// values only; it is expected to carry no cancellation.
+func (s *federationTokenSource) refresh(parent context.Context, httpClient *http.Client, baseURL string, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(parent, exchangeTimeout)
 	defer cancel()
 
 	start := s.now()
 	token, expiresIn, err := s.exchange(ctx, httpClient, baseURL)
 
 	s.mu.Lock()
-	s.lastAttempt = start
+	// Time the backoff from when the attempt finished. exchangeTimeout exceeds exchangeBackoff,
+	// so timing it from the start left the backoff already over for exactly the slow,
+	// hung-endpoint failures it exists to absorb.
+	s.lastAttempt = s.now()
 	s.lastErr = err
 	if err == nil {
 		s.token = token
+		// Date the lifetime from before the request, which errs toward refreshing early.
 		s.expiresAt = start.Add(expiresIn)
 	}
 	s.inflight = nil
@@ -262,9 +347,11 @@ func (s *federationTokenSource) exchange(ctx context.Context, httpClient *http.C
 	if err != nil {
 		return "", 0, fmt.Errorf("workload identity federation: failed to read token response: %w", err)
 	}
+	// Drain what the limit left unread so the connection can return to the pool.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if resp.StatusCode != http.StatusOK {
 		return "", 0, fmt.Errorf("workload identity federation: token exchange returned status %d (request-id %s): %s",
-			resp.StatusCode, resp.Header.Get("Request-Id"), string(respBody))
+			resp.StatusCode, resp.Header.Get("Request-Id"), errorExcerpt(respBody))
 	}
 
 	var tokenResp tokenExchangeResponse
@@ -277,10 +364,18 @@ func (s *federationTokenSource) exchange(ctx context.Context, httpClient *http.C
 	if !strings.EqualFold(tokenResp.TokenType, "Bearer") {
 		return "", 0, fmt.Errorf("workload identity federation: unsupported token_type %q", tokenResp.TokenType)
 	}
-	if tokenResp.ExpiresIn <= 0 {
+	if tokenResp.ExpiresIn <= 0 || tokenResp.ExpiresIn > int64(maxTokenLifetime/time.Second) {
 		return "", 0, fmt.Errorf("workload identity federation: token response has invalid expires_in %d", tokenResp.ExpiresIn)
 	}
 	return tokenResp.AccessToken, time.Duration(tokenResp.ExpiresIn) * time.Second, nil
+}
+
+// errorExcerpt bounds how much of an error response is quoted, keeping it valid UTF-8.
+func errorExcerpt(body []byte) string {
+	if len(body) <= maxTokenErrorBytes {
+		return string(body)
+	}
+	return strings.ToValidUTF8(string(body[:maxTokenErrorBytes]), "") + "...(truncated)"
 }
 
 // setAuthHeader authenticates req with the federated access token, or with the API key otherwise.
