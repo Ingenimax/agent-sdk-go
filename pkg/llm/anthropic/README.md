@@ -156,6 +156,39 @@ func main() {
 }
 ```
 
+### Workload Identity Federation
+
+Authenticate with short-lived tokens from your own identity provider (AWS, Google Cloud, GitHub Actions, Kubernetes, and others) instead of a static API key. The client exchanges the identity token for a short-lived Anthropic access token and refreshes it before it expires. See [Workload Identity Federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation).
+
+```go
+client := anthropic.NewClient("",
+	anthropic.WithModel(anthropic.ClaudeSonnet45),
+	anthropic.WithFederationTokenProvider(
+		anthropic.IdentityTokenFile("/var/run/secrets/anthropic.com/token"),
+		anthropic.FederationOptions{
+			FederationRuleID: "fdrl_...",
+			OrganizationID:   "00000000-0000-0000-0000-000000000000",
+			ServiceAccountID: "svac_...",
+			WorkspaceID:      "wrkspc_...", // only needed when the rule covers more than one workspace
+		},
+	),
+)
+```
+
+To read the settings from the standard environment variables (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID`, and `ANTHROPIC_IDENTITY_TOKEN_FILE` or `ANTHROPIC_IDENTITY_TOKEN`):
+
+```go
+provider, opts, ok := anthropic.FederationFromEnv(os.Getenv)
+if !ok {
+	log.Fatal("workload identity federation is not configured")
+}
+client := anthropic.NewClient("", anthropic.WithFederationTokenProvider(provider, opts))
+```
+
+`IdentityToken` (and `ANTHROPIC_IDENTITY_TOKEN`) returns the same JWT on every exchange. Most identity providers set a `jti` claim, which makes the token single-use, so the first refresh is rejected as a replay. Use it only for short-lived jobs; long-running services should use `IdentityTokenFile` or a custom `IdentityTokenProvider` that mints a fresh JWT per call. The client runs one exchange at a time with a 30-second timeout, serves the cached token when a refresh fails up to 30 seconds before expiry, and waits 10 seconds before retrying a failed exchange. The CLI (`agent-cli`) still requires `ANTHROPIC_API_KEY`.
+
+Agents built from YAML config can set the same fields under `config` (`federation_rule_id`, `organization_id`, `service_account_id`, `workspace_id`, `identity_token_file` or `identity_token`); each falls back to its environment variable when `api_key` is empty.
+
 ### Step-by-Step Reasoning
 
 While the "reasoning" parameter is not officially supported in the current API version, Claude models naturally provide step-by-step reasoning for many types of problems:
@@ -241,6 +274,7 @@ Options for configuring the Anthropic client:
 - `WithHTTPClient(client *http.Client)` - Set a custom HTTP client
 - `WithLogger(logger logging.Logger)` - Set a custom logger
 - `WithRetry(opts ...retry.Option)` - Configure retry policy
+- `WithFederationTokenProvider(provider IdentityTokenProvider, opts FederationOptions)` - Authenticate with Workload Identity Federation instead of an API key
 
 Options for generate requests:
 

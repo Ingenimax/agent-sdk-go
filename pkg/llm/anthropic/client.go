@@ -30,6 +30,7 @@ type AnthropicClient struct {
 	vertexRetryExecutor *VertexRetryExecutor
 	VertexConfig        *VertexConfig
 	BedrockConfig       *BedrockConfig
+	federation          *federationTokenSource
 }
 
 // Option represents an option for configuring the Anthropic client
@@ -645,7 +646,9 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 
 			// Set headers for standard API
 			httpReq.Header.Set("Content-Type", "application/json")
-			httpReq.Header.Set("X-API-Key", c.APIKey)
+			if err := c.setAuthHeader(ctx, httpReq); err != nil {
+				return err
+			}
 			httpReq.Header.Set("anthropic-version", "2023-06-01")
 		}
 
@@ -851,7 +854,9 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []llm.Message, para
 
 			// Set headers for standard API
 			httpReq.Header.Set("Content-Type", "application/json")
-			httpReq.Header.Set("X-API-Key", c.APIKey)
+			if err := c.setAuthHeader(ctx, httpReq); err != nil {
+				return err
+			}
 			httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 		}
 
@@ -1643,7 +1648,9 @@ func (c *AnthropicClient) createHTTPRequestWithCache(ctx context.Context, req *C
 
 		// Set headers for standard API
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
+		if err := c.setAuthHeader(ctx, httpReq); err != nil {
+			return nil, err
+		}
 		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 
 		return httpReq, nil
@@ -1700,7 +1707,9 @@ func (c *AnthropicClient) createStreamingHTTPRequestWithCache(ctx context.Contex
 
 		// Set headers for standard API with streaming
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-API-Key", c.APIKey)
+		if err := c.setAuthHeader(ctx, httpReq); err != nil {
+			return nil, err
+		}
 		httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 		httpReq.Header.Set("Accept", "text/event-stream")
 		httpReq.Header.Set("Cache-Control", "no-cache")

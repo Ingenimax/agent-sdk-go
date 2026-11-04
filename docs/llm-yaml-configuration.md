@@ -102,7 +102,7 @@ llm_provider:
   provider: "anthropic"
   model: "${ANTHROPIC_MODEL:-claude-3-5-sonnet-latest}"
   config:
-    api_key: "${ANTHROPIC_API_KEY}"           # Required
+    api_key: "${ANTHROPIC_API_KEY}"           # Required unless Vertex AI or federation is configured
     temperature: 0.7                           # Optional (0.0-1.0)
     max_tokens: 4096                          # Optional
     top_p: 0.95                               # Optional
@@ -112,6 +112,15 @@ llm_provider:
     vertex_ai_project: "${VERTEX_AI_PROJECT}"
     vertex_ai_region: "${VERTEX_AI_REGION}"   # Use 'region' for global endpoints
     google_application_credentials: "${VERTEX_AI_GOOGLE_APPLICATION_CREDENTIALS_CONTENT}"
+
+    # Workload Identity Federation (optional, used when api_key is empty).
+    # Each key falls back to its ANTHROPIC_* environment variable.
+    federation_rule_id: "fdrl_..."            # or ANTHROPIC_FEDERATION_RULE_ID
+    organization_id: "00000000-0000-0000-0000-000000000000"  # or ANTHROPIC_ORGANIZATION_ID
+    service_account_id: "svac_..."            # or ANTHROPIC_SERVICE_ACCOUNT_ID
+    workspace_id: "wrkspc_..."                # or ANTHROPIC_WORKSPACE_ID; only for multi-workspace rules
+    identity_token_file: "/var/run/secrets/anthropic.com/token"  # or ANTHROPIC_IDENTITY_TOKEN_FILE
+    # identity_token: "${MY_OIDC_JWT}"        # or ANTHROPIC_IDENTITY_TOKEN; single-exchange jobs only (jti tokens cannot be replayed)
 
     # Advanced options
     enable_streaming: true
