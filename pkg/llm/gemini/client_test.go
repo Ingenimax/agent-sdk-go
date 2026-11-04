@@ -115,6 +115,20 @@ func TestNewClient(t *testing.T) {
 			checkFunc: nil,
 		},
 		{
+			name:      "thinking level",
+			options:   []Option{WithAPIKey("test-api-key"), WithThinkingLevel(ThinkingLevelLow)},
+			wantError: false,
+			checkFunc: func(t *testing.T, client *GeminiClient) {
+				assert.Equal(t, ThinkingLevelLow, client.thinkingConfig.ThinkingLevel)
+			},
+		},
+		{
+			name:      "thinking level and budget provided should error",
+			options:   []Option{WithAPIKey("test-api-key"), WithThinkingBudget(1024), WithThinkingLevel(ThinkingLevelHigh)},
+			wantError: true,
+			checkFunc: nil,
+		},
+		{
 			name:      "Both credentials file and JSON provided should error",
 			options:   []Option{WithAPIKey("test-api-key"), WithCredentialsFile("/path/to/file.json"), WithCredentialsJSON([]byte(`{"test": "json"}`))},
 			wantError: true,
@@ -542,6 +556,110 @@ func TestThinkingClientOptions(t *testing.T) {
 
 	assert.True(t, client.thinkingConfig.IncludeThoughts)
 	assert.Nil(t, client.thinkingConfig.ThinkingBudget)
+
+	// Test WithThinkingLevel option
+	levelOption := WithThinkingLevel(ThinkingLevelMedium)
+	levelOption(client)
+
+	assert.Equal(t, ThinkingLevelMedium, client.thinkingConfig.ThinkingLevel)
+
+	// WithThinkingLevel initializes a nil config
+	emptyClient := &GeminiClient{}
+	WithThinkingLevel(ThinkingLevelMinimal)(emptyClient)
+	require.NotNil(t, emptyClient.thinkingConfig)
+	assert.Equal(t, ThinkingLevelMinimal, emptyClient.thinkingConfig.ThinkingLevel)
+}
+
+func TestGenaiThinkingConfig(t *testing.T) {
+	budget := int32(2048)
+	tests := []struct {
+		name   string
+		model  string
+		config *ThinkingConfig
+		want   *genai.ThinkingConfig
+	}{
+		{
+			name:   "nil config",
+			model:  ModelGemini3FlashPreview,
+			config: nil,
+			want:   nil,
+		},
+		{
+			name:   "model without thinking support",
+			model:  ModelGemini15Flash,
+			config: &ThinkingConfig{ThinkingLevel: ThinkingLevelHigh},
+			want:   nil,
+		},
+		{
+			name:   "default config",
+			model:  ModelGemini3FlashPreview,
+			config: &ThinkingConfig{},
+			want:   nil,
+		},
+		{
+			name:   "thinking level only",
+			model:  ModelGemini3FlashPreview,
+			config: &ThinkingConfig{ThinkingLevel: ThinkingLevelLow},
+			want:   &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevelLow},
+		},
+		{
+			name:   "thinking level with thoughts",
+			model:  ModelGemini31ProPreview,
+			config: &ThinkingConfig{IncludeThoughts: true, ThinkingLevel: ThinkingLevelHigh},
+			want:   &genai.ThinkingConfig{IncludeThoughts: true, ThinkingLevel: genai.ThinkingLevelHigh},
+		},
+		{
+			name:   "thinking budget only",
+			model:  ModelGemini25Flash,
+			config: &ThinkingConfig{ThinkingBudget: &budget},
+			want:   &genai.ThinkingConfig{ThinkingBudget: &budget},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &GeminiClient{model: tt.model, thinkingConfig: tt.config}
+			assert.Equal(t, tt.want, client.genaiThinkingConfig())
+		})
+	}
+}
+
+func TestGenerateSendsThinkingLevel(t *testing.T) {
+	var thinkingConfig map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody struct {
+			GenerationConfig struct {
+				ThinkingConfig map[string]interface{} `json:"thinkingConfig"`
+			} `json:"generationConfig"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		thinkingConfig = reqBody.GenerationConfig.ThinkingConfig
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}]}`))
+	}))
+	defer server.Close()
+
+	genaiClient, err := genai.NewClient(t.Context(), &genai.ClientConfig{
+		Backend:     genai.BackendGeminiAPI,
+		APIKey:      "test-key",
+		HTTPOptions: genai.HTTPOptions{BaseURL: server.URL},
+	})
+	require.NoError(t, err)
+
+	client, err := NewClient(t.Context(),
+		WithClient(genaiClient),
+		WithModel(ModelGemini3FlashPreview),
+		WithThinkingLevel(ThinkingLevelMinimal),
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Generate(t.Context(), "test prompt")
+	require.NoError(t, err)
+	assert.Equal(t, "ok", resp)
+	assert.Equal(t, map[string]interface{}{"thinkingLevel": "MINIMAL"}, thinkingConfig)
 }
 
 func TestDefaultThinkingConfig(t *testing.T) {

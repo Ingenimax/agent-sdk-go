@@ -70,12 +70,27 @@ func DefaultSafetySettings() []SafetySetting {
 	}
 }
 
+// ThinkingLevel controls how much reasoning a Gemini 3.x model performs.
+// Gemini 3.x models use a thinking level instead of a numeric thinking budget.
+type ThinkingLevel string
+
+const (
+	ThinkingLevelMinimal ThinkingLevel = "MINIMAL"
+	ThinkingLevelLow     ThinkingLevel = "LOW"
+	ThinkingLevelMedium  ThinkingLevel = "MEDIUM"
+	ThinkingLevelHigh    ThinkingLevel = "HIGH"
+)
+
 // ThinkingConfig represents thinking/reasoning configuration for Gemini models
 type ThinkingConfig struct {
 	// Whether to include thinking content in responses
 	IncludeThoughts bool
-	// Maximum tokens allocated for thinking (nil for dynamic thinking)
+	// Maximum tokens allocated for thinking (nil for dynamic thinking).
+	// Mutually exclusive with ThinkingLevel.
 	ThinkingBudget *int32
+	// Thinking level for Gemini 3.x models (empty for the model default).
+	// Mutually exclusive with ThinkingBudget.
+	ThinkingLevel ThinkingLevel
 	// Thought signatures for context preservation across multi-turn conversations
 	ThoughtSignatures [][]byte
 }

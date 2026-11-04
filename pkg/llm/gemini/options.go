@@ -84,6 +84,18 @@ func WithThinkingBudget(budget int32) Option {
 	}
 }
 
+// WithThinkingLevel creates a client Option to set the thinking level for Gemini 3.x models.
+// It cannot be combined with WithThinkingBudget; NewClient returns an error if both are set.
+func WithThinkingLevel(level ThinkingLevel) Option {
+	return func(c *GeminiClient) {
+		if c.thinkingConfig == nil {
+			defaultConfig := DefaultThinkingConfig()
+			c.thinkingConfig = &defaultConfig
+		}
+		c.thinkingConfig.ThinkingLevel = level
+	}
+}
+
 // WithDynamicThinking creates a client Option to enable dynamic thinking (no fixed budget)
 func WithDynamicThinking() Option {
 	return func(c *GeminiClient) {
