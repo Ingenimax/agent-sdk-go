@@ -442,61 +442,110 @@ response, err := agent.Run(ctx, "What is the population of Tokyo multiplied by 2
 
 ## Advanced Usage
 
-### Custom Tool Execution
+### Intercepting tool calls
 
-You can implement custom tool execution logic:
+The tool-calling loop lives inside each LLM provider, not in `pkg/agent`, so the
+seam for interposing on a tool call is a *tool decorator*: a function that
+transforms the tool set the agent is about to expose.
+
+For the common cases (allow lists, redaction, logging, result truncation, retry)
+use `pkg/hooks`, which bundles hooks into named plugins and exposes a decorator
+via `Decorate`:
 
 ```go
-// Create a custom tool executor
-executor := agent.NewToolExecutor(func(ctx context.Context, toolName string, input string) (string, error) {
-    // Custom logic for executing tools
-    if toolName == "custom_tool" {
-        // Do something special
-        return "Custom result", nil
-    }
+reg := hooks.NewRegistry(
+    hooks.Logging(log.Printf),
+    hooks.AllowList("websearch", "calculator"),
+    hooks.Redact("[REDACTED]", hooks.CommonSecretPatterns()...),
+    hooks.TruncateResults(8000),
+)
 
-    // Fall back to default execution for other tools
-    tool, found := toolRegistry.Get(toolName)
-    if !found {
-        return "", fmt.Errorf("tool not found: %s", toolName)
-    }
-    return tool.Run(ctx, input)
+// Intercept one tool by name and answer without running it.
+reg.Register(hooks.Plugin{
+    Name: "custom-tool-shortcut",
+    BeforeTool: func(ctx context.Context, call hooks.ToolCall) (hooks.Outcome, error) {
+        if call.Tool == "send_email" && isOutOfHours() {
+            return hooks.Outcome{
+                Decision: hooks.Deny,
+                Message:  "Email is disabled outside business hours. Summarise instead.",
+            }, nil
+        }
+        return hooks.Outcome{}, nil // the zero value allows
+    },
 })
 
-// Create agent with custom tool executor
-agent, err := agent.NewAgent(
+agentInstance, err := agent.NewAgent(
     agent.WithLLM(openaiClient),
     agent.WithMemory(memory.NewConversationBuffer()),
     agent.WithTools(searchTool, calculatorTool),
-    agent.WithToolExecutor(executor),
+    agent.WithToolDecorator(reg.Decorate("my-agent")),
 )
 ```
 
-### Custom Message Processing
+A `hooks.Plugin` has three optional hooks:
 
-You can implement custom message processing:
+| Hook | Signature | Purpose |
+| --- | --- | --- |
+| `BeforeTool` | `func(ctx, ToolCall) (Outcome, error)` | Allow, rewrite arguments (`Modify`), or block (`Deny`) |
+| `AfterTool` | `func(ctx, ToolCall, result string) (string, error)` | Rewrite the result |
+| `OnToolError` | `func(ctx, ToolCall, err error) (string, bool)` | Substitute a result and suppress the error |
+
+Two behaviours worth knowing: the zero `Outcome` **allows**, so a hook that
+returns early does not block every call; and a denial is returned to the model
+as a result rather than as an error, so the model can adapt.
+
+For anything hooks do not cover, write the decorator directly. It must return a
+slice of the same length and order, and should forward optional interfaces with
+`agent.ForwardOptionalToolInterfaces` so wrapping does not change how a tool is
+presented:
 
 ```go
-// Create a custom message processor
-processor := agent.NewMessageProcessor(func(ctx context.Context, message interfaces.Message) (interfaces.Message, error) {
-    // Process the message
-    if message.Role == "user" {
-        // Add metadata to user messages
-        if message.Metadata == nil {
-            message.Metadata = make(map[string]interface{})
-        }
-        message.Metadata["processed_at"] = time.Now()
+agent.WithToolDecorator(func(toolSet []interfaces.Tool) []interfaces.Tool {
+    wrapped := make([]interfaces.Tool, len(toolSet))
+    for i, t := range toolSet {
+        wrapped[i] = myWrapper{inner: t} // implement interfaces.Tool + Unwrap()
     }
-    return message, nil
+    return wrapped
 })
+```
 
-// Create agent with custom message processor
-agent, err := agent.NewAgent(
+Decorators run in the order added, outside the usage tracker. Use
+`agent.UnwrapTool` to recover the tool underneath a decorator chain, since
+wrapping erases concrete type identity.
+
+### Intercepting messages
+
+There is no message-processor option. To observe or rewrite messages as they are
+stored and read, wrap `interfaces.Memory`, which is a three-method interface:
+
+```go
+type taggingMemory struct{ inner interfaces.Memory }
+
+func (m taggingMemory) AddMessage(ctx context.Context, msg interfaces.Message) error {
+    if msg.Role == interfaces.MessageRoleUser {
+        if msg.Metadata == nil {
+            msg.Metadata = map[string]interface{}{}
+        }
+        msg.Metadata["processed_at"] = time.Now()
+    }
+    return m.inner.AddMessage(ctx, msg)
+}
+
+func (m taggingMemory) GetMessages(ctx context.Context, opts ...interfaces.GetMessagesOption) ([]interfaces.Message, error) {
+    return m.inner.GetMessages(ctx, opts...)
+}
+
+func (m taggingMemory) Clear(ctx context.Context) error { return m.inner.Clear(ctx) }
+
+agentInstance, err := agent.NewAgent(
     agent.WithLLM(openaiClient),
-    agent.WithMemory(memory.NewConversationBuffer()),
-    agent.WithMessageProcessor(processor),
+    agent.WithMemory(taggingMemory{inner: memory.NewConversationBuffer()}),
 )
 ```
+
+Remember that memory keys conversations as `{orgID}:{conversationID}`, so the
+context must carry both (`multitenancy.WithOrgID`, `memory.WithConversationID`)
+or the underlying calls return an error.
 
 ## Examples
 
