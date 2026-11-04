@@ -144,23 +144,40 @@ func (c *ConversationSummary) GetMessages(ctx context.Context, options ...interf
 		return nil, err
 	}
 
-	// Get current messages from buffer
-	messages, err := c.buffer.GetMessages(ctx, options...)
+	// Retrieve the complete sequence before applying options so that the summary
+	// is subject to the same role filter and total message limit as the buffer.
+	messages, err := c.buffer.GetMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if we have a summary
-	summary, ok := c.summaryMessages[conversationID]
-	if !ok {
-		return messages, nil
+	if summary, ok := c.summaryMessages[conversationID]; ok {
+		messages = append([]interfaces.Message{summary}, messages...)
 	}
 
-	// Combine summary and current messages
-	result := []interfaces.Message{summary}
-	result = append(result, messages...)
+	opts := &interfaces.GetMessagesOptions{}
+	for _, option := range options {
+		option(opts)
+	}
 
-	return result, nil
+	if len(opts.Roles) > 0 {
+		var filtered []interfaces.Message
+		for _, message := range messages {
+			for _, role := range opts.Roles {
+				if message.Role == interfaces.MessageRole(role) {
+					filtered = append(filtered, message)
+					break
+				}
+			}
+		}
+		messages = filtered
+	}
+
+	if opts.Limit > 0 && opts.Limit < len(messages) {
+		messages = messages[len(messages)-opts.Limit:]
+	}
+
+	return messages, nil
 }
 
 // Clear clears the memory
