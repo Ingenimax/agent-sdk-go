@@ -79,10 +79,12 @@ type AgentConfigResponse struct {
 
 // MemoryInfo represents memory system information
 type MemoryInfo struct {
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	EntryCount  int    `json:"entry_count,omitempty"`
-	MaxCapacity int    `json:"max_capacity,omitempty"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	// EntryCount is -1 when the count could not be read, which is distinct
+	// from 0 meaning the memory is genuinely empty.
+	EntryCount  int `json:"entry_count,omitempty"`
+	MaxCapacity int `json:"max_capacity,omitempty"`
 }
 
 // DataStoreInfo represents datastore/database connection information
@@ -118,7 +120,21 @@ type MemoryResponse struct {
 	Limit          int                `json:"limit"`
 	Offset         int                `json:"offset"`
 	ConversationID string             `json:"conversation_id,omitempty"`
+
+	// Source says where these entries came from: "memory" for the agent's
+	// durable memory, or "local" for the in-process UI buffer that is used
+	// when a durable read is unavailable or fails.
+	//
+	// Without this, a best-effort local answer is indistinguishable from a
+	// durable one, which is exactly the confusion reported in #330.
+	Source string `json:"source,omitempty"`
 }
+
+// Memory entry sources reported in MemoryResponse.Source.
+const (
+	memorySourceDurable = "memory"
+	memorySourceLocal   = "local"
+)
 
 // DelegateRequest represents a request to delegate to a sub-agent
 type DelegateRequest struct {
@@ -185,6 +201,18 @@ func NewHTTPServerWithUI(agent *agent.Agent, port int, config *UIConfig) *HTTPSe
 		uiConfig:            config,
 		uiFS:                uiFS,
 		conversationHistory: make([]MemoryEntry, 0),
+	}
+
+	// The memory endpoints are an admin/debug view: getAllConversationsFromAllOrgs
+	// and getConversationMessagesFromAllOrgs deliberately span organizations, and
+	// this package applies no authentication of its own (the CORS handler names
+	// the Authorization header but nothing enforces it). Say so at startup rather
+	// than leaving an operator to discover it from the code (#330).
+	if config.Features.Memory {
+		log.Printf("[UI Server] WARNING: the memory endpoints return conversations " +
+			"across ALL organizations and this server performs no authentication. " +
+			"Do not expose it publicly; put it behind an authenticating proxy, or " +
+			"set UIConfig.Features.Memory = false.")
 	}
 
 	// Initialize trace collector if enabled
@@ -357,7 +385,7 @@ func (h *HTTPServerWithUI) handleConfig(w http.ResponseWriter, r *http.Request) 
 	model := h.getModelName()
 
 	// Get memory info - directly from agent interface
-	memInfo := h.getMemoryInfo()
+	memInfo := h.getMemoryInfo(r.Context())
 
 	// Get datastore info
 	datastoreInfo := h.getDataStoreInfo()
@@ -491,7 +519,7 @@ func (h *HTTPServerWithUI) handleMemorySearch(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 
 	// Search conversation history
-	results := h.searchConversationHistory(query)
+	results := h.searchConversationHistory(r.Context(), query)
 
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"query":   query,
@@ -728,12 +756,14 @@ func (h *HTTPServerWithUI) getToolDescriptionFromSystemPrompt(toolName, systemPr
 	return "Sub-agent tool"
 }
 
-// getConversationHistory returns conversation history with pagination
-func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEntry {
+// getConversationHistory returns conversation history with pagination.
+//
+// The bool reports whether the entries came from durable memory.
+func (h *HTTPServerWithUI) getConversationHistory(ctx context.Context, limit, offset int) ([]MemoryEntry, bool) {
 	// First, try to get from agent's memory system if available
 	if memGetter, ok := interface{}(h.agent).(interface{ GetMemory() interfaces.Memory }); ok {
 		if mem := memGetter.GetMemory(); mem != nil {
-			return h.getMemoryFromAgent(mem, limit, offset)
+			return h.getMemoryFromAgent(ctx, mem, limit, offset)
 		}
 	}
 
@@ -741,7 +771,7 @@ func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEnt
 	total := len(h.conversationHistory)
 
 	if offset >= total {
-		return []MemoryEntry{}
+		return []MemoryEntry{}, false
 	}
 
 	end := offset + limit
@@ -757,66 +787,87 @@ func (h *HTTPServerWithUI) getConversationHistory(limit, offset int) []MemoryEnt
 		}
 	}
 
-	return result
+	return result, false
 }
 
-// getAllConversationsWithContext gets all conversations with request context (but ignores org isolation)
+// getAllConversationsWithContext gets all conversations for the admin/debug
+// view, which deliberately spans organizations.
+//
+// ctx is forwarded rather than dropped so the local-history fallback can read
+// the scope the request actually carried.
 func (h *HTTPServerWithUI) getAllConversationsWithContext(ctx context.Context, limit, offset int) MemoryResponse {
-	// For admin/debug view, we want to see all conversations from all orgs
-	return h.getAllConversationsFromAllOrgs(limit, offset)
+	return h.getAllConversationsFromAllOrgs(ctx, limit, offset)
 }
 
-// getConversationMessagesWithContext gets messages with request context (but searches all orgs)
+// getConversationMessagesWithContext gets messages for the admin/debug view,
+// which deliberately searches across organizations.
 func (h *HTTPServerWithUI) getConversationMessagesWithContext(ctx context.Context, conversationID string, limit, offset int) MemoryResponse {
-	// For admin/debug view, search across all orgs for the conversation
-	return h.getConversationMessagesFromAllOrgs(conversationID, limit, offset)
+	return h.getConversationMessagesFromAllOrgs(ctx, conversationID, limit, offset)
 }
 
-// getAllConversationsFromAllOrgs gets conversations from all organizations
-func (h *HTTPServerWithUI) getAllConversationsFromAllOrgs(limit, offset int) MemoryResponse {
+// getAllConversationsFromAllOrgs gets conversations from all organizations.
+//
+// Source is tagged on the way out rather than at each response builder's many
+// return statements, so a new branch cannot forget it.
+func (h *HTTPServerWithUI) getAllConversationsFromAllOrgs(ctx context.Context, limit, offset int) MemoryResponse {
 	// Handle remote agents by making HTTP calls to their memory endpoint
 	if h.agent.IsRemote() {
 		log.Println("Fetching conversations from remote agent memory")
-		return h.getRemoteMemoryConversations(limit, offset)
+		return withSource(h.getRemoteMemoryConversations(limit, offset), memorySourceDurable)
 	}
 
 	// Check if memory supports cross-org operations
 	if adminMem, ok := h.agent.GetMemory().(interfaces.AdminConversationMemory); ok {
 		log.Println("Fetching conversations from admin conversation memory across all orgs")
-		return h.buildConversationListFromAllOrgs(adminMem, limit, offset)
+		return withSource(h.buildConversationListFromAllOrgs(adminMem, limit, offset), memorySourceDurable)
 	}
 
 	// Fallback: build conversation list from local history (all orgs)
-	return h.buildConversationListFromLocalAllOrgs(limit, offset)
+	return withSource(h.buildConversationListFromLocalAllOrgs(ctx, limit, offset), memorySourceLocal)
+}
+
+// withSource labels a response with where its entries came from.
+func withSource(response MemoryResponse, source string) MemoryResponse {
+	response.Source = source
+	return response
 }
 
 // getConversationMessagesFromAllOrgs searches for conversation across all orgs
-func (h *HTTPServerWithUI) getConversationMessagesFromAllOrgs(conversationID string, limit, offset int) MemoryResponse {
+func (h *HTTPServerWithUI) getConversationMessagesFromAllOrgs(ctx context.Context, conversationID string, limit, offset int) MemoryResponse {
 	// Handle remote agents by making HTTP calls to their memory endpoint
 	if h.agent.IsRemote() {
 		log.Printf("Fetching messages for conversation %s from remote agent memory", conversationID) // #nosec G706 - conversationID is a UUID from internal routing
-		return h.getRemoteMemoryMessages(conversationID, limit, offset)
+		return withSource(h.getRemoteMemoryMessages(conversationID, limit, offset), memorySourceDurable)
 	}
 
 	// Check if memory supports cross-org operations
 	if adminMem, ok := h.agent.GetMemory().(interfaces.AdminConversationMemory); ok {
 		log.Printf("Fetching messages for conversation %s from admin conversation memory across all orgs", conversationID) // #nosec G706 - conversationID is a UUID from internal routing
-		return h.buildMessageListFromAllOrgs(adminMem, conversationID, limit, offset)
+		return withSource(h.buildMessageListFromAllOrgs(adminMem, conversationID, limit, offset), memorySourceDurable)
 	}
 
 	// Fallback: get messages from local history (search all orgs)
-	return h.buildMessageListFromLocalAllOrgs(conversationID, limit, offset)
+	return withSource(h.buildMessageListFromLocalAllOrgs(conversationID, limit, offset), memorySourceLocal)
 }
 
 // getMemoryFromAgent retrieves memory from the agent's memory system (Redis, etc.)
-func (h *HTTPServerWithUI) getMemoryFromAgent(mem interfaces.Memory, limit, offset int) []MemoryEntry {
-	ctx := context.Background()
-
+//
+// ctx must be the request context. Every Memory implementation keys
+// conversations as "{orgID}:{conversationID}" and returns an error when either
+// is absent, so this previously could not succeed at all: it passed
+// context.Background(), so GetMessages always failed and the function always
+// returned the in-process buffer while appearing to read durable memory (#330).
+//
+// The bool reports whether the entries came from durable memory.
+func (h *HTTPServerWithUI) getMemoryFromAgent(ctx context.Context, mem interfaces.Memory, limit, offset int) ([]MemoryEntry, bool) {
 	// Try to get messages from the agent's memory system
 	messages, err := mem.GetMessages(ctx, interfaces.WithLimit(limit+offset))
 	if err != nil {
-		// If we can't get from agent memory, fall back to our local storage
-		return h.conversationHistory
+		// Log rather than swallow: a missing org or conversation ID in the
+		// request context is a configuration problem, and silently serving
+		// local history hides it.
+		log.Printf("ui: durable memory read failed, serving local UI history instead: %v", err)
+		return h.conversationHistory, false
 	}
 
 	// Convert agent memory messages to UI memory entries
@@ -840,11 +891,12 @@ func (h *HTTPServerWithUI) getMemoryFromAgent(mem interfaces.Memory, limit, offs
 
 	// If we got entries from agent memory, return them
 	if len(entries) > 0 {
-		return entries
+		return entries, true
 	}
 
-	// Otherwise fall back to local storage
-	return h.conversationHistory
+	// Durable memory answered, but with nothing for this scope. Fall back to
+	// local history and say so, rather than passing it off as durable.
+	return h.conversationHistory, false
 }
 
 // extractTimestamp extracts timestamp from message metadata
@@ -893,9 +945,10 @@ func (h *HTTPServerWithUI) extractConversationID(metadata map[string]interface{}
 }
 
 // searchConversationHistory searches through conversation history
-func (h *HTTPServerWithUI) searchConversationHistory(query string) []MemoryEntry {
+func (h *HTTPServerWithUI) searchConversationHistory(ctx context.Context, query string) []MemoryEntry {
 	if query == "" {
-		return h.getConversationHistory(50, 0)
+		entries, _ := h.getConversationHistory(ctx, 50, 0)
+		return entries
 	}
 
 	query = strings.ToLower(query)
@@ -1026,8 +1079,12 @@ func inferAzureModelFromDeployment(deployment string) string {
 	return ""
 }
 
-// getMemoryInfo extracts memory information from the agent
-func (h *HTTPServerWithUI) getMemoryInfo() MemoryInfo {
+// getMemoryInfo extracts memory information from the agent.
+//
+// ctx must be the request context, for the same reason as getMemoryFromAgent:
+// the entry-count probe below is a durable read and cannot succeed without an
+// org and conversation ID (#330).
+func (h *HTTPServerWithUI) getMemoryInfo(ctx context.Context) MemoryInfo {
 	// For remote agents, try to get memory info from metadata
 	if h.agent.IsRemote() {
 		if metadata, err := h.agent.GetRemoteMetadata(); err == nil && metadata != nil {
@@ -1072,10 +1129,15 @@ func (h *HTTPServerWithUI) getMemoryInfo() MemoryInfo {
 		Status: "active",
 	}
 
-	// Try to get entry count if the memory supports it
-	ctx := context.Background()
+	// Try to get entry count if the memory supports it. A failure here is not
+	// fatal -- the type and status above are still accurate -- but it must not
+	// be reported as a count of zero, which reads as "memory is empty" rather
+	// than "the count is unknown".
 	if messages, err := mem.GetMessages(ctx); err == nil {
 		memInfo.EntryCount = len(messages)
+	} else {
+		memInfo.EntryCount = -1
+		log.Printf("ui: memory entry count unavailable: %v", err)
 	}
 
 	return memInfo
@@ -1556,7 +1618,14 @@ func (h *HTTPServerWithUI) buildConversationListFromAllOrgs(adminMem interfaces.
 }
 
 // buildConversationListFromLocalAllOrgs builds conversation list from local history across all orgs
-func (h *HTTPServerWithUI) buildConversationListFromLocalAllOrgs(limit, offset int) MemoryResponse {
+// buildConversationListFromLocalAllOrgs groups the in-process UI buffer by
+// conversation ID. It spans organizations because the buffer is not org-scoped
+// at all, so the response is labelled memorySourceLocal to make that visible
+// (#330).
+//
+// ctx is accepted for symmetry with the durable path and to keep the signature
+// stable if this ever needs request scope.
+func (h *HTTPServerWithUI) buildConversationListFromLocalAllOrgs(_ context.Context, limit, offset int) MemoryResponse {
 	// Group local conversation history by conversation ID (ignoring org isolation)
 	conversationMap := make(map[string][]MemoryEntry)
 

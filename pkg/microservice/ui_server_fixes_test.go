@@ -7,6 +7,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -219,39 +220,55 @@ func TestHTTPServerWithUI_getToolNames(t *testing.T) {
 }
 
 func TestHTTPServerWithUI_getMemoryInfo(t *testing.T) {
+	// EntryCount distinguishes three outcomes, which this test previously
+	// conflated. It asserted 0 for an active ConversationBuffer on the premise
+	// that "memory starts empty", but the read was in fact failing: memory
+	// requires an org and conversation ID in the context, and getMemoryInfo
+	// built its own context.Background() (#330). A failed read now reports -1
+	// so it cannot be mistaken for an empty memory.
+	scoped := func() context.Context {
+		ctx := multitenancy.WithOrgID(context.Background(), "org-1")
+		return memory.WithConversationID(ctx, "conv-1")
+	}
+
 	tests := []struct {
-		name           string
-		setupMemory    func() interfaces.Memory
-		expectedType   string
-		expectedStatus string
-		hasEntryCount  bool
+		name               string
+		setupMemory        func() interfaces.Memory
+		ctx                context.Context
+		expectedType       string
+		expectedStatus     string
+		expectedEntryCount int
 	}{
 		{
-			name: "Agent with active memory",
-			setupMemory: func() interfaces.Memory {
-				return memory.NewConversationBuffer()
-			},
-			expectedType:   "buffer", // ConversationBuffer now correctly detected as "buffer"
-			expectedStatus: "active",
-			hasEntryCount:  false, // Memory starts empty until messages are added
+			name:               "active memory, scoped context, empty",
+			setupMemory:        func() interfaces.Memory { return memory.NewConversationBuffer() },
+			ctx:                scoped(),
+			expectedType:       "buffer",
+			expectedStatus:     "active",
+			expectedEntryCount: 0, // genuinely empty: the read succeeded
 		},
 		{
-			name: "Agent with no memory",
-			setupMemory: func() interfaces.Memory {
-				return nil
-			},
-			expectedType:   "none",
-			expectedStatus: "inactive",
-			hasEntryCount:  false,
+			name:               "active memory, unscoped context, count unknown",
+			setupMemory:        func() interfaces.Memory { return memory.NewConversationBuffer() },
+			ctx:                context.Background(),
+			expectedType:       "buffer",
+			expectedStatus:     "active",
+			expectedEntryCount: -1, // the read failed; not the same as empty
+		},
+		{
+			name:               "no memory",
+			setupMemory:        func() interfaces.Memory { return nil },
+			ctx:                scoped(),
+			expectedType:       "none",
+			expectedStatus:     "inactive",
+			expectedEntryCount: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock LLM (required for agent creation)
 			mockLLM := &MockLLM{response: "test", err: nil}
 
-			// Create agent options
 			agentOptions := []agent.Option{
 				agent.WithLLM(mockLLM),
 				agent.WithName("test-agent"),
@@ -259,30 +276,22 @@ func TestHTTPServerWithUI_getMemoryInfo(t *testing.T) {
 				agent.WithSystemPrompt("test prompt"),
 			}
 
-			if tt.setupMemory() != nil {
-				agentOptions = append(agentOptions, agent.WithMemory(tt.setupMemory()))
+			if mem := tt.setupMemory(); mem != nil {
+				agentOptions = append(agentOptions, agent.WithMemory(mem))
 			}
 
 			testAgent, err := agent.NewAgent(agentOptions...)
 			assert.NoError(t, err)
 
-			// Create UI server
 			server := &HTTPServerWithUI{
-				HTTPServer: HTTPServer{
-					agent: testAgent,
-				},
+				HTTPServer: HTTPServer{agent: testAgent},
 			}
 
-			// Test getMemoryInfo
-			result := server.getMemoryInfo()
+			result := server.getMemoryInfo(tt.ctx)
 			assert.Equal(t, tt.expectedType, result.Type)
 			assert.Equal(t, tt.expectedStatus, result.Status)
-
-			if tt.hasEntryCount {
-				assert.Greater(t, result.EntryCount, 0)
-			} else {
-				assert.Equal(t, 0, result.EntryCount)
-			}
+			assert.Equal(t, tt.expectedEntryCount, result.EntryCount,
+				"EntryCount: -1 means unknown, 0 means genuinely empty")
 		})
 	}
 }
@@ -317,7 +326,7 @@ func TestHTTPServerWithUI_RemoteAgent(t *testing.T) {
 	systemPrompt := server.getSystemPrompt()
 	assert.Equal(t, "test prompt", systemPrompt)
 
-	memInfo := server.getMemoryInfo()
+	memInfo := server.getMemoryInfo(context.Background())
 	assert.Equal(t, "none", memInfo.Type)
 	assert.Equal(t, "inactive", memInfo.Status)
 }
