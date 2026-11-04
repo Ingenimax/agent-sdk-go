@@ -67,6 +67,8 @@ func (c *OpenAIClient) GenerateStream(
 			Messages: messages,
 		}
 
+		applyMaxTokens(&streamParams, params.LLMConfig)
+
 		// Reasoning models only support temperature=1 (default), so don't set it
 		if !isReasoningModel(c.Model) {
 			streamParams.Temperature = openai.Float(params.LLMConfig.Temperature)
@@ -355,6 +357,8 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 				Tools:      openaiTools,
 				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: openai.String("auto")},
 			}
+
+			applyMaxTokens(&streamParams, params.LLMConfig)
 
 			// Reasoning models only support temperature=1 (default), so don't set it
 			if !isReasoningModel(c.Model) {
@@ -721,6 +725,8 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 			Model:    openai.ChatModel(c.Model),
 			Messages: finalMessages,
 		}
+
+		applyMaxTokens(&finalStreamParams, params.LLMConfig)
 
 		// Reasoning models only support temperature=1 (default), so don't set it
 		if !isReasoningModel(c.Model) {

@@ -234,6 +234,10 @@ func (c *DeepSeekClient) GenerateDetailed(ctx context.Context, prompt string, op
 		Messages: messages,
 	}
 
+	if params.LLMConfig != nil && params.LLMConfig.MaxTokens > 0 {
+		req.MaxTokens = params.LLMConfig.MaxTokens
+	}
+
 	if params.LLMConfig != nil {
 		req.Temperature = params.LLMConfig.Temperature
 		req.TopP = params.LLMConfig.TopP
@@ -443,6 +447,10 @@ func (c *DeepSeekClient) GenerateWithToolsDetailed(ctx context.Context, prompt s
 			Tools:    deepseekTools,
 		}
 
+		if params.LLMConfig != nil && params.LLMConfig.MaxTokens > 0 {
+			req.MaxTokens = params.LLMConfig.MaxTokens
+		}
+
 		if params.LLMConfig != nil {
 			req.Temperature = params.LLMConfig.Temperature
 			req.TopP = params.LLMConfig.TopP
@@ -573,6 +581,10 @@ func (c *DeepSeekClient) GenerateWithToolsDetailed(ctx context.Context, prompt s
 	req := ChatCompletionRequest{
 		Model:    c.Model,
 		Messages: messages,
+	}
+
+	if params.LLMConfig != nil && params.LLMConfig.MaxTokens > 0 {
+		req.MaxTokens = params.LLMConfig.MaxTokens
 	}
 
 	if params.LLMConfig != nil {

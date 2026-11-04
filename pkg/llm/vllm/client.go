@@ -223,6 +223,10 @@ func (c *VLLMClient) Generate(ctx context.Context, prompt string, options ...int
 		Stop:        params.LLMConfig.StopSequences,
 	}
 
+	if params.LLMConfig != nil && params.LLMConfig.MaxTokens > 0 {
+		req.MaxTokens = params.LLMConfig.MaxTokens
+	}
+
 	// Handle structured output if provided
 	if params.ResponseFormat != nil && params.ResponseFormat.Type == interfaces.ResponseFormatJSON {
 		// Add JSON schema to the prompt for vLLM
@@ -329,6 +333,10 @@ func (c *VLLMClient) GenerateWithTools(ctx context.Context, prompt string, tools
 			Temperature: params.LLMConfig.Temperature,
 			TopP:        params.LLMConfig.TopP,
 			Stop:        params.LLMConfig.StopSequences,
+		}
+
+		if params.LLMConfig != nil && params.LLMConfig.MaxTokens > 0 {
+			req.MaxTokens = params.LLMConfig.MaxTokens
 		}
 
 		resp, err := c.makeRequest(ctx, "/v1/chat/completions", req)
@@ -486,6 +494,10 @@ func (c *VLLMClient) Chat(ctx context.Context, messages []llm.Message, params *l
 		Temperature: params.Temperature,
 		TopP:        params.TopP,
 		Stop:        params.StopSequences,
+	}
+
+	if params.MaxTokens > 0 {
+		req.MaxTokens = params.MaxTokens
 	}
 
 	// Make request
