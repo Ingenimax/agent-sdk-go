@@ -27,24 +27,44 @@ func sendEvent(ctx context.Context, eventChan chan<- interfaces.AgentStreamEvent
 	}
 }
 
-// RunStream executes the agent with streaming response
+// RunStream executes the agent with streaming response. For input with
+// media, such as images, use RunWithContentStream.
 func (a *Agent) RunStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
+	return a.RunWithContentStream(ctx, textContent(input))
+}
+
+// RunWithContentStream is the streaming form of RunWithContent. Custom stream
+// functions and remote agents take text only.
+func (a *Agent) RunWithContentStream(ctx context.Context, content *interfaces.Content) (<-chan interfaces.AgentStreamEvent, error) {
 	// If custom stream function is set, use it instead
 	if a.customRunStreamFunc != nil {
+		input, err := textOnly(content, "custom stream function")
+		if err != nil {
+			return nil, err
+		}
 		return a.customRunStreamFunc(ctx, input, a)
 	}
 
 	// If this is a remote agent, delegate to remote execution
 	if a.isRemote {
+		input, err := textOnly(content, "remote agent")
+		if err != nil {
+			return nil, err
+		}
 		return a.runRemoteStream(ctx, input)
 	}
 
 	// Local agent execution
-	return a.runLocalStream(ctx, input)
+	return a.runLocalStream(ctx, content)
 }
 
 // runLocalStream executes a local agent with streaming
-func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interfaces.AgentStreamEvent, error) {
+func (a *Agent) runLocalStream(ctx context.Context, content *interfaces.Content) (<-chan interfaces.AgentStreamEvent, error) {
+	if err := checkRunInput(content); err != nil {
+		return nil, err
+	}
+	inputLength := len(content.Text())
+
 	// Check if LLM supports streaming
 	streamingLLM, ok := a.llm.(interfaces.StreamingLLM)
 	if !ok {
@@ -95,7 +115,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 					spanData := map[string]interface{}{
 						"agent_name":        a.name,
 						"execution_time_ms": executionTimeMs,
-						"input_length":      len(input),
+						"input_length":      inputLength,
 						"response_length":   responseLength,
 					}
 
@@ -142,9 +162,8 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// beginRun: guardrails must run before the memory write, because the
 		// providers build their request from memory rather than from the prompt
 		// argument.
-		var processedInput string
 		var preambleErr error
-		ctx, processedInput, preambleErr = a.beginRun(ctx, input)
+		ctx, content, preambleErr = a.beginRun(ctx, content)
 		if preambleErr != nil {
 			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 				Type:      interfaces.AgentEventError,
@@ -153,6 +172,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 			})
 			return
 		}
+		processedInput := content.Text()
 
 		// Check if the input is related to an existing plan
 		taskID, action, planInput := a.extractPlanAction(processedInput)
@@ -210,7 +230,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		// If tools are available and plan approval is required, we can't stream execution plans yet
 		if (len(allTools) > 0) && a.requirePlanApproval {
 			// For now, fall back to non-streaming execution plan generation
-			result, err := a.runWithExecutionPlan(ctx, processedInput, a.planGeneratorFor(allTools))
+			result, err := a.runWithExecutionPlan(ctx, processedInput, mediaParts(content), a.planGeneratorFor(allTools))
 			if err != nil {
 				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
@@ -232,7 +252,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 		}
 
 		// Run with streaming
-		length, err := a.runStreamingGeneration(ctx, processedInput, allTools, streamingLLM, eventChan)
+		length, err := a.runStreamingGeneration(ctx, processedInput, partOptions(content), allTools, streamingLLM, eventChan)
 		responseLength = length
 		if err != nil {
 			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
@@ -250,6 +270,7 @@ func (a *Agent) runLocalStream(ctx context.Context, input string) (<-chan interf
 func (a *Agent) runStreamingGeneration(
 	ctx context.Context,
 	input string,
+	contentOptions []interfaces.GenerateOption,
 	allTools []interfaces.Tool,
 	streamingLLM interfaces.StreamingLLM,
 	eventChan chan<- interfaces.AgentStreamEvent,
@@ -287,6 +308,8 @@ func (a *Agent) runStreamingGeneration(
 	if a.memory != nil {
 		options = append(options, interfaces.WithMemory(a.memory))
 	}
+
+	options = append(options, contentOptions...)
 
 	// Add stream config if available
 	if a.streamConfig != nil {

@@ -133,6 +133,7 @@ type ChatRequest struct {
 type ChatMessage struct {
 	Role      string           `json:"role"`
 	Content   string           `json:"content"`
+	Images    []string         `json:"images,omitempty"`
 	ToolCalls []OllamaToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -187,10 +188,16 @@ func (c *OllamaClient) Generate(ctx context.Context, prompt string, options ...i
 	// Build prompt with memory context
 	finalPrompt := c.buildPromptWithMemory(ctx, prompt, params)
 
+	images, err := requestImages(ctx, params)
+	if err != nil {
+		return "", err
+	}
+
 	// Create request
 	req := GenerateRequest{
 		Model:  c.Model,
 		Prompt: finalPrompt,
+		Images: images,
 		Stream: false,
 		Options: &Options{
 			Temperature: params.LLMConfig.Temperature,
@@ -217,7 +224,7 @@ Schema Name: %s
 JSON Schema: %s
 
 Ensure your response is a valid JSON object that strictly follows the schema above.`,
-			prompt,
+			finalPrompt,
 			params.ResponseFormat.Name,
 			string(schemaJSON))
 
@@ -262,9 +269,14 @@ func (c *OllamaClient) GenerateWithTools(ctx context.Context, prompt string, too
 	if params.SystemMessage != "" {
 		messages = append(messages, ChatMessage{Role: "system", Content: params.SystemMessage})
 	}
+	images, err := requestImages(ctx, params)
+	if err != nil {
+		return "", err
+	}
 	messages = append(messages, ChatMessage{
 		Role:    "user",
 		Content: c.buildPromptWithMemory(ctx, prompt, params),
+		Images:  images,
 	})
 
 	// Convert agent tools to Ollama function declarations
@@ -643,9 +655,31 @@ func WithResponseFormat(format interfaces.ResponseFormat) interfaces.GenerateOpt
 	}
 }
 
+// requestImages returns the request's images as base64 strings, the form
+// Ollama takes. History is inlined into one prompt, so every image in the
+// conversation goes with that prompt. Ollama takes image bytes only, so any
+// other part, an image URL included, is refused.
+func requestImages(ctx context.Context, params *interfaces.GenerateOptions) ([]string, error) {
+	err := interfaces.CheckMedia(ctx, params, "ollama", func(p *interfaces.Part) bool {
+		return p.InlineData != nil && p.IsImage()
+	})
+	if err != nil {
+		return nil, err
+	}
+	media, err := interfaces.RequestMedia(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	encoded := make([]string, 0, len(media))
+	for _, p := range media {
+		encoded = append(encoded, p.InlineData.Base64())
+	}
+	return encoded, nil
+}
+
 // buildPromptWithMemory builds a prompt with memory context for prompt-based models
 func (c *OllamaClient) buildPromptWithMemory(ctx context.Context, prompt string, params *interfaces.GenerateOptions) string {
-	return memory.BuildInlineHistoryPrompt(ctx, prompt, params.Memory, c.logger)
+	return memory.BuildInlineHistoryPrompt(ctx, interfaces.PromptText(prompt, params), params.Memory, c.logger)
 }
 
 // GenerateDetailed generates text and returns detailed response information including token usage

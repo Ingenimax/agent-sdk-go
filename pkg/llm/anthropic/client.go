@@ -340,6 +340,10 @@ func SupportsThinking(model string) bool {
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+
+	// Parts, when set, are sent as content blocks in place of Content. See
+	// MarshalJSON.
+	Parts []*interfaces.Part `json:"-"`
 }
 
 // ToolUse represents a tool call for Anthropic API
@@ -493,6 +497,10 @@ func (c *AnthropicClient) generateInternal(ctx context.Context, prompt string, o
 	// Apply user-provided options
 	for _, option := range options {
 		option(params)
+	}
+
+	if err := c.checkContent(ctx, params); err != nil {
+		return nil, err
 	}
 
 	// Check for organization ID in context, and add a default one if missing
@@ -992,6 +1000,10 @@ func (c *AnthropicClient) GenerateWithTools(ctx context.Context, prompt string, 
 		if opt != nil {
 			opt(params)
 		}
+	}
+
+	if err := c.checkContent(ctx, params); err != nil {
+		return "", err
 	}
 
 	// Set default max iterations if not provided

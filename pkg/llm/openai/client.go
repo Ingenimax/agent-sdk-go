@@ -148,6 +148,10 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 		option(params)
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
 	if orgID != "" {
@@ -165,7 +169,7 @@ func (c *OpenAIClient) generateInternal(ctx context.Context, prompt string, opti
 
 	// Build messages using unified builder
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 	// Create request
 	req := openai.ChatCompletionNewParams{
@@ -433,6 +437,10 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 		}
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return "", err
+	}
+
 	// Set default values only if they're not provided
 	if params.LLMConfig == nil {
 		params.LLMConfig = &interfaces.LLMConfig{
@@ -500,7 +508,7 @@ func (c *OpenAIClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Build messages with memory and current prompt
 	builder := newMessageHistoryBuilder(c.logger)
-	messages := builder.buildMessages(ctx, prompt, params.Memory)
+	messages := builder.buildMessages(ctx, prompt, params.Memory, params.Parts)
 
 	// Track tool call repetitions for loop detection
 	toolCallHistory := make(map[string]int)

@@ -846,9 +846,10 @@ func CreateAgentForTask(taskName string, agentConfigs AgentConfigs, taskConfigs 
 	return NewAgentFromConfig(agentName, agentConfigs, variables, options...)
 }
 
-// Run runs the agent with the given input
+// Run runs the agent with the given input. For input with media, such as
+// images, use RunWithContent.
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
-	response, err := a.runInternal(ctx, input, false)
+	response, err := a.runInternal(ctx, textContent(input), false)
 	if err != nil {
 		return "", err
 	}
@@ -856,10 +857,10 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 }
 
 func (a *Agent) RunDetailed(ctx context.Context, input string) (*interfaces.AgentResponse, error) {
-	return a.runInternal(ctx, input, true)
+	return a.runInternal(ctx, textContent(input), true)
 }
 
-func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*interfaces.AgentResponse, error) {
+func (a *Agent) runInternal(ctx context.Context, content *interfaces.Content, detailed bool) (*interfaces.AgentResponse, error) {
 	startTime := time.Now()
 
 	// A configured runtime timeout bounds the whole run.
@@ -873,6 +874,10 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 	var err error
 
 	if a.customRunFunc != nil {
+		input, err := textOnly(content, "custom run function")
+		if err != nil {
+			return nil, err
+		}
 		response, err = a.customRunFunc(ctx, input, a)
 		if err != nil {
 			return nil, err
@@ -885,6 +890,10 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 			return nil, err
 		}
 	} else if a.isRemote {
+		input, err := textOnly(content, "remote agent")
+		if err != nil {
+			return nil, err
+		}
 		response, err = a.runRemoteWithTracking(ctx, input)
 		if err != nil {
 			return nil, err
@@ -894,7 +903,7 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 			return nil, err
 		}
 	} else {
-		response, err = a.runLocalWithTracking(ctx, input)
+		response, err = a.runLocalWithTracking(ctx, content)
 		if err != nil {
 			return nil, err
 		}
@@ -912,7 +921,7 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 	if detailed {
 		executionDetails := map[string]interface{}{
 			"agent_name":        a.name,
-			"input_length":      len(input),
+			"input_length":      len(content.Text()),
 			"response_length":   len(response),
 			"model_used":        primaryModel,
 			"execution_time_ms": time.Since(startTime).Milliseconds(),
@@ -947,7 +956,7 @@ func (a *Agent) runInternal(ctx context.Context, input string, detailed bool) (*
 	}, nil
 }
 
-func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string, error) {
+func (a *Agent) runLocalWithTracking(ctx context.Context, content *interfaces.Content) (string, error) {
 	ctx = a.applyRunIdentity(ctx)
 
 	var span interfaces.Span
@@ -956,11 +965,11 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 		defer span.End()
 	}
 
-	var err error
-	ctx, input, err = a.beginRun(ctx, input)
+	ctx, content, err := a.beginRun(ctx, content)
 	if err != nil {
 		return "", err
 	}
+	input := content.Text()
 
 	taskID, action, planInput := a.extractPlanAction(input)
 	if taskID != "" {
@@ -974,10 +983,10 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, input string) (string,
 	allTools := a.assembleTools(ctx)
 
 	if (len(allTools) > 0) && a.requirePlanApproval {
-		return a.runWithExecutionPlan(ctx, input, a.planGeneratorFor(allTools))
+		return a.runWithExecutionPlan(ctx, input, mediaParts(content), a.planGeneratorFor(allTools))
 	}
 
-	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, allTools)
+	return a.runWithoutExecutionPlanWithToolsTracked(ctx, input, partOptions(content), allTools)
 }
 
 func (a *Agent) RunWithAuth(ctx context.Context, input string, authToken string) (string, error) {
@@ -1007,7 +1016,7 @@ func (a *Agent) runWithAuthInternal(ctx context.Context, input string, authToken
 			return nil, err
 		}
 	} else {
-		response, err = a.runLocalWithTracking(ctx, input)
+		response, err = a.runLocalWithTracking(ctx, textContent(input))
 		if err != nil {
 			return nil, err
 		}
@@ -1246,7 +1255,9 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	return lazyTools
 }
 
-func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, tools []interfaces.Tool) (string, error) {
+// contentOptions carries the input's parts when it has media; see
+// partOptions.
+func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, input string, contentOptions []interfaces.GenerateOption, tools []interfaces.Tool) (string, error) {
 	prompt := input
 
 	var response string
@@ -1276,6 +1287,8 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 	if a.memory != nil {
 		generateOptions = append(generateOptions, interfaces.WithMemory(a.memory))
 	}
+
+	generateOptions = append(generateOptions, contentOptions...)
 
 	if a.cacheConfig != nil {
 		generateOptions = append(generateOptions, func(options *interfaces.GenerateOptions) {
@@ -1434,13 +1447,15 @@ func (a *Agent) planGeneratorFor(allTools []interfaces.Tool) *executionplan.Gene
 //
 // gen is the run-scoped generator from planGeneratorFor. When nil, the
 // construction-time generator is used.
-func (a *Agent) runWithExecutionPlan(ctx context.Context, input string, gen *executionplan.Generator) (string, error) {
+//
+// media are the input's media parts, which the planner sees with the input.
+func (a *Agent) runWithExecutionPlan(ctx context.Context, input string, media []*interfaces.Part, gen *executionplan.Generator) (string, error) {
 	if gen == nil {
 		gen = a.planGenerator
 	}
 
 	// Generate an execution plan
-	plan, err := gen.GenerateExecutionPlan(ctx, input)
+	plan, err := gen.GenerateExecutionPlanWithMedia(ctx, input, media)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate execution plan: %w", err)
 	}

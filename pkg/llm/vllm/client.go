@@ -138,6 +138,10 @@ type ChatMessage struct {
 
 	// ToolCallID pairs a tool-result message with the call that produced it.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	// Parts, when set on a user message, are sent as the content list in
+	// place of Content.
+	Parts []*interfaces.Part `json:"-"`
 }
 
 // Tool is a function declaration in the OpenAI-compatible schema that vLLM
@@ -209,6 +213,22 @@ func (c *VLLMClient) Generate(ctx context.Context, prompt string, options ...int
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return "", err
+	}
+	media, err := interfaces.RequestMedia(ctx, params)
+	if err != nil {
+		return "", err
+	}
+	if len(media) > 0 {
+		// The completions endpoint takes text only, so a request with images
+		// goes to the chat endpoint, which does not apply ResponseFormat.
+		if params.ResponseFormat != nil {
+			return "", fmt.Errorf("vllm: ResponseFormat with images: %w", interfaces.ErrContentUnsupported)
+		}
+		return c.chat(ctx, prompt, nil, params)
+	}
+	prompt = interfaces.PromptText(prompt, params)
 
 	// Build prompt with memory context
 	finalPrompt := c.buildPromptWithMemory(ctx, prompt, params)
@@ -295,7 +315,15 @@ func (c *VLLMClient) GenerateWithTools(ctx context.Context, prompt string, tools
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return "", err
+	}
+	return c.chat(ctx, prompt, tools, params)
+}
 
+// chat runs a /v1/chat/completions exchange and runs the tool loop when tools
+// are set. See chatMessages for the messages it sends.
+func (c *VLLMClient) chat(ctx context.Context, prompt string, tools []interfaces.Tool, params *interfaces.GenerateOptions) (string, error) {
 	maxIterations := 2
 	if params.MaxIterations > 0 {
 		maxIterations = params.MaxIterations
@@ -313,11 +341,10 @@ func (c *VLLMClient) GenerateWithTools(ctx context.Context, prompt string, tools
 		})
 	}
 
-	var messages []ChatMessage
-	if params.SystemMessage != "" {
-		messages = append(messages, ChatMessage{Role: "system", Content: params.SystemMessage})
+	messages, err := chatMessages(ctx, prompt, params)
+	if err != nil {
+		return "", err
 	}
-	messages = append(messages, ChatMessage{Role: "user", Content: prompt})
 
 	for iter := 0; iter < maxIterations; iter++ {
 		// Stop between iterations when the caller has gone.

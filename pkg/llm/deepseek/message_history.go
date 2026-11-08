@@ -19,8 +19,11 @@ func newMessageHistoryBuilder(logger logging.Logger) *messageHistoryBuilder {
 	}
 }
 
-// buildMessages builds messages from memory and current prompt
-func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory) []Message {
+// buildMessages builds messages from memory and current prompt.
+//
+// parts are sent with the current prompt and are read only when memory is
+// nil. With memory, each user message carries its own parts.
+func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory, parts []*interfaces.Part) []Message {
 	messages := []Message{}
 
 	// If memory is available, build from memory
@@ -43,10 +46,11 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 	}
 
 	// Add current prompt as user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: prompt,
-	})
+	current := Message{Role: "user", Content: prompt}
+	if memory == nil {
+		current.Parts = parts
+	}
+	messages = append(messages, current)
 
 	return messages
 }
@@ -56,6 +60,9 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) Mes
 	message := Message{
 		Role:    string(msg.Role),
 		Content: msg.Content,
+	}
+	if msg.Role == interfaces.MessageRoleUser {
+		message.Parts = msg.Parts
 	}
 
 	// Handle tool calls in assistant messages

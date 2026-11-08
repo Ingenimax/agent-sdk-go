@@ -14,7 +14,7 @@ func TestBuildMessagesWithoutMemory(t *testing.T) {
 	builder := newMessageHistoryBuilder(logging.New())
 	ctx := context.Background()
 
-	messages := builder.buildMessages(ctx, "test prompt", nil)
+	messages := builder.buildMessages(ctx, "test prompt", nil, nil)
 
 	if len(messages) != 1 {
 		t.Errorf("len(messages) = %v, want 1", len(messages))
@@ -50,7 +50,7 @@ func TestBuildMessagesWithMemory(t *testing.T) {
 		t.Fatalf("Failed to add message: %v", err)
 	}
 
-	messages := builder.buildMessages(ctx, "new prompt", mem)
+	messages := builder.buildMessages(ctx, "new prompt", mem, nil)
 
 	// Should have 3 messages: 2 from memory + 1 new prompt
 	if len(messages) != 3 {
@@ -282,7 +282,7 @@ func TestBuildMessagesWithComplexConversation(t *testing.T) {
 		t.Fatalf("Failed to add message: %v", err)
 	}
 
-	messages := builder.buildMessages(ctx, "What about Boston?", mem)
+	messages := builder.buildMessages(ctx, "What about Boston?", mem, nil)
 
 	// Should have 5 messages: 4 from memory + 1 new prompt
 	if len(messages) != 5 {

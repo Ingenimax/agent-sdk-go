@@ -34,6 +34,10 @@ type Message struct {
 
 	// ToolCalls contains tool call information for assistant messages
 	ToolCalls []ToolCall
+
+	// Parts is the message as content parts, set when a user message carries
+	// media such as images. Content then holds the text parts, joined.
+	Parts []*Part `json:",omitempty"`
 }
 
 // ToolCall represents a tool call made by the assistant

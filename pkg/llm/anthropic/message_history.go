@@ -47,6 +47,7 @@ func (b *messageHistoryBuilder) buildMessages(ctx context.Context, prompt string
 		messages = append(messages, Message{
 			Role:    "user",
 			Content: prompt,
+			Parts:   params.Parts,
 		})
 	}
 
@@ -60,6 +61,7 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *Me
 		return &Message{
 			Role:    "user",
 			Content: msg.Content,
+			Parts:   msg.Parts,
 		}
 
 	case interfaces.MessageRoleAssistant:

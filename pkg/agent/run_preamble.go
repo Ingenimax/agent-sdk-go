@@ -41,28 +41,29 @@ func (a *Agent) applyRunIdentity(ctx context.Context) context.Context {
 // is the whole feature failing quietly. Guardrails now run first, and the
 // guarded text is what gets persisted and sent.
 //
-// Returns the updated context and the guarded input.
-func (a *Agent) beginRun(ctx context.Context, input string) (context.Context, string, error) {
+// Guardrails run on each text part of the content. The stored message keeps
+// the media parts, so later turns still show them to the model.
+//
+// Returns the updated context and the guarded content.
+func (a *Agent) beginRun(ctx context.Context, content *interfaces.Content) (context.Context, *interfaces.Content, error) {
 	ctx = a.applyRunIdentity(ctx)
 
-	if a.guardrails != nil {
-		guarded, err := a.guardrails.ProcessInput(ctx, input)
-		if err != nil {
-			return ctx, "", fmt.Errorf("guardrails error: %w", err)
-		}
-		input = guarded
+	if err := checkRunInput(content); err != nil {
+		return ctx, nil, err
+	}
+
+	content, err := a.guardContent(ctx, content)
+	if err != nil {
+		return ctx, nil, err
 	}
 
 	if a.memory != nil {
-		if err := a.memory.AddMessage(ctx, interfaces.Message{
-			Role:    interfaces.MessageRoleUser,
-			Content: input,
-		}); err != nil {
-			return ctx, "", fmt.Errorf("failed to add user message to memory: %w", err)
+		if err := a.memory.AddMessage(ctx, userMessage(content)); err != nil {
+			return ctx, nil, fmt.Errorf("failed to add user message to memory: %w", err)
 		}
 	}
 
-	return ctx, input, nil
+	return ctx, content, nil
 }
 
 // assembleTools returns the tool set for a run: the agent's own tools plus any

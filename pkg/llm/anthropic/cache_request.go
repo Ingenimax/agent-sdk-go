@@ -68,15 +68,11 @@ func (b *cacheRequestBuilder) BuildMessages(messages []Message) (json.RawMessage
 
 	// Last message gets cache_control
 	lastMsg := messages[len(messages)-1]
+	content := lastMsg.contentBlocks()
+	content[len(content)-1].CacheControl = b.getCacheControl()
 	result[len(messages)-1] = CacheableMessage{
-		Role: lastMsg.Role,
-		Content: []CacheableContent{
-			{
-				Type:         "text",
-				Text:         lastMsg.Content,
-				CacheControl: b.getCacheControl(),
-			},
-		},
+		Role:    lastMsg.Role,
+		Content: content,
 	}
 
 	return json.Marshal(result)
