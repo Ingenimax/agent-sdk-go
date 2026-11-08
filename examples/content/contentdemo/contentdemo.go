@@ -109,7 +109,7 @@ func Part(file string) (*interfaces.Part, error) {
 		return part, nil
 	}
 
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		return nil, err
 	}

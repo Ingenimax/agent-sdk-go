@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -530,15 +531,20 @@ func (c *AnthropicClient) generateInternal(ctx context.Context, prompt string, o
 
 		// Enhance the user prompt with schema information and example
 		// Using best practices from Claude documentation for consistency
-		messages[0].Content = fmt.Sprintf(`%s
-
-You must respond with a valid JSON object that exactly follows this schema:
+		instructions := fmt.Sprintf(`You must respond with a valid JSON object that exactly follows this schema:
 %s
 
 Example output:
 %s
 
-Return only the JSON object, with no additional text or markdown formatting.`, prompt, string(schemaJSON), string(exampleStr))
+Return only the JSON object, with no additional text or markdown formatting.`, string(schemaJSON), string(exampleStr))
+		messages[0].Content = prompt + "\n\n" + instructions
+		// A message with parts sends the parts instead of Content, so the
+		// instructions go in as a text part too. The copy leaves the parts
+		// held by memory or the caller unchanged.
+		if len(messages[0].Parts) > 0 {
+			messages[0].Parts = append(slices.Clone(messages[0].Parts), interfaces.NewPartFromText(instructions))
+		}
 	}
 
 	maxTokens := resolveMaxTokens(params.LLMConfig)
