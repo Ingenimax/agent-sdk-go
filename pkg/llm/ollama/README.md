@@ -183,6 +183,27 @@ if err != nil {
 }
 ```
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(jpeg, "image/jpeg"),
+    interfaces.NewPartFromText("Describe this photo."),
+))
+```
+
+The client sends images inline only, in the request's `images` field. The
+model must accept images, such as `llava`. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/ollama).
+
 ## Environment Variables
 
 You can configure the Ollama client using environment variables:

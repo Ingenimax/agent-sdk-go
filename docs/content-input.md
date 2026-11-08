@@ -14,6 +14,9 @@ The MIME type says what the data is, such as `image/png` or
 `application/pdf`. Build parts with `interfaces.NewPartFromText`,
 `interfaces.NewPartFromBytes`, and `interfaces.NewPartFromURI`.
 
+For a runnable example per provider, see
+[examples/content](../examples/content).
+
 ## Send content to an agent
 
 Pass the content to `RunWithContent`:

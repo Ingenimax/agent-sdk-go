@@ -83,6 +83,28 @@ The OpenAI client provides several option functions for configuring requests:
 - `WithPresencePenalty(float64)` - Reduces repetition of topics
 - `WithStopSequences([]string)` - Specifies sequences where generation should stop
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(pdf, "application/pdf"),
+    interfaces.NewPartFromText("Summarize this report."),
+))
+```
+
+The client sends PNG, JPEG, WebP, and non-animated GIF images, inline or by
+URL, and PDFs inline only. Chat Completions doesn't take a PDF by URL. When
+you set a PDF's `DisplayName`, the client sends it as the file name. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/openai).
+
 ## Integration with Agents
 
 The OpenAI client can be directly used with agents:

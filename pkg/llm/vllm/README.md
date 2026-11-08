@@ -180,6 +180,28 @@ var person Person
 json.Unmarshal([]byte(response), &person)
 ```
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(jpeg, "image/jpeg"),
+    interfaces.NewPartFromText("Describe this photo."),
+))
+```
+
+The client sends images, inline or by URL, through the chat endpoint. When a
+`Generate` request has images, the client uses the chat endpoint instead of
+the completions endpoint. The served model must accept images. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/vllm).
+
 ## Environment Variables
 
 You can configure the vLLM client using environment variables:
