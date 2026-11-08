@@ -24,7 +24,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 📚 **Agent Skills** *(NEW)*: `SKILL.md` capability bundles loaded from disk, with progressive disclosure so a large library stays cheap. [Docs](docs/capabilities.md#skills)
 - 🌙 **Memory Consolidation** *(NEW)*: Distil an idle conversation into durable facts — merges, corrections and generalizations — proposed for review rather than silently written. [Docs](docs/capabilities.md#memory-consolidation)
 - ⚡ **Prompt Caching** *(NEW)*: Capability-aware caching that tells you which providers honor it, instead of silently doing nothing. [Docs](docs/capabilities.md#prompt-caching)
-- **Multimodal Input** *(NEW)*: Send images, PDFs, documents, audio, and video with `RunWithContent`, across OpenAI, Azure OpenAI, Anthropic, Gemini, Bedrock, Ollama, DeepSeek, and vLLM. A provider that can't send a part returns an error instead of dropping it. [Docs](docs/content-input.md)
+- 🖼️ **Multimodal Input** *(NEW)*: Send images, PDFs, documents, audio, and video with `RunWithContent`, across OpenAI, Azure OpenAI, Anthropic, Gemini, Bedrock, Ollama, DeepSeek, and vLLM. A provider that can't send a part returns an error instead of dropping it. [Docs](docs/content-input.md)
 
 ### Enterprise-Ready
 - 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
