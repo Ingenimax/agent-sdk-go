@@ -240,6 +240,10 @@ func (c *AzureOpenAIClient) generateInternal(ctx context.Context, prompt string,
 		option(params)
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
 	if orgID != "" {
@@ -257,7 +261,7 @@ func (c *AzureOpenAIClient) generateInternal(ctx context.Context, prompt string,
 
 	// Add memory messages and current prompt
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 	// Create request - use deployment name as model for Azure OpenAI
 	req := openai.ChatCompletionNewParams{
@@ -519,6 +523,10 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 		}
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return "", err
+	}
+
 	// Set default values only if they're not provided
 	if params.LLMConfig == nil {
 		params.LLMConfig = &interfaces.LLMConfig{
@@ -599,7 +607,7 @@ func (c *AzureOpenAIClient) GenerateWithTools(ctx context.Context, prompt string
 
 	// Add memory messages and current prompt
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 	// Create request - use deployment name as model for Azure OpenAI
 	req := openai.ChatCompletionNewParams{

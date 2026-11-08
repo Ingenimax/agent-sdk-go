@@ -37,6 +37,7 @@ type GenerateOptions struct {
 	Memory              Memory          // Optional memory for storing tool calls and results
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
+	Parts               []*Part         // Current user turn as content parts, replacing the prompt; read only when Memory is nil
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)

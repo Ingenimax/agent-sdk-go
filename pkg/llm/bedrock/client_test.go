@@ -152,7 +152,7 @@ func newTestClient() *Client {
 }
 
 // textOf returns the joined text content of a Converse message, panicking if
-// it isn't a single text block (the shape textMessage/appendAlternating produce).
+// it isn't a single text block (the shape appendAlternating produces for text-only turns).
 func textOf(t *testing.T, m types.Message) string {
 	t.Helper()
 	tb, ok := m.Content[0].(*types.ContentBlockMemberText)
@@ -168,7 +168,7 @@ func TestBuildMessagesAlwaysStartsWithUser(t *testing.T) {
 		{Role: interfaces.MessageRoleAssistant, Content: "orphaned assistant turn"},
 		{Role: interfaces.MessageRoleUser, Content: "hi"},
 	}}
-	messages := c.buildMessages(context.Background(), "follow up", mem)
+	messages := c.buildMessages(context.Background(), "follow up", mem, nil)
 	if messages[0].Role != types.ConversationRoleUser {
 		t.Fatalf("first message role = %v, want user", messages[0].Role)
 	}
@@ -182,7 +182,7 @@ func TestBuildMessagesCoalescesConsecutiveSameRoleTurns(t *testing.T) {
 		{Role: interfaces.MessageRoleUser, Content: "first"},
 		{Role: interfaces.MessageRoleAssistant, Content: "using a tool", ToolCalls: []interfaces.ToolCall{{Name: "search"}}},
 	}}
-	messages := c.buildMessages(context.Background(), "follow up", mem)
+	messages := c.buildMessages(context.Background(), "follow up", mem, nil)
 
 	for i := 1; i < len(messages); i++ {
 		if messages[i].Role == messages[i-1].Role {
@@ -205,7 +205,7 @@ func TestBuildMessagesSkipsEmptyTurns(t *testing.T) {
 		{Role: interfaces.MessageRoleUser, Content: "hi"},
 		{Role: interfaces.MessageRoleAssistant, Content: "hello"},
 	}}
-	messages := c.buildMessages(context.Background(), "how are you", mem)
+	messages := c.buildMessages(context.Background(), "how are you", mem, nil)
 	if len(messages) != 3 {
 		t.Fatalf("len(messages) = %d, want 3, got %+v", len(messages), messages)
 	}

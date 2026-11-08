@@ -331,11 +331,19 @@ response, err := agent.Run(ctx, "What did we discuss yesterday?")
 
 ### 1. Multi-modal Capabilities
 
-Gemini models support vision and audio understanding:
+Gemini models accept images, audio, video, and documents. The Gemini client
+sends every content part as inline data or file data, and the API checks the
+MIME type. See [Content input](content-input.md).
+
+The following example reads a PDF from Cloud Storage, which works on the
+Vertex AI backend. On the Gemini API, upload the file with the Files API and
+pass the URI it returns.
 
 ```go
-// Note: Multi-modal support requires additional implementation
-// for file upload and content handling
+answer, err := agent.RunWithContent(ctx, interfaces.NewContentFromParts([]*interfaces.Part{
+    interfaces.NewPartFromURI("gs://bucket/report.pdf", "application/pdf"),
+    interfaces.NewPartFromText("Summarize this report."),
+}, interfaces.MessageRoleUser))
 ```
 
 ### 2. Safety and Content Filtering

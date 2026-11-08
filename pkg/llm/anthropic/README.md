@@ -265,6 +265,28 @@ agentInstance, err := agent.NewAgent(
 response, err := agentInstance.Run(ctx, "Tell me about quantum computing")
 ```
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(pdf, "application/pdf"),
+    interfaces.NewPartFromText("Summarize this report."),
+))
+```
+
+The client sends JPEG, PNG, GIF, and WebP images and PDFs, inline or by URL.
+On Bedrock and Vertex AI, it sends them inline only, because both refuse URL
+sources. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/anthropic).
+
 ## Configuration Options
 
 Options for configuring the Anthropic client:

@@ -29,6 +29,10 @@ func (c *OpenAIClient) GenerateStream(
 		option(params)
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
 	// Check for organization ID in context
 	defaultOrgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
@@ -59,7 +63,7 @@ func (c *OpenAIClient) GenerateStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 		// Create stream request
 		streamParams := openai.ChatCompletionNewParams{
@@ -273,6 +277,10 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 		option(params)
 	}
 
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
 	// Set default max iterations if not provided
 	maxIterations := params.MaxIterations
 	if maxIterations == 0 {
@@ -326,7 +334,7 @@ func (c *OpenAIClient) GenerateWithToolsStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{

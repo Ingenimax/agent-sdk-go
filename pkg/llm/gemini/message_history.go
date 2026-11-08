@@ -45,10 +45,7 @@ func (b *messageHistoryBuilder) buildContents(ctx context.Context, prompt string
 		}
 	} else {
 		// Only append current user message when memory is nil
-		contents = append(contents, &genai.Content{
-			Role:  "user",
-			Parts: []*genai.Part{{Text: prompt}},
-		})
+		contents = append(contents, userContent(prompt, params.Parts))
 	}
 
 	return contents
@@ -58,10 +55,7 @@ func (b *messageHistoryBuilder) buildContents(ctx context.Context, prompt string
 func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *genai.Content {
 	switch msg.Role {
 	case interfaces.MessageRoleUser:
-		return &genai.Content{
-			Role:  "user",
-			Parts: []*genai.Part{{Text: msg.Content}},
-		}
+		return userContent(msg.Content, msg.Parts)
 
 	case interfaces.MessageRoleAssistant:
 		if len(msg.ToolCalls) > 0 {
@@ -136,4 +130,27 @@ func (b *messageHistoryBuilder) convertMemoryMessage(msg interfaces.Message) *ge
 	}
 
 	return nil
+}
+
+// userContent builds a user turn: the text alone for a message without parts,
+// or one Gemini part per part, in order. Every part is sent as is: the API
+// itself checks the MIME type, the size, and the URI, which must be a Files
+// API URI, a gs:// URI (Vertex AI only), or a public HTTPS URL (not on
+// Gemini 2.0 models).
+func userContent(text string, parts []*interfaces.Part) *genai.Content {
+	if len(parts) == 0 {
+		return &genai.Content{Role: "user", Parts: []*genai.Part{{Text: text}}}
+	}
+	geminiParts := make([]*genai.Part, 0, len(parts))
+	for _, p := range parts {
+		switch {
+		case p.InlineData != nil:
+			geminiParts = append(geminiParts, genai.NewPartFromBytes(p.InlineData.Data, p.InlineData.MIMEType))
+		case p.FileData != nil:
+			geminiParts = append(geminiParts, genai.NewPartFromURI(p.FileData.FileURI, p.FileData.MIMEType))
+		default:
+			geminiParts = append(geminiParts, genai.NewPartFromText(p.Text))
+		}
+	}
+	return &genai.Content{Role: "user", Parts: geminiParts}
 }

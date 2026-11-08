@@ -165,7 +165,11 @@ func (c *Client) GenerateDetailed(ctx context.Context, prompt string, options ..
 		option(params)
 	}
 
-	messages := c.buildMessages(ctx, prompt, params.Memory)
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
+	messages := c.buildMessages(ctx, prompt, params.Memory, params.Parts)
 	input := &bedrockruntime.ConverseInput{
 		ModelId:         aws.String(c.Model),
 		Messages:        messages,
@@ -217,7 +221,11 @@ func (c *Client) GenerateWithToolsDetailed(ctx context.Context, prompt string, t
 		maxIterations = DefaultMaxIterations
 	}
 
-	messages := c.buildMessages(ctx, prompt, params.Memory)
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
+	messages := c.buildMessages(ctx, prompt, params.Memory, params.Parts)
 	system := systemBlocks(withResponseFormatInstructions(params.SystemMessage, params.ResponseFormat))
 	inference := inferenceConfig(params.LLMConfig)
 	toolConfig := convertTools(tools)
@@ -365,7 +373,7 @@ func defaultParams() *interfaces.GenerateOptions {
 // naively appending survivors can produce consecutive same-role turns (or a
 // leading assistant turn); appendAlternating coalesces those into a single
 // turn, and any leading non-user turn is trimmed, to keep the sequence valid.
-func (c *Client) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory) []types.Message {
+func (c *Client) buildMessages(ctx context.Context, prompt string, memory interfaces.Memory, parts []*interfaces.Part) []types.Message {
 	var messages []types.Message
 	if memory != nil {
 		history, err := memory.GetMessages(ctx)
@@ -377,7 +385,9 @@ func (c *Client) buildMessages(ctx context.Context, prompt string, memory interf
 		for _, m := range history {
 			switch m.Role {
 			case interfaces.MessageRoleUser:
-				if m.Content != "" {
+				if len(m.Parts) > 0 {
+					messages = appendAlternating(messages, types.ConversationRoleUser, "", partBlocks(m.Parts)...)
+				} else if m.Content != "" {
 					messages = appendAlternating(messages, types.ConversationRoleUser, m.Content)
 				}
 			case interfaces.MessageRoleAssistant:
@@ -387,7 +397,14 @@ func (c *Client) buildMessages(ctx context.Context, prompt string, memory interf
 			}
 		}
 	}
-	messages = appendAlternating(messages, types.ConversationRoleUser, prompt)
+
+	// parts replace the prompt only without memory. With memory, they are
+	// already on the last user message.
+	if memory == nil && len(parts) > 0 {
+		messages = appendAlternating(messages, types.ConversationRoleUser, "", partBlocks(parts)...)
+	} else {
+		messages = appendAlternating(messages, types.ConversationRoleUser, prompt)
+	}
 
 	for len(messages) > 0 && messages[0].Role != types.ConversationRoleUser {
 		messages = messages[1:]
@@ -395,26 +412,29 @@ func (c *Client) buildMessages(ctx context.Context, prompt string, memory interf
 	return messages
 }
 
-// appendAlternating appends a text turn, merging it into the previous turn
-// when both share the same role so the sequence keeps Converse's required
-// strict user/assistant alternation instead of producing two consecutive
-// same-role messages.
-func appendAlternating(messages []types.Message, role types.ConversationRole, text string) []types.Message {
-	if len(messages) > 0 && messages[len(messages)-1].Role == role {
-		last := messages[len(messages)-1]
-		if tb, ok := last.Content[0].(*types.ContentBlockMemberText); ok {
-			tb.Value += "\n\n" + text
-			return messages
+// appendAlternating appends a turn of text followed by any extra blocks,
+// merging it into the previous turn when both share the same role so the
+// sequence keeps Converse's required strict user/assistant alternation
+// instead of producing two consecutive same-role messages. Merged text joins
+// the previous turn's leading text block.
+func appendAlternating(messages []types.Message, role types.ConversationRole, text string, extra ...types.ContentBlock) []types.Message {
+	if n := len(messages); n > 0 && messages[n-1].Role == role {
+		last := &messages[n-1]
+		if text != "" {
+			if tb, ok := last.Content[0].(*types.ContentBlockMemberText); ok {
+				tb.Value += "\n\n" + text
+			} else {
+				last.Content = append([]types.ContentBlock{&types.ContentBlockMemberText{Value: text}}, last.Content...)
+			}
 		}
+		last.Content = append(last.Content, extra...)
+		return messages
 	}
-	return append(messages, textMessage(role, text))
-}
-
-func textMessage(role types.ConversationRole, text string) types.Message {
-	return types.Message{
-		Role:    role,
-		Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: text}},
+	var blocks []types.ContentBlock
+	if text != "" {
+		blocks = append(blocks, &types.ContentBlockMemberText{Value: text})
 	}
+	return append(messages, types.Message{Role: role, Content: append(blocks, extra...)})
 }
 
 // withResponseFormatInstructions appends structured-output instructions to

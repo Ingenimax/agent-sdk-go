@@ -12,6 +12,7 @@ type CacheControl struct {
 type CacheableContent struct {
 	Type         string        `json:"type"`                    // "text", "image", "tool_use", etc.
 	Text         string        `json:"text,omitempty"`          // For text content
+	Source       *ImageSource  `json:"source,omitempty"`        // For image content
 	CacheControl *CacheControl `json:"cache_control,omitempty"` // Optional cache control
 }
 

@@ -55,6 +55,10 @@ func (c *DeepSeekClient) GenerateStream(
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+	prompt = interfaces.PromptText(prompt, params)
 
 	// Check for organization ID in context
 	defaultOrgID := "default"
@@ -91,7 +95,7 @@ func (c *DeepSeekClient) GenerateStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 		// Create stream request
 		req := ChatCompletionRequest{
@@ -297,6 +301,10 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+	prompt = interfaces.PromptText(prompt, params)
 
 	// Set default max iterations if not provided
 	maxIterations := params.MaxIterations
@@ -342,7 +350,7 @@ func (c *DeepSeekClient) GenerateWithToolsStream(
 
 		// Build messages using unified builder
 		builder := newMessageHistoryBuilder(c.logger)
-		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+		messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 		// Send initial message start event
 		eventChan <- interfaces.StreamEvent{

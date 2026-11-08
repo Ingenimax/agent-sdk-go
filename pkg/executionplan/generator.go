@@ -3,6 +3,7 @@ package executionplan
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
@@ -28,6 +29,13 @@ func NewGenerator(llm interfaces.LLM, tools []interfaces.Tool, systemPrompt stri
 
 // GenerateExecutionPlan generates an execution plan based on the user input
 func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*ExecutionPlan, error) {
+	return g.GenerateExecutionPlanWithMedia(ctx, input, nil)
+}
+
+// GenerateExecutionPlanWithMedia generates an execution plan from the user
+// input and the input's media parts, such as images. The planner sees the
+// media first, then the planning prompt.
+func (g *Generator) GenerateExecutionPlanWithMedia(ctx context.Context, input string, media []*interfaces.Part) (*ExecutionPlan, error) {
 	// If no tools are available, return an error
 	if len(g.tools) == 0 {
 		return nil, fmt.Errorf("no tools available for execution planning")
@@ -40,6 +48,10 @@ func (g *Generator) GenerateExecutionPlan(ctx context.Context, input string) (*E
 	generateOptions := []interfaces.GenerateOption{}
 	if g.systemPrompt != "" {
 		generateOptions = append(generateOptions, openai.WithSystemMessage(g.systemPrompt))
+	}
+	if len(media) > 0 {
+		parts := append(slices.Clone(media), interfaces.NewPartFromText(prompt))
+		generateOptions = append(generateOptions, interfaces.WithParts(parts...))
 	}
 
 	// Generate the execution plan using the LLM

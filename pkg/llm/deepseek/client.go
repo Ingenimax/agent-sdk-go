@@ -129,6 +129,10 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+
+	// Parts, when set on a user message, are sent as the content list in
+	// place of Content.
+	Parts []*interfaces.Part `json:"-"`
 }
 
 // ToolCall represents a tool call in the response
@@ -208,6 +212,10 @@ func (c *DeepSeekClient) GenerateDetailed(ctx context.Context, prompt string, op
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+	prompt = interfaces.PromptText(prompt, params)
 
 	// Get organization ID from context if available
 	orgID, _ := multitenancy.GetOrgID(ctx)
@@ -226,7 +234,7 @@ func (c *DeepSeekClient) GenerateDetailed(ctx context.Context, prompt string, op
 
 	// Build messages using message history builder
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 	// Create request
 	req := ChatCompletionRequest{
@@ -399,6 +407,10 @@ func (c *DeepSeekClient) GenerateWithToolsDetailed(ctx context.Context, prompt s
 	for _, option := range options {
 		option(params)
 	}
+	if err := checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+	prompt = interfaces.PromptText(prompt, params)
 
 	// Set default max iterations if not provided
 	maxIterations := params.MaxIterations
@@ -426,7 +438,7 @@ func (c *DeepSeekClient) GenerateWithToolsDetailed(ctx context.Context, prompt s
 
 	// Build messages using message history builder
 	builder := newMessageHistoryBuilder(c.logger)
-	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory)...)
+	messages = append(messages, builder.buildMessages(ctx, prompt, params.Memory, params.Parts)...)
 
 	// Track total token usage across all iterations
 	var totalInputTokens, totalOutputTokens int

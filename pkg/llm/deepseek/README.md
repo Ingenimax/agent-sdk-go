@@ -211,6 +211,27 @@ response2, err := client.Generate(
 // Response will be: "Your name is Alice"
 ```
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(png, "image/png"),
+    interfaces.NewPartFromText("What trend does this chart show?"),
+))
+```
+
+The client sends JPEG, PNG, GIF, and WebP images, inline or by URL. Only the
+`deepseek-flash` model accepts images. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/deepseek).
+
 ## Agent Framework Integration
 
 ### Via Configuration (YAML)

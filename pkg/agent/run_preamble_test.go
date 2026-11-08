@@ -61,13 +61,13 @@ func TestBeginRunPersistsGuardedInput(t *testing.T) {
 
 	ctx := preambleCtx()
 
-	ctx, guarded, err := agent.beginRun(ctx, "my password is SECRET")
+	ctx, guarded, err := agent.beginRun(ctx, textContent("my password is SECRET"))
 	if err != nil {
 		t.Fatalf("beginRun() error = %v", err)
 	}
 
-	if strings.Contains(guarded, "SECRET") {
-		t.Errorf("beginRun returned unguarded input %q", guarded)
+	if strings.Contains(guarded.Text(), "SECRET") {
+		t.Errorf("beginRun returned unguarded input %q", guarded.Text())
 	}
 
 	msgs, err := mem.GetMessages(ctx)
@@ -107,7 +107,7 @@ func TestBeginRunDoesNotPersistOnGuardrailFailure(t *testing.T) {
 
 	ctx := preambleCtx()
 
-	if _, _, err := agent.beginRun(ctx, "anything"); err == nil {
+	if _, _, err := agent.beginRun(ctx, textContent("anything")); err == nil {
 		t.Fatal("beginRun() returned no error when guardrails rejected the input")
 	}
 
@@ -136,12 +136,12 @@ func TestBeginRunWithoutGuardrailsPersistsInput(t *testing.T) {
 
 	ctx := preambleCtx()
 
-	ctx, guarded, err := agent.beginRun(ctx, "hello")
+	ctx, guarded, err := agent.beginRun(ctx, textContent("hello"))
 	if err != nil {
 		t.Fatalf("beginRun() error = %v", err)
 	}
-	if guarded != "hello" {
-		t.Errorf("beginRun() = %q, want %q", guarded, "hello")
+	if guarded.Text() != "hello" {
+		t.Errorf("beginRun() = %q, want %q", guarded.Text(), "hello")
 	}
 
 	msgs, _ := mem.GetMessages(ctx)

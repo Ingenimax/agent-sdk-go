@@ -171,6 +171,28 @@ eventChan, err := client.GenerateWithToolsStream(
 )
 ```
 
+## Content input
+
+You can send images and other media with the text. With an agent, call
+`RunWithContent`. With the client directly, pass the parts with
+`interfaces.WithParts`; the parts replace the prompt, so include the text as a
+text part:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromBytes(png, "image/png"),
+    interfaces.NewPartFromText("What trend does this chart show?"),
+))
+```
+
+The client sends PNG, JPEG, WebP, and GIF images, inline or by URL. It
+refuses PDFs: Azure documents PDF parts only for its v1 API, and this client
+calls the deployments API. The client returns an error that wraps
+`interfaces.ErrContentUnsupported` for any other part.
+
+See [Content input](../../../docs/content-input.md) and the
+[runnable example](../../../examples/content/azureopenai).
+
 ## Configuration Options
 
 The Azure OpenAI client provides several configuration options:

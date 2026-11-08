@@ -43,6 +43,10 @@ func (c *AnthropicClient) GenerateStream(
 		option(params)
 	}
 
+	if err := c.checkContent(ctx, params); err != nil {
+		return nil, err
+	}
+
 	// Check for organization ID in context, and add a default one if missing
 	defaultOrgID := "default"
 	if id, err := multitenancy.GetOrgID(ctx); err == nil {
@@ -316,6 +320,10 @@ func (c *AnthropicClient) GenerateWithToolsStream(
 		if opt != nil {
 			opt(params)
 		}
+	}
+
+	if err := c.checkContent(ctx, params); err != nil {
+		return nil, err
 	}
 
 	// Check for organization ID in context, and add a default one if missing

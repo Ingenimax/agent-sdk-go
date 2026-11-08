@@ -24,6 +24,7 @@ A powerful Go framework for building production-ready AI agents that seamlessly 
 - 📚 **Agent Skills** *(NEW)*: `SKILL.md` capability bundles loaded from disk, with progressive disclosure so a large library stays cheap. [Docs](docs/capabilities.md#skills)
 - 🌙 **Memory Consolidation** *(NEW)*: Distil an idle conversation into durable facts — merges, corrections and generalizations — proposed for review rather than silently written. [Docs](docs/capabilities.md#memory-consolidation)
 - ⚡ **Prompt Caching** *(NEW)*: Capability-aware caching that tells you which providers honor it, instead of silently doing nothing. [Docs](docs/capabilities.md#prompt-caching)
+- 🖼️ **Multimodal Input** *(NEW)*: Send images, PDFs, documents, audio, and video with `RunWithContent`, across OpenAI, Azure OpenAI, Anthropic, Gemini, Bedrock, Ollama, DeepSeek, and vLLM. A provider that can't send a part returns an error instead of dropping it. [Docs](docs/content-input.md)
 
 ### Enterprise-Ready
 - 🚦 **Built-in Guardrails**: Comprehensive safety mechanisms for responsible AI deployment
@@ -250,6 +251,38 @@ func createTools(logger logging.Logger) *tools.Registry {
 	return toolRegistry
 }
 ```
+
+### Sending Images, PDFs, and Other Media
+
+`RunWithContent` sends an agent an ordered list of parts: text, data sent with
+the request, or a file the provider fetches by URI. `Run(ctx, input)` is the
+same call with one text part.
+
+```go
+pdf, err := os.ReadFile("report.pdf")
+if err != nil {
+    return err
+}
+
+answer, err := myAgent.RunWithContent(ctx, interfaces.NewContentFromParts([]*interfaces.Part{
+    interfaces.NewPartFromBytes(pdf, "application/pdf"),
+    interfaces.NewPartFromText("Summarize this report."),
+}, interfaces.MessageRoleUser))
+```
+
+To call an LLM client directly, pass the parts with `interfaces.WithParts`:
+
+```go
+resp, err := client.Generate(ctx, "", interfaces.WithParts(
+    interfaces.NewPartFromURI("https://example.com/photo.jpg", "image/jpeg"),
+    interfaces.NewPartFromText("Describe this photo."),
+))
+```
+
+With memory, the agent stores the parts with the message, so later turns can
+refer to them. See [docs/content-input.md](docs/content-input.md) for what
+each provider sends, and [examples/content](examples/content) for a runnable
+example per provider.
 
 ### Token Usage Tracking
 
@@ -925,6 +958,7 @@ The SDK follows a modular architecture with these key components:
   - 128K token context window
   - Reasoning mode with up to 64K output tokens
   - Full feature parity with OpenAI/Anthropic
+  - Image input on `deepseek-flash`
 - **Google Vertex AI**: Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash, and Gemini Pro Vision
   - Advanced reasoning modes (none, minimal, comprehensive)
   - Multimodal capabilities with vision models
