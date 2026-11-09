@@ -126,8 +126,8 @@ func TestGenerateRetryGivesUpAfterMaxAttempts(t *testing.T) {
 }
 
 func TestGenerateWithToolsRunsToolsAndSummarizes(t *testing.T) {
-	lookup := &scriptedTool{name: "lookup", result: "42"}
-	broken := &scriptedTool{name: "broken", err: errors.New("boom")}
+	lookup := scriptedTool("lookup", "42", nil)
+	broken := scriptedTool("broken", "", errors.New("boom"))
 	api := newFakeAPI(t,
 		okReply(
 			textPart("checking"),
@@ -146,8 +146,8 @@ func TestGenerateWithToolsRunsToolsAndSummarizes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "final  answer", got)
 
-	assert.Equal(t, []string{`{"q":"x"}`, `{"q":"x"}`}, lookup.calls())
-	assert.Equal(t, []string{`{"q":"y"}`}, broken.calls())
+	assert.Equal(t, []string{`{"q":"x"}`, `{"q":"x"}`}, lookup.Calls())
+	assert.Equal(t, []string{`{"q":"y"}`}, broken.Calls())
 
 	reqs := api.requests()
 	require.Len(t, reqs, 3)
@@ -194,7 +194,7 @@ func TestGenerateWithToolsRunsToolsAndSummarizes(t *testing.T) {
 
 func TestGenerateWithToolsReturnsTextWithoutCalls(t *testing.T) {
 	api := newFakeAPI(t, okReply(textPart("plain"), textPart("answer")))
-	got, err := api.client(t).GenerateWithTools(t.Context(), "hi", []interfaces.Tool{&scriptedTool{name: "t"}})
+	got, err := api.client(t).GenerateWithTools(t.Context(), "hi", []interfaces.Tool{scriptedTool("t", "", nil)})
 	require.NoError(t, err)
 	assert.Equal(t, "plain answer", got)
 	assert.Len(t, api.requests(), 1)
@@ -202,14 +202,14 @@ func TestGenerateWithToolsReturnsTextWithoutCalls(t *testing.T) {
 
 func TestGenerateWithToolsDisableFinalSummary(t *testing.T) {
 	api := newFakeAPI(t, okReply(textPart("partial"), callPart("t", map[string]any{"q": "1"})))
-	tool := &scriptedTool{name: "t", result: "r"}
+	tool := scriptedTool("t", "r", nil)
 
 	got, err := api.client(t).GenerateWithTools(t.Context(), "hi", []interfaces.Tool{tool},
 		interfaces.WithMaxIterations(1), interfaces.WithDisableFinalSummary(true))
 	require.NoError(t, err)
 	assert.Equal(t, "partial", got)
 	assert.Len(t, api.requests(), 1)
-	assert.Len(t, tool.calls(), 1)
+	assert.Len(t, tool.Calls(), 1)
 }
 
 func TestGenerateWithToolsSendsGenerationConfig(t *testing.T) {
@@ -217,7 +217,7 @@ func TestGenerateWithToolsSendsGenerationConfig(t *testing.T) {
 		okReply(callPart("t", map[string]any{"q": "1"})),
 		okReply(textPart(`{"a":1}`)),
 	)
-	tool := &scriptedTool{name: "t", result: "r"}
+	tool := scriptedTool("t", "r", nil)
 	setConfig := func(o *interfaces.GenerateOptions) {
 		o.LLMConfig = &interfaces.LLMConfig{Temperature: 0.2, TopP: 0.4, StopSequences: []string{"STOP"}}
 	}
@@ -255,7 +255,7 @@ func TestGenerateWithToolsErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := newFakeAPI(t, tt.replies...)
-			tool := &scriptedTool{name: "t", result: "r"}
+			tool := scriptedTool("t", "r", nil)
 			_, err := api.client(t).GenerateWithTools(t.Context(), "hi", []interfaces.Tool{tool}, interfaces.WithMaxIterations(1))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
@@ -311,8 +311,10 @@ func TestApplyMaxOutputTokens(t *testing.T) {
 			want:      &genai.GenerationConfig{TopK: ptr(float32(3)), MaxOutputTokens: 7},
 		},
 		{
-			name:   "clamped to int32",
-			config: &interfaces.LLMConfig{MaxTokens: math.MaxInt32 + 10},
+			name: "clamped to int32",
+			// math.MaxInt exceeds int32 on 64-bit platforms and equals it on
+			// 32-bit ones, so the expected value holds on both.
+			config: &interfaces.LLMConfig{MaxTokens: math.MaxInt},
 			want:   &genai.GenerationConfig{MaxOutputTokens: math.MaxInt32},
 		},
 		{name: "zero request keeps nil", config: &interfaces.LLMConfig{}},

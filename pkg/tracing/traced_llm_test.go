@@ -6,53 +6,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
-// fakeLLM is a non-streaming LLM with a fixed reply.
-type fakeLLM struct {
-	response  string
-	err       error
-	usage     *interfaces.TokenUsage
-	toolCalls []ToolCall
+// plainLLM hides the streaming methods of the LLM it wraps, so it is not an
+// interfaces.StreamingLLM. testutil.FakeLLM always implements streaming.
+type plainLLM struct{ interfaces.LLM }
+
+// newLLM returns a non-streaming LLM named "fake" that answers with response
+// or fails with err. Detailed responses report the model "resp-model".
+func newLLM(response string, err error) plainLLM {
+	return plainLLM{&testutil.FakeLLM{DefaultResponse: response, Err: err, ModelName: "resp-model"}}
 }
 
-func (f *fakeLLM) Generate(context.Context, string, ...interfaces.GenerateOption) (string, error) {
-	return f.response, f.err
-}
-
-func (f *fakeLLM) GenerateWithTools(ctx context.Context, _ string, _ []interfaces.Tool, _ ...interfaces.GenerateOption) (string, error) {
-	for _, tc := range f.toolCalls {
-		AddToolCallToContext(ctx, tc)
-	}
-	return f.response, f.err
-}
-
-func (f *fakeLLM) GenerateDetailed(context.Context, string, ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return &interfaces.LLMResponse{Content: f.response, Model: "resp-model", Usage: f.usage}, nil
-}
-
-func (f *fakeLLM) GenerateWithToolsDetailed(ctx context.Context, prompt string, _ []interfaces.Tool, opts ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return f.GenerateDetailed(ctx, prompt, opts...)
-}
-
-func (f *fakeLLM) Name() string            { return "fake" }
-func (f *fakeLLM) SupportsStreaming() bool { return false }
-
-// modelLLM adds GetModel to fakeLLM.
+// modelLLM adds GetModel to a non-streaming LLM.
 type modelLLM struct {
-	fakeLLM
+	plainLLM
 	model string
 }
 
-func (m *modelLLM) GetModel() string { return m.model }
+func (m modelLLM) GetModel() string { return m.model }
 
 // streamLLM is a streaming LLM that replays fixed events.
 type streamLLM struct {
-	fakeLLM
+	testutil.FakeLLM
 	events   []interfaces.StreamEvent
 	startErr error
 }
@@ -79,14 +57,7 @@ func (s *streamLLM) replay() (<-chan interfaces.StreamEvent, error) {
 	return ch, nil
 }
 
-// namedTool is a minimal tool with a name.
-type namedTool string
-
-func (n namedTool) Name() string                                    { return string(n) }
-func (n namedTool) Description() string                             { return "" }
-func (n namedTool) Run(context.Context, string) (string, error)     { return "", nil }
-func (n namedTool) Parameters() map[string]interfaces.ParameterSpec { return nil }
-func (n namedTool) Execute(context.Context, string) (string, error) { return "", nil }
+func namedTool(name string) interfaces.Tool { return &testutil.FakeTool{ToolName: name} }
 
 func TestTracedLLM_Generate(t *testing.T) {
 	tests := []struct {
@@ -95,30 +66,30 @@ func TestTracedLLM_Generate(t *testing.T) {
 		wantModel string
 		wantErr   bool
 	}{
-		{name: "model from GetModel", llm: &modelLLM{fakeLLM: fakeLLM{response: "out"}, model: "m1"}, wantModel: "m1"},
-		{name: "empty model falls back to name", llm: &modelLLM{fakeLLM: fakeLLM{response: "out"}}, wantModel: "fake"},
-		{name: "no GetModel", llm: &fakeLLM{response: "out"}, wantModel: "unknown"},
-		{name: "error", llm: &fakeLLM{err: errors.New("down")}, wantModel: "unknown", wantErr: true},
+		{name: "model from GetModel", llm: modelLLM{plainLLM: newLLM("out", nil), model: "m1"}, wantModel: "m1"},
+		{name: "empty model falls back to name", llm: modelLLM{plainLLM: newLLM("out", nil)}, wantModel: "fake"},
+		{name: "no GetModel", llm: newLLM("out", nil), wantModel: "unknown"},
+		{name: "error", llm: newLLM("", errors.New("down")), wantModel: "unknown", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := &recordingTracer{}
+			rec := &testutil.FakeTracer{}
 			got, err := NewTracedLLM(tt.llm, rec).Generate(context.Background(), "prompt")
-			span := rec.only(t)
-			if span.name != "llm.generate" || !span.ended {
-				t.Errorf("span = %q ended=%v", span.name, span.ended)
+			name, span := onlySpan(t, rec)
+			if name != "llm.generate" || !span.Ended() {
+				t.Errorf("span = %q ended=%v", name, span.Ended())
 			}
-			if span.attrs["model"] != tt.wantModel {
-				t.Errorf("model = %v, want %q", span.attrs["model"], tt.wantModel)
+			if attr(span, "model") != tt.wantModel {
+				t.Errorf("model = %v, want %q", attr(span, "model"), tt.wantModel)
 			}
-			if span.attrs["prompt.length"] != 6 || span.attrs["prompt.hash"] != hashString("prompt") {
-				t.Errorf("prompt attrs = %v", span.attrs)
+			if attr(span, "prompt.length") != 6 || attr(span, "prompt.hash") != hashString("prompt") {
+				t.Errorf("prompt attrs = %v, %v", attr(span, "prompt.length"), attr(span, "prompt.hash"))
 			}
 			if tt.wantErr {
-				if err == nil || len(span.errs) != 1 {
-					t.Errorf("err = %v, recorded = %v", err, span.errs)
+				if err == nil || len(span.Errors()) != 1 {
+					t.Errorf("err = %v, recorded = %v", err, span.Errors())
 				}
-				if _, ok := span.attrs["response.length"]; ok {
+				if hasAttr(span, "response.length") {
 					t.Error("response attributes set on error")
 				}
 				return
@@ -126,10 +97,10 @@ func TestTracedLLM_Generate(t *testing.T) {
 			if err != nil || got != "out" {
 				t.Fatalf("Generate = %q, %v", got, err)
 			}
-			if span.attrs["response.length"] != 3 {
-				t.Errorf("response.length = %v", span.attrs["response.length"])
+			if attr(span, "response.length") != 3 {
+				t.Errorf("response.length = %v", attr(span, "response.length"))
 			}
-			if _, ok := span.attrs["prompt.content"]; ok {
+			if hasAttr(span, "prompt.content") {
 				t.Error("content included with a tracer that does not opt in")
 			}
 		})
@@ -141,7 +112,7 @@ func TestTracedLLM_IncludesContentWhenEnabled(t *testing.T) {
 	for name, tr := range map[string]interfaces.Tracer{"direct": tracer, "adapter": NewOTELTracerAdapter(tracer)} {
 		t.Run(name, func(t *testing.T) {
 			exporter.Reset()
-			if _, err := NewTracedLLM(&fakeLLM{response: "secret answer"}, tr).Generate(context.Background(), "secret prompt"); err != nil {
+			if _, err := NewTracedLLM(newLLM("secret answer", nil), tr).Generate(context.Background(), "secret prompt"); err != nil {
 				t.Fatalf("Generate: %v", err)
 			}
 			assertAttrs(t, attrMap(spanByName(t, exporter, "llm.generate").Attributes), map[string]string{
@@ -156,21 +127,22 @@ func TestTracedLLM_GenerateWithTools(t *testing.T) {
 	tools := []interfaces.Tool{namedTool("a"), namedTool("b")}
 
 	t.Run("records tool names", func(t *testing.T) {
-		rec := &recordingTracer{}
-		out, err := NewTracedLLM(&fakeLLM{response: "ok"}, rec).GenerateWithTools(context.Background(), "p", tools)
+		rec := &testutil.FakeTracer{}
+		out, err := NewTracedLLM(newLLM("ok", nil), rec).GenerateWithTools(context.Background(), "p", tools)
 		if err != nil || out != "ok" {
 			t.Fatalf("GenerateWithTools = %q, %v", out, err)
 		}
-		span := rec.only(t)
-		if span.name != "llm.generate_with_tools" || span.attrs["tools"] != "a,b" || span.attrs["tools.count"] != 2 {
-			t.Errorf("span %q attrs = %v", span.name, span.attrs)
+		name, span := onlySpan(t, rec)
+		if name != "llm.generate_with_tools" || attr(span, "tools") != "a,b" || attr(span, "tools.count") != 2 {
+			t.Errorf("span %q tools = %v count = %v", name, attr(span, "tools"), attr(span, "tools.count"))
 		}
 	})
 
 	t.Run("error is recorded", func(t *testing.T) {
-		rec := &recordingTracer{}
-		_, err := NewTracedLLM(&fakeLLM{err: errors.New("nope")}, rec).GenerateWithTools(context.Background(), "p", nil)
-		if err == nil || len(rec.only(t).errs) != 1 {
+		rec := &testutil.FakeTracer{}
+		_, err := NewTracedLLM(newLLM("", errors.New("nope")), rec).GenerateWithTools(context.Background(), "p", nil)
+		_, span := onlySpan(t, rec)
+		if err == nil || len(span.Errors()) != 1 {
 			t.Errorf("err = %v", err)
 		}
 	})
@@ -178,14 +150,15 @@ func TestTracedLLM_GenerateWithTools(t *testing.T) {
 	tests := []struct {
 		name           string
 		includeContent bool
-		llm            *fakeLLM
+		response       string
+		err            error
 		useAdapter     bool
 		wantOutput     string
 		wantError      string
 	}{
-		{name: "redacted output", llm: &fakeLLM{response: "real"}, wantOutput: "<redacted>"},
-		{name: "content included through adapter", includeContent: true, useAdapter: true, llm: &fakeLLM{response: "real"}, wantOutput: "real"},
-		{name: "error with empty content", includeContent: true, llm: &fakeLLM{err: errors.New("broke")}, wantOutput: "<error>", wantError: "broke"},
+		{name: "redacted output", response: "real", wantOutput: "<redacted>"},
+		{name: "content included through adapter", includeContent: true, useAdapter: true, response: "real", wantOutput: "real"},
+		{name: "error with empty content", includeContent: true, err: errors.New("broke"), wantOutput: "<error>", wantError: "broke"},
 	}
 	for _, tt := range tests {
 		t.Run("generation span: "+tt.name, func(t *testing.T) {
@@ -194,8 +167,12 @@ func TestTracedLLM_GenerateWithTools(t *testing.T) {
 			if tt.useAdapter {
 				tr = NewOTELTracerAdapter(tracer)
 			}
-			tt.llm.toolCalls = []ToolCall{{Name: "a", Arguments: "{}"}}
-			_, _ = NewTracedLLM(tt.llm, tr).GenerateWithTools(context.Background(), "p", tools)
+			// The LLM reports one tool call before it answers or fails.
+			llm := plainLLM{&testutil.FakeLLM{GenerateFunc: func(ctx context.Context, _ string, _ []interfaces.Tool) (string, error) {
+				AddToolCallToContext(ctx, ToolCall{Name: "a", Arguments: "{}"})
+				return tt.response, tt.err
+			}}}
+			_, _ = NewTracedLLM(llm, tr).GenerateWithTools(context.Background(), "p", tools)
 
 			gen := attrMap(spanByName(t, exporter, "llm.generation").Attributes)
 			if !strings.HasPrefix(gen["gen_ai.completion.0.content"], tt.wantOutput) {
@@ -213,14 +190,14 @@ func TestTracedLLM_GenerateWithTools(t *testing.T) {
 }
 
 func TestTracedLLM_PassThrough(t *testing.T) {
-	plain := NewTracedLLM(&fakeLLM{}, noopTracer{}).(*TracedLLM)
+	plain := NewTracedLLM(newLLM("", nil), noopTracer{}).(*TracedLLM)
 	if plain.Name() != "fake" || plain.SupportsStreaming() {
 		t.Errorf("Name/SupportsStreaming not delegated")
 	}
 	if plain.GetModel() != "fake" {
 		t.Errorf("GetModel without model = %q, want provider name", plain.GetModel())
 	}
-	withModel := NewTracedLLM(&modelLLM{model: "m"}, noopTracer{}).(*TracedLLM)
+	withModel := NewTracedLLM(modelLLM{plainLLM: newLLM("", nil), model: "m"}, noopTracer{}).(*TracedLLM)
 	if withModel.GetModel() != "m" {
 		t.Errorf("GetModel = %q", withModel.GetModel())
 	}
@@ -230,7 +207,7 @@ func TestTracedLLM_PassThrough(t *testing.T) {
 }
 
 func TestTracedLLM_StreamRequiresStreamingLLM(t *testing.T) {
-	traced := NewTracedLLM(&fakeLLM{}, noopTracer{}).(*TracedLLM)
+	traced := NewTracedLLM(newLLM("", nil), noopTracer{}).(*TracedLLM)
 	if _, err := traced.GenerateStream(context.Background(), "p"); err == nil {
 		t.Error("GenerateStream: expected an error")
 	}
@@ -263,20 +240,20 @@ func TestTracedLLM_GenerateStream(t *testing.T) {
 
 func TestTracedLLM_GenerateWithToolsStream(t *testing.T) {
 	t.Run("start error ends the span", func(t *testing.T) {
-		rec := &recordingTracer{}
+		rec := &testutil.FakeTracer{}
 		llm := &streamLLM{startErr: errors.New("refused")}
 		_, err := NewTracedLLM(llm, rec).(*TracedLLM).GenerateWithToolsStream(context.Background(), "p", nil)
 		if err == nil {
 			t.Fatal("expected an error")
 		}
-		span := rec.only(t)
-		if !span.ended || len(span.errs) != 1 {
-			t.Errorf("ended=%v errs=%v", span.ended, span.errs)
+		_, span := onlySpan(t, rec)
+		if !span.Ended() || len(span.Errors()) != 1 {
+			t.Errorf("ended=%v errs=%v", span.Ended(), span.Errors())
 		}
 	})
 
 	t.Run("proxies events and records tool names", func(t *testing.T) {
-		rec := &recordingTracer{}
+		rec := &testutil.FakeTracer{}
 		llm := &streamLLM{events: []interfaces.StreamEvent{
 			{Type: interfaces.StreamEventContentDelta, Content: "a"},
 			{Type: interfaces.StreamEventContentDelta, Content: "b"},
@@ -292,11 +269,11 @@ func TestTracedLLM_GenerateWithToolsStream(t *testing.T) {
 		if got != "ab" {
 			t.Errorf("content = %q", got)
 		}
-		span := rec.only(t)
-		if !span.ended || span.attrs["tools"] != "x" || span.attrs["prompt.length"] != 1 {
-			t.Errorf("ended=%v attrs=%v", span.ended, span.attrs)
+		_, span := onlySpan(t, rec)
+		if !span.Ended() || attr(span, "tools") != "x" || attr(span, "prompt.length") != 1 {
+			t.Errorf("ended=%v tools=%v prompt.length=%v", span.Ended(), attr(span, "tools"), attr(span, "prompt.length"))
 		}
-		if _, ok := span.attrs["duration_ms"]; !ok {
+		if !hasAttr(span, "duration_ms") {
 			t.Error("duration_ms not set after the stream finished")
 		}
 	})
@@ -316,14 +293,15 @@ func TestTracedLLM_Detailed(t *testing.T) {
 	}
 	for spanName, call := range calls {
 		t.Run(spanName, func(t *testing.T) {
-			rec := &recordingTracer{}
-			resp, err := call(NewTracedLLM(&modelLLM{fakeLLM: fakeLLM{response: "done", usage: usage}, model: "m"}, rec).(*TracedLLM))
+			rec := &testutil.FakeTracer{}
+			withUsage := plainLLM{&testutil.FakeLLM{DefaultResponse: "done", Usage: usage, ModelName: "resp-model"}}
+			resp, err := call(NewTracedLLM(modelLLM{plainLLM: withUsage, model: "m"}, rec).(*TracedLLM))
 			if err != nil || resp.Content != "done" {
 				t.Fatalf("resp = %+v, err = %v", resp, err)
 			}
-			span := rec.only(t)
-			if span.name != spanName {
-				t.Errorf("span name = %q", span.name)
+			name, span := onlySpan(t, rec)
+			if name != spanName {
+				t.Errorf("span name = %q", name)
 			}
 			want := map[string]any{
 				"model":                  "m",
@@ -335,28 +313,28 @@ func TestTracedLLM_Detailed(t *testing.T) {
 				"usage.reasoning_tokens": 2,
 			}
 			for k, v := range want {
-				if span.attrs[k] != v {
-					t.Errorf("%s = %v, want %v", k, span.attrs[k], v)
+				if attr(span, k) != v {
+					t.Errorf("%s = %v, want %v", k, attr(span, k), v)
 				}
 			}
-			if spanName == "llm.generate_with_tools_detailed" && span.attrs["tools.names"] != "t1,t2" {
-				t.Errorf("tools.names = %v", span.attrs["tools.names"])
+			if spanName == "llm.generate_with_tools_detailed" && attr(span, "tools.names") != "t1,t2" {
+				t.Errorf("tools.names = %v", attr(span, "tools.names"))
 			}
 
-			rec = &recordingTracer{}
-			resp, err = call(NewTracedLLM(&fakeLLM{err: errors.New("fail")}, rec).(*TracedLLM))
+			rec = &testutil.FakeTracer{}
+			resp, err = call(NewTracedLLM(newLLM("", errors.New("fail")), rec).(*TracedLLM))
 			if err == nil || resp != nil {
 				t.Errorf("expected error, got %+v", resp)
 			}
-			if len(rec.only(t).errs) != 1 {
+			if _, span := onlySpan(t, rec); len(span.Errors()) != 1 {
 				t.Error("error not recorded on span")
 			}
 
-			rec = &recordingTracer{}
-			if _, err := call(NewTracedLLM(&fakeLLM{response: "x"}, rec).(*TracedLLM)); err != nil {
+			rec = &testutil.FakeTracer{}
+			if _, err := call(NewTracedLLM(newLLM("x", nil), rec).(*TracedLLM)); err != nil {
 				t.Fatalf("no usage: %v", err)
 			}
-			if _, ok := rec.only(t).attrs["usage.input_tokens"]; ok {
+			if _, span := onlySpan(t, rec); hasAttr(span, "usage.input_tokens") {
 				t.Error("usage attributes set without usage")
 			}
 		})
@@ -365,7 +343,7 @@ func TestTracedLLM_Detailed(t *testing.T) {
 
 func TestTracedLLM_GenerateDetailedIncludesContent(t *testing.T) {
 	tracer, exporter := newTestLangfuseTracer(t, true)
-	if _, err := NewTracedLLM(&fakeLLM{response: "r"}, tracer).GenerateDetailed(context.Background(), "p"); err != nil {
+	if _, err := NewTracedLLM(newLLM("r", nil), tracer).GenerateDetailed(context.Background(), "p"); err != nil {
 		t.Fatalf("GenerateDetailed: %v", err)
 	}
 	assertAttrs(t, attrMap(spanByName(t, exporter, "llm.generate_detailed").Attributes), map[string]string{
@@ -390,7 +368,7 @@ func TestTracedMemory_Operations(t *testing.T) {
 	msg := interfaces.Message{Role: interfaces.MessageRoleAssistant, Content: "hello", ToolCalls: []interfaces.ToolCall{{ID: "1"}}}
 
 	t.Run("success", func(t *testing.T) {
-		rec := &recordingTracer{}
+		rec := &testutil.FakeTracer{}
 		mem := NewTracedMemory(&failingMemory{messages: []interfaces.Message{msg, msg}}, rec)
 		ctx := context.Background()
 
@@ -405,29 +383,27 @@ func TestTracedMemory_Operations(t *testing.T) {
 			t.Fatalf("Clear: %v", err)
 		}
 
-		if len(rec.spans) != 3 {
-			t.Fatalf("spans = %d, want 3", len(rec.spans))
+		names, spans := rec.SpanNames(), rec.Spans()
+		if strings.Join(names, ",") != "memory.add_message,memory.get_messages,memory.clear" {
+			t.Fatalf("spans = %v", names)
 		}
-		add, get, clr := rec.spans[0], rec.spans[1], rec.spans[2]
-		if add.name != "memory.add_message" || add.attrs["message.role"] != "assistant" ||
-			add.attrs["message.content_length"] != 5 || add.attrs["message.tool_calls_count"] != 1 {
-			t.Errorf("add span %q attrs = %v", add.name, add.attrs)
+		add, get := spans[0], spans[1]
+		if attr(add, "message.role") != "assistant" || attr(add, "message.content_length") != 5 || attr(add, "message.tool_calls_count") != 1 {
+			t.Errorf("add span role=%v length=%v tool calls=%v",
+				attr(add, "message.role"), attr(add, "message.content_length"), attr(add, "message.tool_calls_count"))
 		}
-		if get.name != "memory.get_messages" || get.attrs["messages.count"] != 2 {
-			t.Errorf("get span %q attrs = %v", get.name, get.attrs)
+		if attr(get, "messages.count") != 2 {
+			t.Errorf("messages.count = %v", attr(get, "messages.count"))
 		}
-		if clr.name != "memory.clear" {
-			t.Errorf("clear span = %q", clr.name)
-		}
-		for _, s := range rec.spans {
-			if !s.ended || len(s.errs) != 0 {
-				t.Errorf("span %q ended=%v errs=%v", s.name, s.ended, s.errs)
+		for i, s := range spans {
+			if !s.Ended() || len(s.Errors()) != 0 {
+				t.Errorf("span %q ended=%v errs=%v", names[i], s.Ended(), s.Errors())
 			}
 		}
 	})
 
 	t.Run("errors are recorded", func(t *testing.T) {
-		rec := &recordingTracer{}
+		rec := &testutil.FakeTracer{}
 		boom := errors.New("boom")
 		mem := NewTracedMemory(&failingMemory{err: boom}, rec)
 		ctx := context.Background()
@@ -441,15 +417,19 @@ func TestTracedMemory_Operations(t *testing.T) {
 		if err := mem.Clear(ctx); !errors.Is(err, boom) {
 			t.Errorf("Clear = %v", err)
 		}
-		for _, s := range rec.spans {
-			if len(s.errs) != 1 {
-				t.Errorf("span %q errs = %v", s.name, s.errs)
+		names, spans := rec.SpanNames(), rec.Spans()
+		if len(spans) != 3 {
+			t.Fatalf("spans = %v", names)
+		}
+		for i, s := range spans {
+			if len(s.Errors()) != 1 {
+				t.Errorf("span %q errs = %v", names[i], s.Errors())
 			}
 		}
-		if _, ok := rec.spans[1].attrs["messages.count"]; ok {
+		if hasAttr(spans[1], "messages.count") {
 			t.Error("messages.count set on error")
 		}
-		if _, ok := rec.spans[0].attrs["message.tool_calls_count"]; ok {
+		if hasAttr(spans[0], "message.tool_calls_count") {
 			t.Error("tool_calls_count set for a message without tool calls")
 		}
 	})

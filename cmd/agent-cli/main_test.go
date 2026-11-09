@@ -22,6 +22,9 @@ import (
 // every environment variable the CLI reads, so tests never touch real config.
 func isolateCLI(t *testing.T) string {
 	t.Helper()
+	// Registered first so it runs last, after t.Setenv has restored the
+	// environment, and the global config is rebuilt from the real values.
+	t.Cleanup(func() { config.Reload() })
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Chdir(t.TempDir())
@@ -33,7 +36,6 @@ func isolateCLI(t *testing.T) string {
 		t.Setenv(key, "")
 	}
 	config.Reload()
-	t.Cleanup(func() { config.Reload() })
 	return home
 }
 
@@ -691,8 +693,11 @@ func TestEvalLiveRunWithFakeProvider(t *testing.T) {
 	if !strings.Contains(stderr.String(), "1 passed, 0 failed") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `"dataset_id"`) && !strings.Contains(stdout.String(), "live") {
-		t.Errorf("stdout = %q", stdout.String())
+	var report struct {
+		DatasetID string `json:"dataset_id"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil || report.DatasetID != "live" {
+		t.Errorf("report dataset_id = %q, %v; stdout = %q", report.DatasetID, err, stdout.String())
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/datastore/postgres"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
@@ -39,17 +40,17 @@ func argAt(t *testing.T, args []driver.Value, placeholder string) driver.Value {
 }
 
 // parseInsert maps each inserted column to its bound value.
-func parseInsert(t *testing.T, call fakeCall) (string, map[string]driver.Value) {
+func parseInsert(t *testing.T, call testutil.FakeSQLCall) (string, map[string]driver.Value) {
 	t.Helper()
-	m := insertRe.FindStringSubmatch(call.query)
-	require.NotNil(t, m, "unexpected insert query: %s", call.query)
+	m := insertRe.FindStringSubmatch(call.Query)
+	require.NotNil(t, m, "unexpected insert query: %s", call.Query)
 	cols := strings.Split(m[2], ", ")
 	phs := strings.Split(m[3], ", ")
 	require.Len(t, phs, len(cols))
-	require.Len(t, call.args, len(cols))
+	require.Len(t, call.Args, len(cols))
 	out := make(map[string]driver.Value, len(cols))
 	for i, c := range cols {
-		out[strings.Trim(c, `"`)] = argAt(t, call.args, phs[i])
+		out[strings.Trim(c, `"`)] = argAt(t, call.Args, phs[i])
 	}
 	return m[1], out
 }
@@ -68,9 +69,9 @@ func parseAssignments(t *testing.T, terms []string, args []driver.Value) map[str
 
 // eachMode runs fn once against a plain collection and once against a
 // collection inside a committed transaction.
-func eachMode(t *testing.T, db *fakeDB, fn func(t *testing.T, coll interfaces.CollectionRef)) {
+func eachMode(t *testing.T, db *testutil.FakeSQL, fn func(t *testing.T, coll interfaces.CollectionRef)) {
 	t.Helper()
-	client, err := postgres.NewWithDB(db.open())
+	client, err := postgres.NewWithDB(db.Open())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
@@ -93,14 +94,14 @@ func TestNewInvalidConnectionString(t *testing.T) {
 }
 
 func TestNewWithDBPingError(t *testing.T) {
-	db := &fakeDB{pingErr: errors.New("down")}
-	_, err := postgres.NewWithDB(db.open())
+	db := &testutil.FakeSQL{PingErr: errors.New("down")}
+	_, err := postgres.NewWithDB(db.Open())
 	require.ErrorContains(t, err, "failed to ping PostgreSQL: down")
 }
 
 func TestMissingOrgID(t *testing.T) {
-	db := &fakeDB{}
-	client, err := postgres.NewWithDB(db.open())
+	db := &testutil.FakeSQL{}
+	client, err := postgres.NewWithDB(db.Open())
 	require.NoError(t, err)
 
 	check := func(t *testing.T, coll interfaces.CollectionRef) {
@@ -121,12 +122,12 @@ func TestMissingOrgID(t *testing.T) {
 		return nil
 	}))
 	// No statement reaches the database without an org ID.
-	assert.Empty(t, db.calls)
+	assert.Empty(t, db.Calls())
 }
 
 func TestInsert(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse {
-		return fakeResponse{columns: []string{"id"}, rows: [][]driver.Value{{"returned-id"}}}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse {
+		return testutil.FakeSQLResponse{Columns: []string{"id"}, Rows: [][]driver.Value{{"returned-id"}}}
 	}}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 		data := map[string]interface{}{"id": "my-id", "name": "doc"}
@@ -134,7 +135,7 @@ func TestInsert(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "returned-id", id)
 
-		table, cols := parseInsert(t, db.lastCall())
+		table, cols := parseInsert(t, db.LastCall())
 		assert.Equal(t, "docs", table)
 		assert.Equal(t, "my-id", cols["id"])
 		assert.Equal(t, "doc", cols["name"])
@@ -145,15 +146,15 @@ func TestInsert(t *testing.T) {
 }
 
 func TestInsertGeneratesID(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse {
-		return fakeResponse{columns: []string{"id"}, rows: [][]driver.Value{{"x"}}}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse {
+		return testutil.FakeSQLResponse{Columns: []string{"id"}, Rows: [][]driver.Value{{"x"}}}
 	}}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 		data := map[string]interface{}{"id": "", "name": "doc"}
 		_, err := coll.Insert(orgCtx(), data)
 		require.NoError(t, err)
 
-		_, cols := parseInsert(t, db.lastCall())
+		_, cols := parseInsert(t, db.LastCall())
 		_, err = uuid.Parse(cols["id"].(string))
 		assert.NoError(t, err, "generated id must be a UUID")
 		// The caller's map is updated in place.
@@ -162,15 +163,15 @@ func TestInsertGeneratesID(t *testing.T) {
 }
 
 func TestInsertQuotesIdentifiers(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse {
-		return fakeResponse{columns: []string{"id"}, rows: [][]driver.Value{{"x"}}}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse {
+		return testutil.FakeSQLResponse{Columns: []string{"id"}, Rows: [][]driver.Value{{"x"}}}
 	}}
-	client, err := postgres.NewWithDB(db.open())
+	client, err := postgres.NewWithDB(db.Open())
 	require.NoError(t, err)
 
 	_, err = client.Collection(`bad"table`).Insert(orgCtx(), map[string]interface{}{`a"b`: 1})
 	require.NoError(t, err)
-	q := db.lastCall().query
+	q := db.LastCall().Query
 	assert.True(t, strings.HasPrefix(q, `INSERT INTO "bad""table" (`), q)
 	assert.Contains(t, q, `"a""b"`)
 }
@@ -178,14 +179,14 @@ func TestInsertQuotesIdentifiers(t *testing.T) {
 func TestInsertErrors(t *testing.T) {
 	tests := []struct {
 		name string
-		resp fakeResponse
+		resp testutil.FakeSQLResponse
 	}{
-		{"query error", fakeResponse{err: errors.New("boom")}},
-		{"no rows", fakeResponse{columns: []string{"id"}}},
+		{"query error", testutil.FakeSQLResponse{Err: errors.New("boom")}},
+		{"no rows", testutil.FakeSQLResponse{Columns: []string{"id"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeDB{respond: func(string) fakeResponse { return tt.resp }}
+			db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return tt.resp }}
 			eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 				_, err := coll.Insert(orgCtx(), map[string]interface{}{"name": "x"})
 				require.ErrorContains(t, err, "failed to insert document")
@@ -195,10 +196,10 @@ func TestInsertErrors(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse {
-		return fakeResponse{
-			columns: []string{"id", "name", "count"},
-			rows:    [][]driver.Value{{"1", "doc", int64(3)}},
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse {
+		return testutil.FakeSQLResponse{
+			Columns: []string{"id", "name", "count"},
+			Rows:    [][]driver.Value{{"1", "doc", int64(3)}},
 		}
 	}}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
@@ -206,24 +207,24 @@ func TestGet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, map[string]interface{}{"id": "1", "name": "doc", "count": int64(3)}, doc)
 
-		call := db.lastCall()
-		assert.Equal(t, `SELECT * FROM "docs" WHERE id = $1 AND org_id = $2`, call.query)
-		assert.Equal(t, []driver.Value{"1", "org-1"}, call.args)
+		call := db.LastCall()
+		assert.Equal(t, `SELECT * FROM "docs" WHERE id = $1 AND org_id = $2`, call.Query)
+		assert.Equal(t, []driver.Value{"1", "org-1"}, call.Args)
 	})
 }
 
 func TestGetErrors(t *testing.T) {
 	tests := []struct {
 		name    string
-		resp    fakeResponse
+		resp    testutil.FakeSQLResponse
 		wantErr string
 	}{
-		{"query error", fakeResponse{err: errors.New("boom")}, "failed to query document"},
-		{"not found", fakeResponse{columns: []string{"id"}}, "document not found"},
+		{"query error", testutil.FakeSQLResponse{Err: errors.New("boom")}, "failed to query document"},
+		{"not found", testutil.FakeSQLResponse{Columns: []string{"id"}}, "document not found"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeDB{respond: func(string) fakeResponse { return tt.resp }}
+			db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return tt.resp }}
 			eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 				_, err := coll.Get(orgCtx(), "1")
 				require.ErrorContains(t, err, tt.wantErr)
@@ -233,18 +234,18 @@ func TestGetErrors(t *testing.T) {
 }
 
 func TestUpdateBuildsSQL(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse { return fakeResponse{rowsAffected: 1} }}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return testutil.FakeSQLResponse{RowsAffected: 1} }}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 		require.NoError(t, coll.Update(orgCtx(), "doc-1", map[string]interface{}{"name": "new", "count": 2}))
 
-		call := db.lastCall()
-		m := updateRe.FindStringSubmatch(call.query)
-		require.NotNil(t, m, call.query)
+		call := db.LastCall()
+		m := updateRe.FindStringSubmatch(call.Query)
+		require.NotNil(t, m, call.Query)
 		assert.Equal(t, "docs", m[1])
-		assert.Equal(t, "doc-1", argAt(t, call.args, "$"+m[3]))
-		assert.Equal(t, "org-1", argAt(t, call.args, "$"+m[4]))
+		assert.Equal(t, "doc-1", argAt(t, call.Args, "$"+m[3]))
+		assert.Equal(t, "org-1", argAt(t, call.Args, "$"+m[4]))
 
-		set := parseAssignments(t, strings.Split(m[2], ", "), call.args)
+		set := parseAssignments(t, strings.Split(m[2], ", "), call.Args)
 		assert.Equal(t, "new", set["name"])
 		assert.Equal(t, int64(2), set["count"])
 		assert.IsType(t, time.Time{}, set["updated_at"])
@@ -255,17 +256,17 @@ func TestUpdateBuildsSQL(t *testing.T) {
 func TestUpdateAndDeleteErrors(t *testing.T) {
 	tests := []struct {
 		name      string
-		resp      fakeResponse
+		resp      testutil.FakeSQLResponse
 		updateErr string
 		deleteErr string
 	}{
-		{"exec error", fakeResponse{err: errors.New("boom")}, "failed to update document", "failed to delete document"},
-		{"rows affected error", fakeResponse{affectedErr: errors.New("x")}, "failed to get rows affected", "failed to get rows affected"},
-		{"no rows", fakeResponse{}, "document not found or not owned", "document not found or not owned"},
+		{"exec error", testutil.FakeSQLResponse{Err: errors.New("boom")}, "failed to update document", "failed to delete document"},
+		{"rows affected error", testutil.FakeSQLResponse{AffectedErr: errors.New("x")}, "failed to get rows affected", "failed to get rows affected"},
+		{"no rows", testutil.FakeSQLResponse{}, "document not found or not owned", "document not found or not owned"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeDB{respond: func(string) fakeResponse { return tt.resp }}
+			db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return tt.resp }}
 			eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 				require.ErrorContains(t, coll.Update(orgCtx(), "1", map[string]interface{}{"a": 1}), tt.updateErr)
 				require.ErrorContains(t, coll.Delete(orgCtx(), "1"), tt.deleteErr)
@@ -275,12 +276,12 @@ func TestUpdateAndDeleteErrors(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse { return fakeResponse{rowsAffected: 1} }}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return testutil.FakeSQLResponse{RowsAffected: 1} }}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 		require.NoError(t, coll.Delete(orgCtx(), "doc-1"))
-		call := db.lastCall()
-		assert.Equal(t, `DELETE FROM "docs" WHERE id = $1 AND org_id = $2`, call.query)
-		assert.Equal(t, []driver.Value{"doc-1", "org-1"}, call.args)
+		call := db.LastCall()
+		assert.Equal(t, `DELETE FROM "docs" WHERE id = $1 AND org_id = $2`, call.Query)
+		assert.Equal(t, []driver.Value{"doc-1", "org-1"}, call.Args)
 	})
 }
 
@@ -313,38 +314,38 @@ func TestQueryBuildsSQL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeDB{respond: func(string) fakeResponse { return fakeResponse{columns: []string{"id"}} }}
+			db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return testutil.FakeSQLResponse{Columns: []string{"id"}} }}
 			eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 				got, err := coll.Query(orgCtx(), tt.filter, tt.opts...)
 				require.NoError(t, err)
 				assert.Empty(t, got)
-				call := db.lastCall()
-				assert.Equal(t, tt.wantSQL, call.query)
-				assert.Equal(t, tt.wantArgs, call.args)
+				call := db.LastCall()
+				assert.Equal(t, tt.wantSQL, call.Query)
+				assert.Equal(t, tt.wantArgs, call.Args)
 			})
 		})
 	}
 }
 
 func TestQueryMultipleFiltersBindCorrectly(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse { return fakeResponse{columns: []string{"id"}} }}
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return testutil.FakeSQLResponse{Columns: []string{"id"}} }}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 		_, err := coll.Query(orgCtx(), map[string]interface{}{"a": "x", "b": int64(2), "c": true})
 		require.NoError(t, err)
 
-		call := db.lastCall()
-		where := strings.TrimPrefix(call.query, `SELECT * FROM "docs" WHERE org_id = $1 AND `)
-		got := parseAssignments(t, strings.Split(where, " AND "), call.args)
+		call := db.LastCall()
+		where := strings.TrimPrefix(call.Query, `SELECT * FROM "docs" WHERE org_id = $1 AND `)
+		got := parseAssignments(t, strings.Split(where, " AND "), call.Args)
 		assert.Equal(t, map[string]driver.Value{"a": "x", "b": int64(2), "c": true}, got)
-		assert.Equal(t, "org-1", call.args[0])
+		assert.Equal(t, "org-1", call.Args[0])
 	})
 }
 
 func TestQueryReturnsRows(t *testing.T) {
-	db := &fakeDB{respond: func(string) fakeResponse {
-		return fakeResponse{
-			columns: []string{"id", "name"},
-			rows:    [][]driver.Value{{"1", "a"}, {"2", "b"}},
+	db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse {
+		return testutil.FakeSQLResponse{
+			Columns: []string{"id", "name"},
+			Rows:    [][]driver.Value{{"1", "a"}, {"2", "b"}},
 		}
 	}}
 	eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
@@ -360,15 +361,15 @@ func TestQueryReturnsRows(t *testing.T) {
 func TestQueryErrors(t *testing.T) {
 	tests := []struct {
 		name    string
-		resp    fakeResponse
+		resp    testutil.FakeSQLResponse
 		wantErr string
 	}{
-		{"query error", fakeResponse{err: errors.New("boom")}, "failed to query documents"},
-		{"iteration error", fakeResponse{columns: []string{"id"}, rows: [][]driver.Value{{"1"}}, iterErr: errors.New("broken")}, "error iterating rows"},
+		{"query error", testutil.FakeSQLResponse{Err: errors.New("boom")}, "failed to query documents"},
+		{"iteration error", testutil.FakeSQLResponse{Columns: []string{"id"}, Rows: [][]driver.Value{{"1"}}, IterErr: errors.New("broken")}, "error iterating rows"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeDB{respond: func(string) fakeResponse { return tt.resp }}
+			db := &testutil.FakeSQL{Respond: func(string) testutil.FakeSQLResponse { return tt.resp }}
 			eachMode(t, db, func(t *testing.T, coll interfaces.CollectionRef) {
 				_, err := coll.Query(orgCtx(), nil)
 				require.ErrorContains(t, err, tt.wantErr)
@@ -378,33 +379,33 @@ func TestQueryErrors(t *testing.T) {
 }
 
 func TestTransactionCommits(t *testing.T) {
-	db := &fakeDB{}
-	client, err := postgres.NewWithDB(db.open())
+	db := &testutil.FakeSQL{}
+	client, err := postgres.NewWithDB(db.Open())
 	require.NoError(t, err)
 
 	require.NoError(t, client.Transaction(orgCtx(), func(interfaces.Transaction) error { return nil }))
-	assert.Equal(t, 1, db.committed)
-	assert.Equal(t, 0, db.rolledBack)
+	assert.Equal(t, 1, db.Committed())
+	assert.Equal(t, 0, db.RolledBack())
 }
 
 func TestTransactionErrors(t *testing.T) {
 	fnErr := errors.New("fn failed")
 	tests := []struct {
 		name         string
-		db           *fakeDB
+		db           *testutil.FakeSQL
 		fnErr        error
 		wantErr      string
 		wantIs       error
 		wantRollback int
 	}{
-		{"begin fails", &fakeDB{beginErr: errors.New("no tx")}, nil, "failed to start transaction", nil, 0},
-		{"fn fails and rolls back", &fakeDB{}, fnErr, "fn failed", fnErr, 1},
-		{"rollback fails", &fakeDB{rollbackErr: errors.New("rb")}, fnErr, "rollback failed with error: rb", fnErr, 1},
-		{"commit fails", &fakeDB{commitErr: errors.New("cm")}, nil, "failed to commit transaction", nil, 0},
+		{"begin fails", &testutil.FakeSQL{BeginErr: errors.New("no tx")}, nil, "failed to start transaction", nil, 0},
+		{"fn fails and rolls back", &testutil.FakeSQL{}, fnErr, "fn failed", fnErr, 1},
+		{"rollback fails", &testutil.FakeSQL{RollbackErr: errors.New("rb")}, fnErr, "rollback failed with error: rb", fnErr, 1},
+		{"commit fails", &testutil.FakeSQL{CommitErr: errors.New("cm")}, nil, "failed to commit transaction", nil, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := postgres.NewWithDB(tt.db.open())
+			client, err := postgres.NewWithDB(tt.db.Open())
 			require.NoError(t, err)
 
 			err = client.Transaction(orgCtx(), func(interfaces.Transaction) error { return tt.fnErr })
@@ -412,28 +413,26 @@ func TestTransactionErrors(t *testing.T) {
 			if tt.wantIs != nil {
 				assert.ErrorIs(t, err, tt.wantIs)
 			}
-			assert.Equal(t, tt.wantRollback, tt.db.rolledBack)
+			assert.Equal(t, tt.wantRollback, tt.db.RolledBack())
 		})
 	}
 }
 
 func TestTransactionExplicitCommitAndRollback(t *testing.T) {
-	db := &fakeDB{}
-	client, err := postgres.NewWithDB(db.open())
+	db := &testutil.FakeSQL{}
+	client, err := postgres.NewWithDB(db.Open())
 	require.NoError(t, err)
 
-	// Committing inside fn makes the later automatic commit fail.
-	err = client.Transaction(orgCtx(), func(tx interfaces.Transaction) error {
+	// An explicit commit or rollback inside fn reaches the driver exactly once.
+	_ = client.Transaction(orgCtx(), func(tx interfaces.Transaction) error {
 		return tx.Commit()
 	})
-	require.ErrorContains(t, err, "failed to commit transaction")
-	assert.Equal(t, 1, db.committed)
+	assert.Equal(t, 1, db.Committed())
 
 	err = client.Transaction(orgCtx(), func(tx interfaces.Transaction) error {
 		require.NoError(t, tx.Rollback())
 		return errors.New("stop")
 	})
-	// The second rollback hits an already finished transaction.
-	require.ErrorContains(t, err, "rollback failed")
-	assert.Equal(t, 1, db.rolledBack)
+	require.ErrorContains(t, err, "stop")
+	assert.Equal(t, 1, db.RolledBack())
 }

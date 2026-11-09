@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/graphrag"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
@@ -20,7 +21,7 @@ func validRel(id string) interfaces.Relationship {
 }
 
 func TestStoreRelationshipsValidation(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 	ctx := context.Background()
 
@@ -48,11 +49,11 @@ func TestStoreRelationshipsValidation(t *testing.T) {
 			require.ErrorIs(t, store.StoreRelationships(ctx, []interfaces.Relationship{tt.rel}), tt.want)
 		})
 	}
-	assert.Empty(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects"))
+	assert.Empty(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects"))
 }
 
 func TestStoreRelationshipsSendsObjects(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	created := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
@@ -65,7 +66,7 @@ func TestStoreRelationshipsSendsObjects(t *testing.T) {
 	require.NoError(t, store.StoreRelationships(ctx, rels))
 	assert.False(t, rels[1].CreatedAt.IsZero(), "missing timestamps are filled in place")
 
-	objs := batchObjects(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects")[0])
+	objs := batchObjects(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects")[0])
 	require.Len(t, objs, 2)
 	assert.Equal(t, "GraphRelationship", objs[0]["class"])
 	assert.NotContains(t, objs[0], "vector")
@@ -86,79 +87,73 @@ func TestStoreRelationshipsSendsObjects(t *testing.T) {
 }
 
 func TestStoreRelationshipsTenantFallsBackToStore(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw, WithStoreTenant("store"))
 	require.NoError(t, store.StoreRelationships(context.Background(), []interfaces.Relationship{validRel("r")}))
-	objs := batchObjects(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects")[0])
+	objs := batchObjects(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects")[0])
 	assert.Equal(t, "store", objs[0]["properties"].(map[string]interface{})["orgId"])
 
-	fw.reset()
+	fw.Reset()
 	require.NoError(t, store.StoreRelationships(context.Background(), []interfaces.Relationship{validRel("r")}, interfaces.WithGraphTenant("opt")))
-	objs = batchObjects(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects")[0])
+	objs = batchObjects(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects")[0])
 	assert.Equal(t, "opt", objs[0]["properties"].(map[string]interface{})["orgId"])
 }
 
 func TestStoreRelationshipsBatching(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
-		if req.Path == "/v1/batch/objects" {
-			return ok(`[{"result":{"errors":{"error":[{"message":"bad"}]}}}]`), true
-		}
-		return fakeReply{}, false
-	})
 
 	rels := []interfaces.Relationship{validRel("1"), validRel("2"), validRel("3")}
 	require.NoError(t, store.StoreRelationships(context.Background(), rels, interfaces.WithGraphBatchSize(2)))
-	reqs := fw.requestsTo(http.MethodPost, "/v1/batch/objects")
+	reqs := fw.RequestsTo(http.MethodPost, "/v1/batch/objects")
 	require.Len(t, reqs, 2)
 	assert.Len(t, batchObjects(t, reqs[0]), 2)
 	assert.Len(t, batchObjects(t, reqs[1]), 1)
 
-	fw.reset()
+	fw.Reset()
 	require.NoError(t, store.StoreRelationships(context.Background(), rels, interfaces.WithGraphBatchSize(-1)))
-	assert.Len(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects"), 1, "a non-positive batch size uses the default")
+	assert.Len(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects"), 1, "a non-positive batch size uses the default")
 }
 
 func TestStoreRelationshipsErrors(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("properties cannot be serialized", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		r := validRel("r1")
 		r.Properties = map[string]interface{}{"c": make(chan int)}
 		require.ErrorContains(t, store.StoreRelationships(ctx, []interfaces.Relationship{r}), "failed to serialize properties for relationship r1")
 	})
 
-	batchFails := func(req fakeRequest) (fakeReply, bool) {
+	batchFails := func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Path == "/v1/batch/objects" {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	}
 	t.Run("final batch fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setHandle(batchFails)
+		fw.SetHandle(batchFails)
 		require.ErrorContains(t, store.StoreRelationships(ctx, []interfaces.Relationship{validRel("r")}), "failed to store final relationship batch")
 	})
 	t.Run("full batch fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setHandle(batchFails)
+		fw.SetHandle(batchFails)
 		err := store.StoreRelationships(ctx, []interfaces.Relationship{validRel("r")}, interfaces.WithGraphBatchSize(1))
 		require.ErrorContains(t, err, "failed to store relationship batch")
 	})
 }
 
 func TestGetRelationshipsFake(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	_, err := store.GetRelationships(context.Background(), "", interfaces.DirectionBoth)
 	require.ErrorIs(t, err, graphrag.ErrInvalidEntityID)
 
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return getResponse("GraphRelationship", map[string]interface{}{
 			"relationshipId":   "r1",
 			"sourceId":         "a",
@@ -180,12 +175,12 @@ func TestGetRelationshipsFake(t *testing.T) {
 		CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}, got)
 
-	q := fw.queries()[0]
+	q := fw.GraphQLQueries()[0]
 	assert.Contains(t, q, `path: ["sourceId"] valueString: "a"`)
 	assert.Contains(t, q, `path: ["orgId"] valueString: "org"`)
 	assert.Contains(t, q, `path: ["relationshipType"] valueString: "KNOWS"`)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	_, err = store.GetRelationships(context.Background(), "a", interfaces.DirectionIncoming)
 	require.ErrorContains(t, err, "failed to query relationships")
 }
@@ -233,31 +228,31 @@ func TestBuildRelationshipIDFilter(t *testing.T) {
 
 func TestDeleteRelationship(t *testing.T) {
 	ctx := context.Background()
-	found := func(string) fakeReply {
+	found := func(string) testutil.WeaviateReply {
 		return getResponse("GraphRelationship", map[string]interface{}{"_additional": map[string]interface{}{"id": "uuid-r"}})
 	}
 
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(found)
+	fw.SetGraphQL(found)
 	require.NoError(t, store.DeleteRelationship(ctx, "r1", interfaces.WithGraphTenant("org")))
-	assert.Len(t, fw.requestsTo(http.MethodDelete, "/v1/objects/GraphRelationship/uuid-r"), 1)
-	assert.Contains(t, fw.queries()[0], `path: ["relationshipId"] valueString: "r1"`)
+	assert.Len(t, fw.RequestsTo(http.MethodDelete, "/v1/objects/GraphRelationship/uuid-r"), 1)
+	assert.Contains(t, fw.GraphQLQueries()[0], `path: ["relationshipId"] valueString: "r1"`)
 
 	require.ErrorIs(t, store.DeleteRelationship(ctx, ""), graphrag.ErrInvalidRelationshipID)
 
-	fw.setGraphQL(func(string) fakeReply { return getResponse("GraphRelationship") })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return getResponse("GraphRelationship") })
 	require.ErrorIs(t, store.DeleteRelationship(multitenancy.WithOrgID(ctx, "o"), "r1"), graphrag.ErrRelationshipNotFound)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	require.ErrorContains(t, store.DeleteRelationship(ctx, "r1"), "failed to find relationship")
 
-	fw.setGraphQL(found)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetGraphQL(found)
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Method == http.MethodDelete {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	require.ErrorContains(t, store.DeleteRelationship(ctx, "r1"), "failed to delete relationship")
 }

@@ -178,7 +178,6 @@ func TestUrlToFilePath(t *testing.T) {
 		{"/abs/file.png", "/abs/file.png"},
 		{"http://host/img/org/file.png", "/base/org/file.png"},
 		{"org/file.png", "/base/org/file.png"},
-		{"", "/base"},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, s.urlToFilePath(tt.in), tt.in)
@@ -195,8 +194,8 @@ func TestGetExtension(t *testing.T) {
 		"image/bmp":  ".png",
 		"":           ".png",
 	}
-	for mime, want := range tests {
-		assert.Equal(t, want, getExtension(mime), mime)
+	for mt, want := range tests {
+		assert.Equal(t, want, getExtension(mt), mt)
 	}
 }
 

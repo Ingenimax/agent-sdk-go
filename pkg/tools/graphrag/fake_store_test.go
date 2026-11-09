@@ -92,8 +92,3 @@ func (f *fakeStore) ExtractFromText(_ context.Context, text string, llm interfac
 	}
 	return f.extractResult, f.extractErr
 }
-
-// fakeLLM is a placeholder LLM; the extract tool only passes it through.
-type fakeLLM struct {
-	interfaces.LLM
-}

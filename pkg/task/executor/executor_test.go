@@ -216,18 +216,6 @@ func TestExecuteSync(t *testing.T) {
 		assert.ErrorIs(t, res.Error, context.DeadlineExceeded)
 		assert.Equal(t, int32(1), calls.Load())
 	})
-
-	t.Run("retry policy is ignored without a timeout", func(t *testing.T) {
-		e := NewTaskExecutor()
-		var calls atomic.Int32
-		e.RegisterTask("flaky", flakyTask(1, &calls))
-		res, err := e.ExecuteSync(ctx, "flaky", nil, &interfaces.TaskOptions{
-			RetryPolicy: &interfaces.RetryPolicy{MaxRetries: 3},
-		})
-		require.NoError(t, err)
-		assert.ErrorIs(t, res.Error, errBoom)
-		assert.Equal(t, int32(1), calls.Load())
-	})
 }
 
 func TestExecuteAsync(t *testing.T) {

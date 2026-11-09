@@ -3,11 +3,7 @@ package weaviate
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -15,158 +11,28 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/embedding"
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
-// fakeRequest is one HTTP request received by the fake Weaviate server.
-type fakeRequest struct {
-	Method string
-	Path   string
-	Header http.Header
-	Body   []byte
-	// Query is the GraphQL query text for POST /v1/graphql requests.
-	Query string
+func ok(body string) testutil.WeaviateReply {
+	return testutil.WeaviateReply{Status: http.StatusOK, Body: body}
 }
 
-// fakeReply is the status and JSON body the fake server sends back.
-type fakeReply struct {
-	Status int
-	Body   string
-}
-
-func ok(body string) fakeReply { return fakeReply{Status: http.StatusOK, Body: body} }
-
-// fakeWeaviate is an httptest server that speaks enough of the Weaviate
-// REST and GraphQL API for the store to run against it.
-type fakeWeaviate struct {
-	srv *httptest.Server
-
-	mu       sync.Mutex
-	requests []fakeRequest
-	// handle answers requests that the defaults below do not cover.
-	handle func(req fakeRequest) (fakeReply, bool)
-	// graphql answers GraphQL queries. The default returns no data.
-	graphql func(query string) fakeReply
-}
-
-func newFakeWeaviate(t *testing.T) *fakeWeaviate {
-	t.Helper()
-	fw := &fakeWeaviate{}
-	fw.srv = httptest.NewServer(http.HandlerFunc(fw.serve))
-	t.Cleanup(fw.srv.Close)
-	return fw
-}
-
-func (fw *fakeWeaviate) host() string {
-	u, _ := url.Parse(fw.srv.URL)
-	return u.Host
-}
-
-func (fw *fakeWeaviate) setHandle(h func(req fakeRequest) (fakeReply, bool)) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	fw.handle = h
-}
-
-func (fw *fakeWeaviate) setGraphQL(h func(query string) fakeReply) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	fw.graphql = h
-}
-
-func (fw *fakeWeaviate) serve(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	req := fakeRequest{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone(), Body: body}
-	if r.URL.Path == "/v1/graphql" {
-		var q struct {
-			Query string `json:"query"`
-		}
-		_ = json.Unmarshal(body, &q)
-		req.Query = q.Query
-	}
-
-	fw.mu.Lock()
-	fw.requests = append(fw.requests, req)
-	handle, gql := fw.handle, fw.graphql
-	fw.mu.Unlock()
-
-	reply := fw.defaultReply(req, handle, gql)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(reply.Status)
-	_, _ = w.Write([]byte(reply.Body))
-}
-
-func (fw *fakeWeaviate) defaultReply(req fakeRequest, handle func(fakeRequest) (fakeReply, bool), gql func(string) fakeReply) fakeReply {
-	if handle != nil {
-		if reply, handled := handle(req); handled {
-			return reply
-		}
-	}
-	switch {
-	case req.Path == "/v1/meta":
-		return ok(`{"version":"1.25.0"}`)
-	case req.Path == "/v1/graphql":
-		if gql != nil {
-			return gql(req.Query)
-		}
-		return ok(`{"data":{}}`)
-	case req.Method == http.MethodGet && req.Path == "/v1/schema":
-		return ok(`{"classes":[]}`)
-	case req.Method == http.MethodPost && req.Path == "/v1/schema":
-		return ok(`{}`)
-	case req.Method == http.MethodPost && req.Path == "/v1/batch/objects":
-		return ok(`[]`)
-	case req.Method == http.MethodDelete && strings.HasPrefix(req.Path, "/v1/objects/"):
-		return fakeReply{Status: http.StatusNoContent}
-	case req.Method == http.MethodDelete:
-		return ok(`{}`)
-	case req.Method == http.MethodPut || req.Method == http.MethodPatch:
-		return ok(`{}`)
-	}
-	return fakeReply{Status: http.StatusNotFound, Body: `{"error":[{"message":"not found"}]}`}
-}
-
-// requestsTo returns the recorded requests that match method and path.
-func (fw *fakeWeaviate) requestsTo(method, path string) []fakeRequest {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	var out []fakeRequest
-	for _, r := range fw.requests {
-		if r.Method == method && r.Path == path {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// queries returns the GraphQL queries received so far.
-func (fw *fakeWeaviate) queries() []string {
-	var out []string
-	for _, r := range fw.requestsTo(http.MethodPost, "/v1/graphql") {
-		out = append(out, r.Query)
-	}
-	return out
-}
-
-func (fw *fakeWeaviate) reset() {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	fw.requests = nil
-}
+var gqlError = testutil.WeaviateReply{Status: http.StatusInternalServerError, Body: `{"error":[{"message":"boom"}]}`}
 
 // newTestStore creates a store backed by the fake server and clears the
 // requests made while ensuring the schema.
-func newTestStore(t *testing.T, fw *fakeWeaviate, opts ...Option) *Store {
+func newTestStore(t *testing.T, fw *testutil.FakeWeaviate, opts ...Option) *Store {
 	t.Helper()
-	store, err := New(&Config{Host: fw.host(), Scheme: "http"}, append([]Option{WithEmbedder(&MockEmbedder{})}, opts...)...)
+	store, err := New(&Config{Host: fw.Host(), Scheme: "http"}, append([]Option{WithEmbedder(&MockEmbedder{})}, opts...)...)
 	require.NoError(t, err)
-	fw.reset()
+	fw.Reset()
 	return store
 }
 
 // batchObjects decodes the objects of a POST /v1/batch/objects request.
-func batchObjects(t *testing.T, req fakeRequest) []map[string]interface{} {
+func batchObjects(t *testing.T, req testutil.WeaviateRequest) []map[string]interface{} {
 	t.Helper()
 	var body struct {
 		Objects []map[string]interface{} `json:"objects"`
@@ -176,14 +42,14 @@ func batchObjects(t *testing.T, req fakeRequest) []map[string]interface{} {
 }
 
 // getResponse builds a GraphQL Get response for one class.
-func getResponse(className string, items ...map[string]interface{}) fakeReply {
+func getResponse(className string, items ...map[string]interface{}) testutil.WeaviateReply {
 	data := map[string]interface{}{"data": map[string]interface{}{"Get": map[string]interface{}{className: items}}}
 	b, _ := json.Marshal(data)
 	return ok(string(b))
 }
 
 // aggregateResponse builds a GraphQL Aggregate response for one class.
-func aggregateResponse(className string, items ...map[string]interface{}) fakeReply {
+func aggregateResponse(className string, items ...map[string]interface{}) testutil.WeaviateReply {
 	data := map[string]interface{}{"data": map[string]interface{}{"Aggregate": map[string]interface{}{className: items}}}
 	b, _ := json.Marshal(data)
 	return ok(string(b))
@@ -202,7 +68,14 @@ func containsAll(s string, subs ...string) bool {
 	return true
 }
 
-var gqlError = fakeReply{Status: http.StatusInternalServerError, Body: `{"error":[{"message":"boom"}]}`}
+// lastPrompt returns the most recent prompt llm received, or "" if none.
+func lastPrompt(llm *testutil.FakeLLM) string {
+	prompts := llm.Prompts()
+	if len(prompts) == 0 {
+		return ""
+	}
+	return prompts[len(prompts)-1]
+}
 
 // valueFor returns the string value bound to a path in a GraphQL where clause.
 func valueFor(query, path string) (string, bool) {
@@ -245,7 +118,7 @@ func (g *graph) addRel(id, src, tgt, typ string) {
 	})
 }
 
-func (g *graph) answer(query string) fakeReply {
+func (g *graph) answer(query string) testutil.WeaviateReply {
 	switch {
 	case strings.Contains(query, "Get {GraphEntity"):
 		id, hasID := valueFor(query, "entityId")
@@ -330,30 +203,3 @@ func (f *fakeEmbedder) texts() []string {
 	defer f.mu.Unlock()
 	return append([]string(nil), f.embedded...)
 }
-
-// fakeLLM returns a fixed response from Generate.
-type fakeLLM struct {
-	response string
-	err      error
-	prompt   string
-}
-
-func (l *fakeLLM) Generate(_ context.Context, prompt string, _ ...interfaces.GenerateOption) (string, error) {
-	l.prompt = prompt
-	return l.response, l.err
-}
-
-func (l *fakeLLM) GenerateWithTools(context.Context, string, []interfaces.Tool, ...interfaces.GenerateOption) (string, error) {
-	return "", errors.New("not used")
-}
-
-func (l *fakeLLM) GenerateDetailed(context.Context, string, ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return nil, errors.New("not used")
-}
-
-func (l *fakeLLM) GenerateWithToolsDetailed(context.Context, string, []interfaces.Tool, ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return nil, errors.New("not used")
-}
-
-func (l *fakeLLM) Name() string            { return "fake" }
-func (l *fakeLLM) SupportsStreaming() bool { return false }

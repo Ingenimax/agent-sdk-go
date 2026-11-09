@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -25,61 +25,28 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
-// fakeLLM returns a fixed response or error for every call.
-type fakeLLM struct {
-	response string
-	err      error
-	model    string
+// modelLLM adds GetModel, which testutil.FakeLLM lacks, so the server can
+// report a model name.
+type modelLLM struct {
+	testutil.FakeLLM
+	model string
 }
 
-func (f *fakeLLM) Generate(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (string, error) {
-	return f.response, f.err
+func (m *modelLLM) GetModel() string { return m.model }
+
+// newLLM returns an LLM named "fake-llm" that answers every call with response.
+func newLLM(response, model string) *modelLLM {
+	return &modelLLM{FakeLLM: testutil.FakeLLM{ProviderName: "fake-llm", DefaultResponse: response}, model: model}
 }
 
-func (f *fakeLLM) GenerateWithTools(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (string, error) {
-	return f.response, f.err
-}
-
-func (f *fakeLLM) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	if f.err != nil {
-		return nil, f.err
+// echoTool returns a tool named "echo" with one required parameter.
+func echoTool() *testutil.FakeTool {
+	return &testutil.FakeTool{
+		ToolName: "echo",
+		Desc:     "echoes input",
+		Result:   "echoed",
+		Params:   map[string]interfaces.ParameterSpec{"text": {Type: "string", Description: "text", Required: true}},
 	}
-	return &interfaces.LLMResponse{Content: f.response}, nil
-}
-
-func (f *fakeLLM) GenerateWithToolsDetailed(ctx context.Context, prompt string, tools []interfaces.Tool, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
-	return f.GenerateDetailed(ctx, prompt, options...)
-}
-
-func (f *fakeLLM) Name() string            { return "fake-llm" }
-func (f *fakeLLM) SupportsStreaming() bool { return false }
-func (f *fakeLLM) GetModel() string        { return f.model }
-
-// fakeTool records the arguments it was executed with.
-type fakeTool struct {
-	mu   sync.Mutex
-	args []string
-}
-
-func (t *fakeTool) Name() string        { return "echo" }
-func (t *fakeTool) Description() string { return "echoes input" }
-func (t *fakeTool) Run(ctx context.Context, input string) (string, error) {
-	return t.Execute(ctx, input)
-}
-func (t *fakeTool) Parameters() map[string]interfaces.ParameterSpec {
-	return map[string]interfaces.ParameterSpec{"text": {Type: "string", Description: "text", Required: true}}
-}
-func (t *fakeTool) Execute(ctx context.Context, args string) (string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.args = append(t.args, args)
-	return "echoed", nil
-}
-
-func (t *fakeTool) calls() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.args)
 }
 
 // capturedContext holds values read from the context passed to the agent.
@@ -102,7 +69,7 @@ func captureContext(ctx context.Context) capturedContext {
 func newTestAgent(t *testing.T, opts ...agent.Option) *agent.Agent {
 	t.Helper()
 	base := []agent.Option{
-		agent.WithLLM(&fakeLLM{response: "llm says hi", model: "fake-model"}),
+		agent.WithLLM(newLLM("llm says hi", "fake-model")),
 		agent.WithName("test-agent"),
 	}
 	a, err := agent.NewAgent(append(base, opts...)...)
@@ -356,7 +323,7 @@ func TestConvertEventType(t *testing.T) {
 func TestGetMetadata(t *testing.T) {
 	tests := []struct {
 		name       string
-		llm        *fakeLLM
+		llm        *modelLLM
 		opts       []agent.Option
 		wantModel  string
 		wantTools  string
@@ -364,15 +331,15 @@ func TestGetMetadata(t *testing.T) {
 	}{
 		{
 			name:       "model from GetModel",
-			llm:        &fakeLLM{model: "fake-model"},
+			llm:        newLLM("", "fake-model"),
 			wantModel:  "fake-model",
 			wantTools:  "0",
 			wantMemory: "none",
 		},
 		{
 			name:       "empty model falls back to llm name",
-			llm:        &fakeLLM{},
-			opts:       []agent.Option{agent.WithTools(&fakeTool{}), agent.WithMemory(memory.NewConversationBuffer())},
+			llm:        newLLM("", ""),
+			opts:       []agent.Option{agent.WithTools(echoTool()), agent.WithMemory(memory.NewConversationBuffer())},
 			wantModel:  "fake-llm",
 			wantTools:  "1",
 			wantMemory: "conversation",
@@ -432,7 +399,7 @@ func TestCapabilitiesAndHealth(t *testing.T) {
 }
 
 func TestReady(t *testing.T) {
-	unnamed, err := agent.NewAgent(agent.WithLLM(&fakeLLM{}))
+	unnamed, err := agent.NewAgent(agent.WithLLM(newLLM("", "")))
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
@@ -463,8 +430,8 @@ const planJSON = `{"description":"echo plan","steps":[{"toolName":"echo","descri
 
 func TestGenerateExecutionPlan(t *testing.T) {
 	a := newTestAgent(t,
-		agent.WithLLM(&fakeLLM{response: "Here is the plan: " + planJSON}),
-		agent.WithTools(&fakeTool{}),
+		agent.WithLLM(newLLM("Here is the plan: "+planJSON, "")),
+		agent.WithTools(echoTool()),
 	)
 	client := startBufconn(t, NewAgentServer(a))
 
@@ -521,7 +488,7 @@ func storedPlanID(t *testing.T, a *agent.Agent) string {
 func TestApproveExecutionPlan(t *testing.T) {
 	tests := []struct {
 		name          string
-		llm           *fakeLLM
+		llm           *modelLLM
 		req           func(id string) *pb.ApprovalRequest
 		wantResult    string
 		wantErrPrefix string
@@ -529,25 +496,25 @@ func TestApproveExecutionPlan(t *testing.T) {
 	}{
 		{
 			name:          "unknown plan",
-			llm:           &fakeLLM{response: planJSON},
+			llm:           newLLM(planJSON, ""),
 			req:           func(string) *pb.ApprovalRequest { return &pb.ApprovalRequest{PlanId: "missing", Approved: true} },
 			wantErrPrefix: "Plan with ID missing not found",
 		},
 		{
 			name:       "rejected",
-			llm:        &fakeLLM{response: planJSON},
+			llm:        newLLM(planJSON, ""),
 			req:        func(id string) *pb.ApprovalRequest { return &pb.ApprovalRequest{PlanId: id} },
 			wantResult: "Plan rejected by user",
 		},
 		{
 			name:          "approved executes the plan",
-			llm:           &fakeLLM{response: planJSON},
+			llm:           newLLM(planJSON, ""),
 			req:           func(id string) *pb.ApprovalRequest { return &pb.ApprovalRequest{PlanId: id, Approved: true} },
 			wantToolCalls: 1,
 		},
 		{
 			name: "approved with modifications",
-			llm:  &fakeLLM{response: planJSON},
+			llm:  newLLM(planJSON, ""),
 			req: func(id string) *pb.ApprovalRequest {
 				return &pb.ApprovalRequest{PlanId: id, Approved: true, Modifications: "louder"}
 			},
@@ -556,7 +523,7 @@ func TestApproveExecutionPlan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := &fakeTool{}
+			tool := echoTool()
 			a := newTestAgent(t, agent.WithLLM(tt.llm), agent.WithTools(tool))
 			id := storedPlanID(t, a)
 			client := startBufconn(t, NewAgentServer(a))
@@ -577,21 +544,21 @@ func TestApproveExecutionPlan(t *testing.T) {
 			if tt.wantResult != "" && resp.Result != tt.wantResult {
 				t.Errorf("result = %q, want %q", resp.Result, tt.wantResult)
 			}
-			if tool.calls() != tt.wantToolCalls {
-				t.Errorf("tool calls = %d, want %d", tool.calls(), tt.wantToolCalls)
+			if tool.CallCount() != tt.wantToolCalls {
+				t.Errorf("tool calls = %d, want %d", tool.CallCount(), tt.wantToolCalls)
 			}
 		})
 	}
 }
 
 func TestApproveExecutionPlan_ModifyError(t *testing.T) {
-	llm := &fakeLLM{response: planJSON}
-	a := newTestAgent(t, agent.WithLLM(llm), agent.WithTools(&fakeTool{}))
+	llm := newLLM(planJSON, "")
+	a := newTestAgent(t, agent.WithLLM(llm), agent.WithTools(echoTool()))
 	id := storedPlanID(t, a)
 	client := startBufconn(t, NewAgentServer(a))
 
 	// The modification call reuses the LLM, which now returns no JSON.
-	llm.response = "no json here"
+	llm.DefaultResponse = "no json here"
 	resp, err := client.ApproveExecutionPlan(context.Background(), &pb.ApprovalRequest{PlanId: id, Approved: true, Modifications: "x"})
 	if err != nil {
 		t.Fatalf("ApproveExecutionPlan: %v", err)

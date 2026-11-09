@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/grpc/pb"
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
 // fakeAgentService is an in-process gRPC agent service. Run answers
@@ -108,18 +107,6 @@ func newRemoteAgent(t *testing.T, options ...Option) (*Agent, *fakeAgentService)
 	return a, svc
 }
 
-func collectEvents(t *testing.T, events <-chan interfaces.AgentStreamEvent) (content, thinking string, errs []error) {
-	t.Helper()
-	for e := range events {
-		content += e.Content
-		thinking += e.ThinkingStep
-		if e.Error != nil {
-			errs = append(errs, e.Error)
-		}
-	}
-	return content, thinking, errs
-}
-
 func TestRemoteAgentMetadataAndAccessors(t *testing.T) {
 	a, _ := newRemoteAgent(t)
 
@@ -209,7 +196,15 @@ func TestRemoteAgentStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, thinking, errs := collectEvents(t, events)
+	var content, thinking string
+	var errs []error
+	for e := range events {
+		content += e.Content
+		thinking += e.ThinkingStep
+		if e.Error != nil {
+			errs = append(errs, e.Error)
+		}
+	}
 	if content != "remote:stream" || thinking != "hmm" || len(errs) != 0 {
 		t.Errorf("stream = %q / %q / %v", content, thinking, errs)
 	}
@@ -221,7 +216,7 @@ func TestRemoteAgentStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, _, errs = collectEvents(t, events)
+	content, errs = drainStream(t, events)
 	if content != "remote:auth-stream" || len(errs) != 0 {
 		t.Errorf("auth stream = %q / %v", content, errs)
 	}
@@ -233,7 +228,7 @@ func TestRemoteAgentStreaming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, errs := collectEvents(t, events); len(errs) != 1 || !strings.Contains(errs[0].Error(), "remote refused") {
+	if _, errs := drainStream(t, events); len(errs) != 1 || !strings.Contains(errs[0].Error(), "remote refused") {
 		t.Errorf("fail stream errors = %v", errs)
 	}
 }
@@ -254,6 +249,7 @@ func TestRemoteAgentUnreachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = a.Disconnect() })
 	if a.GetName() != "Remote-Agent" {
 		t.Errorf("name = %q", a.GetName())
 	}

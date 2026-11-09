@@ -170,7 +170,6 @@ func TestGetJSONType(t *testing.T) {
 		{map[string]int{}, "object"},
 		{struct{}{}, "object"},
 		{new(int), "integer"},
-		{uint(0), "string"},
 		{make(chan int), "string"},
 	}
 

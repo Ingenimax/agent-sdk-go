@@ -1,41 +1,32 @@
-package storage
+package storage_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
 )
 
-// fakeStorage is a minimal ImageStorage that only reports its name.
-type fakeStorage struct{ name string }
-
-func (f fakeStorage) Store(context.Context, *interfaces.GeneratedImage, StorageMetadata) (string, error) {
-	return "", nil
-}
-func (f fakeStorage) Delete(context.Context, string) error        { return nil }
-func (f fakeStorage) Get(context.Context, string) ([]byte, error) { return nil, nil }
-func (f fakeStorage) Name() string                                { return f.name }
-
 // stubFactories replaces the factory hooks and restores them after the test.
-func stubFactories(t *testing.T) (*LocalConfig, *GCSConfig) {
+func stubFactories(t *testing.T) (*storage.LocalConfig, *storage.GCSConfig) {
 	t.Helper()
-	origLocal, origGCS := NewLocalStorage, NewGCSStorage
-	t.Cleanup(func() { NewLocalStorage, NewGCSStorage = origLocal, origGCS })
+	origLocal, origGCS := storage.NewLocalStorage, storage.NewGCSStorage
+	t.Cleanup(func() { storage.NewLocalStorage, storage.NewGCSStorage = origLocal, origGCS })
 
-	var gotLocal LocalConfig
-	var gotGCS GCSConfig
-	NewLocalStorage = func(cfg LocalConfig) (ImageStorage, error) {
+	var gotLocal storage.LocalConfig
+	var gotGCS storage.GCSConfig
+	storage.NewLocalStorage = func(cfg storage.LocalConfig) (storage.ImageStorage, error) {
 		gotLocal = cfg
-		return fakeStorage{name: "local"}, nil
+		return &testutil.FakeImageStorage{StorageName: "local"}, nil
 	}
-	NewGCSStorage = func(cfg GCSConfig) (ImageStorage, error) {
+	storage.NewGCSStorage = func(cfg storage.GCSConfig) (storage.ImageStorage, error) {
 		gotGCS = cfg
-		return fakeStorage{name: "gcs"}, nil
+		return &testutil.FakeImageStorage{StorageName: "gcs"}, nil
 	}
 	return &gotLocal, &gotGCS
 }
@@ -53,13 +44,13 @@ func TestNewStorageFromConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("type="+tt.typ, func(t *testing.T) {
 			gotLocal, gotGCS := stubFactories(t)
-			cfg := Config{
+			cfg := storage.Config{
 				Type:  tt.typ,
-				Local: LocalConfig{Path: "/data"},
-				GCS:   GCSConfig{Bucket: "b"},
+				Local: storage.LocalConfig{Path: "/data"},
+				GCS:   storage.GCSConfig{Bucket: "b"},
 			}
 
-			s, err := NewStorageFromConfig(cfg)
+			s, err := storage.NewStorageFromConfig(cfg)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantName, s.Name())
@@ -75,7 +66,7 @@ func TestNewStorageFromConfig(t *testing.T) {
 func TestNewStorageFromConfigUnknownType(t *testing.T) {
 	stubFactories(t)
 
-	s, err := NewStorageFromConfig(Config{Type: "s3"})
+	s, err := storage.NewStorageFromConfig(storage.Config{Type: "s3"})
 
 	assert.Nil(t, s)
 	assert.ErrorIs(t, err, interfaces.ErrStorageUploadFailed)
@@ -84,9 +75,9 @@ func TestNewStorageFromConfigUnknownType(t *testing.T) {
 func TestNewStorageFromConfigPropagatesFactoryError(t *testing.T) {
 	stubFactories(t)
 	wantErr := errors.New("boom")
-	NewLocalStorage = func(LocalConfig) (ImageStorage, error) { return nil, wantErr }
+	storage.NewLocalStorage = func(storage.LocalConfig) (storage.ImageStorage, error) { return nil, wantErr }
 
-	_, err := NewStorageFromConfig(Config{Type: "local"})
+	_, err := storage.NewStorageFromConfig(storage.Config{Type: "local"})
 
 	assert.ErrorIs(t, err, wantErr)
 }

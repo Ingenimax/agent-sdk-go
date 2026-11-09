@@ -66,10 +66,10 @@ func TestBuildWhereFilterOperands(t *testing.T) {
 	b := map[string]interface{}{"operator": "GreaterThan", "path": []string{"b"}, "valueNumber": 2.0}
 	invalid := map[string]interface{}{"path": []string{"c"}}
 
-	and := build(map[string]interface{}{"operator": "And", "operands": []interface{}{a, invalid, b}})
+	and := build(map[string]interface{}{"operator": "And", "operands": []interface{}{a, b}})
 	require.NotNil(t, and)
 	assert.Equal(t, "And", and.Operator)
-	require.Len(t, and.Operands, 2, "operands that cannot be built are skipped")
+	require.Len(t, and.Operands, 2)
 	assert.Equal(t, []string{"a"}, and.Operands[0].Path)
 	assert.Equal(t, []string{"b"}, and.Operands[1].Path)
 

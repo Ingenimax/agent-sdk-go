@@ -81,6 +81,10 @@ func TestCollectMCPToolsAndAssemble(t *testing.T) {
 
 func TestLazyMCPToolsDiscoveredFromServer(t *testing.T) {
 	ts := newMCPTestServer(t)
+	// The MCP package caches servers by name, not URL, for the life of the
+	// process. A name tied to this server's address keeps a later run (for
+	// example with -count) from reusing a server whose URL is already closed.
+	suffix := "-" + ts.Listener.Addr().String()
 
 	tests := []struct {
 		name    string
@@ -90,19 +94,19 @@ func TestLazyMCPToolsDiscoveredFromServer(t *testing.T) {
 	}{
 		{
 			name:    "discovers every tool",
-			config:  LazyMCPConfig{Name: "cov-all", Type: "http", URL: ts.URL, HttpTransportMode: "streamable"},
+			config:  LazyMCPConfig{Name: "cov-all" + suffix, Type: "http", URL: ts.URL, HttpTransportMode: "streamable"},
 			want:    []string{"echo", "shout"},
 			execute: true,
 		},
 		{
 			name:   "filters by allowed tools",
-			config: LazyMCPConfig{Name: "cov-allowed", Type: "http", URL: ts.URL, HttpTransportMode: "streamable", AllowedTools: []string{"shout"}},
+			config: LazyMCPConfig{Name: "cov-allowed" + suffix, Type: "http", URL: ts.URL, HttpTransportMode: "streamable", AllowedTools: []string{"shout"}},
 			want:   []string{"shout"},
 		},
 		{
 			name: "uses configured tools",
 			config: LazyMCPConfig{
-				Name: "cov-configured", Type: "http", URL: ts.URL, HttpTransportMode: "streamable",
+				Name: "cov-configured" + suffix, Type: "http", URL: ts.URL, HttpTransportMode: "streamable",
 				Tools: []LazyMCPToolConfig{{Name: "echo", Description: "configured echo"}},
 			},
 			want: []string{"echo"},

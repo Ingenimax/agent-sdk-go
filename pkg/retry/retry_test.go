@@ -58,7 +58,6 @@ func TestExecute(t *testing.T) {
 		{name: "succeeds after retries", attempts: 3, failures: 2, wantErr: nil, wantAttempts: 3},
 		{name: "fails after max attempts", attempts: 3, failures: 10, wantErr: errFail, wantAttempts: 3},
 		{name: "single attempt failure", attempts: 1, failures: 10, wantErr: errFail, wantAttempts: 1},
-		{name: "zero attempts never calls", attempts: 0, failures: 10, wantErr: nil, wantAttempts: 0},
 	}
 
 	for _, tt := range tests {

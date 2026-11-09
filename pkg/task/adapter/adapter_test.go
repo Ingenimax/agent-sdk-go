@@ -193,10 +193,11 @@ func TestAdapterServiceSuccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []task.TaskUpdate{{Type: "add_step", Description: "s"}}, fake.updates)
 
-	// With a conversation ID the task is fetched first and its ID set.
+	// With a conversation ID the task is fetched before the update.
+	fake.taskID = ""
 	_, err = svc.UpdateTask(ctx, "t1", "conv", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "conv", sdkTask.ConversationID)
+	assert.Equal(t, "t1", fake.taskID)
 
 	require.NoError(t, svc.AddTaskLog(ctx, "t1", "msg", "info"))
 	assert.Equal(t, []string{"info:msg"}, fake.logCalls)

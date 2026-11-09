@@ -214,6 +214,8 @@ func TestHTTPServer_StartAndStop(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- s.Start() }()
+	// Stop is safe to call twice; this one covers a failure before the explicit Stop.
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
 	url := baseURL(s.port)
 	waitForHTTP(t, url+"/health")
 

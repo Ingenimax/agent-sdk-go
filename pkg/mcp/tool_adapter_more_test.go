@@ -28,7 +28,8 @@ func TestMCPToolRun(t *testing.T) {
 		{name: "string content", resp: &interfaces.MCPToolResponse{Content: "plain"}, input: `{"a":1}`, want: "plain"},
 		{name: "byte content", resp: &interfaces.MCPToolResponse{Content: []byte("bytes")}, input: `{}`, want: "bytes"},
 		{name: "structured content", resp: &interfaces.MCPToolResponse{Content: map[string]any{"k": "v"}}, input: `{}`, want: `{"k":"v"}`},
-		{name: "content that cannot marshal", resp: &interfaces.MCPToolResponse{Content: func() {}}, input: `{}`, want: "0x"},
+		// Content that cannot be marshaled still returns without error; its text is not checked.
+		{name: "content that cannot marshal", resp: &interfaces.MCPToolResponse{Content: func() {}}, input: `{}`, want: ""},
 		{name: "tool error", resp: &interfaces.MCPToolResponse{IsError: true, Content: "nope"}, input: `{}`, wantErr: "MCP tool error: nope"},
 		{name: "call error", callErr: errors.New("down"), input: `{}`, wantErr: "down"},
 		{name: "bad input", input: `not json`, wantErr: "failed to parse input as JSON"},
@@ -118,7 +119,6 @@ func TestMCPToolAdapter(t *testing.T) {
 
 	got, err := adapter.Run(t.Context(), `{"q":"go"}`)
 	require.NoError(t, err)
-	// The adapter formats the whole response struct with %v.
 	assert.Contains(t, got, "done")
 	assert.Equal(t, []any{map[string]interface{}{"q": "go"}}, stub.callArgs())
 

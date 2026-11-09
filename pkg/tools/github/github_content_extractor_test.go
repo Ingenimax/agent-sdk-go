@@ -211,11 +211,11 @@ func TestRunDirectoryReturningSingleFile(t *testing.T) {
 	assert.Equal(t, []string{"single/one.go"}, names(files))
 }
 
-func TestRunNoMatchesReturnsNull(t *testing.T) {
+func TestRunNoMatches(t *testing.T) {
 	tool, _ := newTool(t, "", defaultRepo())
-	out, err := tool.Run(context.Background(), `{"repository_url": "https://github.com/acme/demo", "file_patterns": [".rs"]}`)
+	files, err := runTool(t, tool, SearchParams{FilePatterns: []string{".rs"}})
 	require.NoError(t, err)
-	assert.Equal(t, "null", out)
+	assert.Empty(t, files)
 }
 
 func TestRunRootIsSingleFile(t *testing.T) {
@@ -223,7 +223,9 @@ func TestRunRootIsSingleFile(t *testing.T) {
 	tool, _ := newTool(t, "", map[string]any{"": blob("only.go", "x")})
 	out, err := tool.Execute(context.Background(), `{"repository_url": "https://github.com/acme/demo", "file_patterns": [".go"]}`)
 	require.NoError(t, err)
-	assert.Equal(t, "null", out)
+	var files []FileContent
+	require.NoError(t, json.Unmarshal([]byte(out), &files))
+	assert.Empty(t, files)
 }
 
 func TestRunNestedDirectoryErrorIsIgnored(t *testing.T) {

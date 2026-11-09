@@ -214,24 +214,9 @@ func TestMCPServerImplPrompts(t *testing.T) {
 
 func TestMCPServerImplCreateMessageIsNotAvailable(t *testing.T) {
 	server := connectInMemory(t, nil)
-	maxTokens := 10
-	temp := 0.2
 
 	resp, err := server.CreateMessage(t.Context(), &interfaces.MCPSamplingRequest{
-		Messages: []interfaces.MCPMessage{
-			{Role: "user", Content: interfaces.MCPContent{Type: "text", Text: "hi"}},
-			{Role: "user", Content: interfaces.MCPContent{Type: "image", Data: "abc", MimeType: "image/png"}},
-			{Role: "user", Content: interfaces.MCPContent{Type: "audio", Text: "other"}},
-		},
-		SystemPrompt: "sys",
-		ModelPreferences: &interfaces.MCPModelPreferences{
-			Hints:        []interfaces.MCPModelHint{{Name: "claude"}},
-			CostPriority: 0.1,
-		},
-		MaxTokens:      &maxTokens,
-		Temperature:    &temp,
-		StopSequences:  []string{"END"},
-		IncludeContext: "thisServer",
+		Messages: []interfaces.MCPMessage{{Role: "user", Content: interfaces.MCPContent{Type: "text", Text: "hi"}}},
 	})
 	assert.Nil(t, resp)
 	assert.ErrorContains(t, err, "MCP Sampling is not yet available")

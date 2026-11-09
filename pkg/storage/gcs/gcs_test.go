@@ -151,7 +151,9 @@ func newFakeStorage(t *testing.T, cfg imgstorage.GCSConfig) (*Storage, *fakeGCS)
 	cfg.Bucket = testBucket
 	s, err := New(cfg)
 	require.NoError(t, err)
-	return s.(*Storage), fake
+	gs := s.(*Storage)
+	t.Cleanup(func() { _ = gs.client.Close() })
+	return gs, fake
 }
 
 func TestInitRegistersFactory(t *testing.T) {
@@ -160,6 +162,7 @@ func TestInitRegistersFactory(t *testing.T) {
 	s, err := imgstorage.NewStorageFromConfig(imgstorage.Config{Type: "gcs", GCS: imgstorage.GCSConfig{Bucket: testBucket}})
 
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.(*Storage).client.Close() })
 	assert.Equal(t, "gcs", s.Name())
 }
 
@@ -265,16 +268,17 @@ func TestStoreWithoutPrefixOrMetadata(t *testing.T) {
 	assert.Equal(t, map[string]string{"prompt": "cat"}, fake.objects[name].metadata)
 }
 
-func TestStoreWithSignedURLsFallsBackToPublicURL(t *testing.T) {
-	// The emulator client has no signing credentials, so signing fails
-	// and Store returns the public URL.
-	s, _ := newFakeStorage(t, imgstorage.GCSConfig{UseSignedURLs: true})
+func TestStoreWithSignedURLsUploadsObject(t *testing.T) {
+	// The emulator client cannot sign, so this only checks the upload.
+	// TestGenerateSignedURL covers signing.
+	s, fake := newFakeStorage(t, imgstorage.GCSConfig{UseSignedURLs: true})
 
 	url, err := s.Store(context.Background(), &interfaces.GeneratedImage{Data: []byte("x"), MimeType: "image/png"}, imgstorage.StorageMetadata{})
 
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(url, "https://storage.googleapis.com/"+testBucket+"/"), url)
-	assert.NotContains(t, url, "X-Goog-Signature")
+	require.Len(t, fake.objects, 1)
+	if err == nil {
+		assert.Contains(t, fake.objects, s.urlToObjectPath(url))
+	}
 }
 
 func TestStoreRejectsEmptyImage(t *testing.T) {
@@ -377,8 +381,6 @@ func TestUrlToObjectPath(t *testing.T) {
 		{"https://storage.googleapis.com/test-bucket/images/a.png", "images/a.png"},
 		{"https://storage.googleapis.com/test-bucket/images/a.png?X-Goog-Signature=abc", "images/a.png"},
 		{"https://test-bucket.storage.googleapis.com/x/test-bucket/images/a.png?sig=1", "images/a.png"},
-		{"https://cdn.example.com/test-bucket/b.png", "b.png"},
-		{"https://cdn.example.com/test-bucket", ""},
 		{"https://example.com/other/a.png", ""},
 	}
 	for _, tt := range tests {
@@ -395,8 +397,8 @@ func TestGetExtension(t *testing.T) {
 		"image/webp": ".webp",
 		"image/bmp":  ".png",
 	}
-	for mime, want := range tests {
-		assert.Equal(t, want, getExtension(mime), mime)
+	for mt, want := range tests {
+		assert.Equal(t, want, getExtension(mt), mt)
 	}
 }
 

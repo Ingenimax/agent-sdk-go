@@ -11,11 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
 	"github.com/Ingenimax/agent-sdk-go/pkg/memory"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // fullContext returns a context with org, conversation and agent name set.
@@ -380,6 +381,7 @@ func (s *otlpServer) requests() ([]string, []string) {
 }
 
 func TestNewOTELLangfuseTracer_ExportsToHost(t *testing.T) {
+	keepGlobalTracerProvider(t)
 	srv := newOTLPServer(t)
 
 	tracer, err := NewOTELLangfuseTracer(LangfuseConfig{
@@ -413,6 +415,7 @@ func TestNewOTELLangfuseTracer_ExportsToHost(t *testing.T) {
 }
 
 func TestNewOTELLangfuseTracer_Config(t *testing.T) {
+	keepGlobalTracerProvider(t)
 	tests := []struct {
 		name     string
 		cfg      LangfuseConfig
@@ -450,9 +453,11 @@ func TestNewOTELLangfuseTracer_Config(t *testing.T) {
 // disableLangfuseEnv makes the global config report Langfuse as disabled.
 func disableLangfuseEnv(t *testing.T) {
 	t.Helper()
+	// Cleanups run last in, first out: register the reload first so it runs
+	// after t.Setenv has restored the variable.
+	t.Cleanup(func() { config.Reload() })
 	t.Setenv("LANGFUSE_ENABLED", "false")
 	config.Reload()
-	t.Cleanup(func() { config.Reload() })
 }
 
 func TestNewOTELLangfuseTracer_GlobalConfig(t *testing.T) {
@@ -538,6 +543,7 @@ func TestLangfuseTracer_MissingKeys(t *testing.T) {
 }
 
 func TestLangfuseTracer_Enabled(t *testing.T) {
+	keepGlobalTracerProvider(t)
 	srv := newOTLPServer(t)
 	tracer, err := NewLangfuseTracer(LangfuseConfig{Enabled: true, PublicKey: "pk", SecretKey: "sk", Host: srv.URL})
 	if err != nil {
@@ -572,13 +578,13 @@ func TestLangfuseTracer_Enabled(t *testing.T) {
 func TestLLMMiddlewareConstructors(t *testing.T) {
 	inner, _ := newTestLangfuseTracer(t, false)
 
-	byOTEL, ok := NewOTELLLMMiddleware(&fakeLLM{}, inner).(*TracedLLM)
+	byOTEL, ok := NewOTELLLMMiddleware(newLLM("", nil), inner).(*TracedLLM)
 	if !ok || byOTEL.tracer != inner {
 		t.Errorf("NewOTELLLMMiddleware = %+v", byOTEL)
 	}
 
 	wrapper := &LangfuseTracer{otelTracer: inner, enabled: true}
-	byLangfuse, ok := NewLLMMiddleware(&fakeLLM{}, wrapper).(*TracedLLM)
+	byLangfuse, ok := NewLLMMiddleware(newLLM("", nil), wrapper).(*TracedLLM)
 	if !ok {
 		t.Fatal("NewLLMMiddleware did not return *TracedLLM")
 	}

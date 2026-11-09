@@ -2,79 +2,44 @@ package tracing
 
 import (
 	"context"
-	"sync"
 	"testing"
 
-	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 )
 
-// recordedSpan captures everything a caller does with a span.
-type recordedSpan struct {
-	mu     sync.Mutex
-	name   string
-	attrs  map[string]any
-	events []string
-	errs   []error
-	ended  bool
-}
-
-func (s *recordedSpan) End() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ended = true
-}
-
-func (s *recordedSpan) AddEvent(name string, _ map[string]any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = append(s.events, name)
-}
-
-func (s *recordedSpan) SetAttribute(key string, value any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.attrs[key] = value
-}
-
-func (s *recordedSpan) RecordError(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.errs = append(s.errs, err)
-}
-
-// recordingTracer is an interfaces.Tracer that keeps every span it starts.
-type recordingTracer struct {
-	mu    sync.Mutex
-	spans []*recordedSpan
-}
-
-func (r *recordingTracer) start(name string) *recordedSpan {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s := &recordedSpan{name: name, attrs: map[string]any{}}
-	r.spans = append(r.spans, s)
-	return s
-}
-
-func (r *recordingTracer) StartSpan(ctx context.Context, name string) (context.Context, interfaces.Span) {
-	return ctx, r.start(name)
-}
-
-func (r *recordingTracer) StartTraceSession(ctx context.Context, contextID string) (context.Context, interfaces.Span) {
-	return ctx, r.start("session:" + contextID)
-}
-
-func (r *recordingTracer) only(t *testing.T) *recordedSpan {
+// onlySpan returns the name and span of the single span tr started.
+func onlySpan(t *testing.T, tr *testutil.FakeTracer) (string, *testutil.FakeSpan) {
 	t.Helper()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.spans) != 1 {
-		t.Fatalf("got %d spans, want 1", len(r.spans))
+	names, spans := tr.SpanNames(), tr.Spans()
+	if len(spans) != 1 {
+		t.Fatalf("got %d spans, want 1", len(spans))
 	}
-	return r.spans[0]
+	return names[0], spans[0]
+}
+
+// attr returns a span attribute, or nil when it is not set.
+func attr(s *testutil.FakeSpan, key string) any {
+	v, _ := s.Attribute(key)
+	return v
+}
+
+// hasAttr reports whether the span has the attribute.
+func hasAttr(s *testutil.FakeSpan, key string) bool {
+	_, ok := s.Attribute(key)
+	return ok
+}
+
+// keepGlobalTracerProvider restores the global OpenTelemetry tracer provider
+// when the test ends, for tests whose code under test replaces it.
+func keepGlobalTracerProvider(t *testing.T) {
+	t.Helper()
+	prev := otel.GetTracerProvider()
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
 }
 
 // newTestLangfuseTracer returns an enabled tracer that exports to memory.

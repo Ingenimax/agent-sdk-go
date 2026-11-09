@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/graphrag"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
@@ -32,26 +33,26 @@ Hope this helps.`
 
 func TestExtractFromTextBasics(t *testing.T) {
 	ctx := context.Background()
-	store := newTestStore(t, newFakeWeaviate(t))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t))
 
 	_, err := store.ExtractFromText(ctx, "text", nil)
 	require.ErrorIs(t, err, graphrag.ErrNoLLM)
 
-	llm := &fakeLLM{response: "unused"}
+	llm := &testutil.FakeLLM{DefaultResponse: "unused"}
 	got, err := store.ExtractFromText(ctx, "", llm)
 	require.NoError(t, err)
 	assert.Empty(t, got.Entities)
 	assert.Empty(t, got.Relationships)
-	assert.Empty(t, llm.prompt, "empty text never reaches the LLM")
+	assert.Empty(t, llm.Prompts(), "empty text never reaches the LLM")
 
-	_, err = store.ExtractFromText(ctx, "text", &fakeLLM{err: errors.New("down")})
+	_, err = store.ExtractFromText(ctx, "text", &testutil.FakeLLM{Err: errors.New("down")})
 	require.ErrorIs(t, err, graphrag.ErrExtractionFailed)
 	require.ErrorContains(t, err, "down")
 }
 
 func TestExtractFromTextParsesResponse(t *testing.T) {
-	store := newTestStore(t, newFakeWeaviate(t))
-	llm := &fakeLLM{response: extractionReply}
+	store := newTestStore(t, testutil.NewFakeWeaviate(t))
+	llm := &testutil.FakeLLM{DefaultResponse: extractionReply}
 
 	got, err := store.ExtractFromText(context.Background(), "Ana works at Acme.", llm, interfaces.WithDedupThreshold(0))
 	require.NoError(t, err)
@@ -76,13 +77,13 @@ func TestExtractFromTextParsesResponse(t *testing.T) {
 	assert.InDelta(t, 0.8, works.Strength, 1e-6)
 	assert.InDelta(t, 1.0, got.Relationships[1].Strength, 1e-6, "missing strength defaults to 1.0")
 
-	assert.Contains(t, llm.prompt, "Ana works at Acme.")
-	assert.NotContains(t, llm.prompt, "Use the following schema")
+	assert.Contains(t, lastPrompt(llm), "Ana works at Acme.")
+	assert.NotContains(t, lastPrompt(llm), "Use the following schema")
 }
 
 func TestExtractFromTextFilters(t *testing.T) {
-	store := newTestStore(t, newFakeWeaviate(t))
-	llm := &fakeLLM{response: extractionReply}
+	store := newTestStore(t, testutil.NewFakeWeaviate(t))
+	llm := &testutil.FakeLLM{DefaultResponse: extractionReply}
 
 	got, err := store.ExtractFromText(context.Background(), "text", llm,
 		interfaces.WithExtractionEntityTypes("person", "organization"),
@@ -93,8 +94,8 @@ func TestExtractFromTextFilters(t *testing.T) {
 	assert.Len(t, got.Entities, 2, "entity type matching ignores case")
 	require.Len(t, got.Relationships, 1)
 	assert.Equal(t, "FOUNDED", got.Relationships[0].Type)
-	assert.Contains(t, llm.prompt, "Focus on entity types: person, organization")
-	assert.Contains(t, llm.prompt, "Focus on relationship types: FOUNDED")
+	assert.Contains(t, lastPrompt(llm), "Focus on entity types: person, organization")
+	assert.Contains(t, lastPrompt(llm), "Focus on relationship types: FOUNDED")
 
 	got, err = store.ExtractFromText(context.Background(), "text", llm, interfaces.WithExtractionEntityTypes("Place"))
 	require.NoError(t, err)
@@ -118,21 +119,21 @@ func TestExtractFromTextSchemaGuidedPrompt(t *testing.T) {
 			Name: "KNOWS", Description: "acquainted", SourceTypes: []string{"Person"}, TargetTypes: []string{"Person"},
 		}},
 	}
-	store := newTestStore(t, newFakeWeaviate(t), WithSchema(schema))
-	llm := &fakeLLM{response: `{"entities":[]}`}
+	store := newTestStore(t, testutil.NewFakeWeaviate(t), WithSchema(schema))
+	llm := &testutil.FakeLLM{DefaultResponse: `{"entities":[]}`}
 
 	got, err := store.ExtractFromText(context.Background(), "text", llm, interfaces.WithSchemaGuided(true))
 	require.NoError(t, err)
 	assert.InDelta(t, 0.7, got.Confidence, 1e-6, "missing confidence defaults to 0.7")
-	assert.Contains(t, llm.prompt, "Use the following schema")
-	assert.Contains(t, llm.prompt, "- Person: a human")
-	assert.Contains(t, llm.prompt, "- KNOWS: acquainted (from [Person] to [Person])")
+	assert.Contains(t, lastPrompt(llm), "Use the following schema")
+	assert.Contains(t, lastPrompt(llm), "- Person: a human")
+	assert.Contains(t, lastPrompt(llm), "- KNOWS: acquainted (from [Person] to [Person])")
 }
 
 func TestExtractFromTextUnparsableResponse(t *testing.T) {
-	store := newTestStore(t, newFakeWeaviate(t))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t))
 	for _, reply := range []string{"no json here", `{"entities": "wrong type"}`} {
-		got, err := store.ExtractFromText(context.Background(), "text", &fakeLLM{response: reply})
+		got, err := store.ExtractFromText(context.Background(), "text", &testutil.FakeLLM{DefaultResponse: reply})
 		require.NoError(t, err, reply)
 		assert.Empty(t, got.Entities)
 		assert.InDelta(t, 0.3, got.Confidence, 1e-6, "an unparsable reply gives a low-confidence empty result")
@@ -160,7 +161,7 @@ func TestDeduplicateEntities(t *testing.T) {
 		"Ana Silva senior engineer": {0.99, 0.01},
 		"Acme a company":            {0, 1},
 	}}
-	store := newTestStore(t, newFakeWeaviate(t), WithEmbedder(emb))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(emb))
 
 	entities := []interfaces.Entity{
 		{ID: "1", Name: "Ana", Description: "an engineer", Properties: map[string]interface{}{"a": 1}},
@@ -183,7 +184,7 @@ func TestDeduplicateEntities(t *testing.T) {
 
 func TestDeduplicateEntitiesMergesIntoEntityWithoutProperties(t *testing.T) {
 	emb := &fakeEmbedder{similarity: func(_, _ []float32) (float32, error) { return 1, nil }}
-	store := newTestStore(t, newFakeWeaviate(t), WithEmbedder(emb))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(emb))
 
 	got, err := store.deduplicateEntities(context.Background(), []interfaces.Entity{
 		{ID: "1", Name: "Long name", Description: "long description"},
@@ -199,12 +200,12 @@ func TestDeduplicateEntitiesErrors(t *testing.T) {
 	ctx := context.Background()
 	entities := []interfaces.Entity{{ID: "1", Name: "a"}, {ID: "2", Name: "b"}}
 
-	store := newTestStore(t, newFakeWeaviate(t), WithEmbedder(&fakeEmbedder{batchErr: errors.New("x")}))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(&fakeEmbedder{batchErr: errors.New("x")}))
 	_, err := store.deduplicateEntities(ctx, entities, 0.5)
 	require.ErrorContains(t, err, "failed to generate embeddings")
 
 	// Similarity errors mean no merge.
-	store = newTestStore(t, newFakeWeaviate(t), WithEmbedder(&fakeEmbedder{
+	store = newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(&fakeEmbedder{
 		similarity: func(_, _ []float32) (float32, error) { return 0, errors.New("x") },
 	}))
 	got, err := store.deduplicateEntities(ctx, entities, 0.5)
@@ -216,16 +217,16 @@ func TestExtractFromTextDeduplicates(t *testing.T) {
 	reply := `{"entities":[{"name":"Ana","type":"Person"},{"name":"Ana B","type":"Person"}],"confidence":0.9}`
 
 	same := &fakeEmbedder{similarity: func(_, _ []float32) (float32, error) { return 1, nil }}
-	store := newTestStore(t, newFakeWeaviate(t), WithEmbedder(same))
-	got, err := store.ExtractFromText(context.Background(), "text", &fakeLLM{response: reply})
+	store := newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(same))
+	got, err := store.ExtractFromText(context.Background(), "text", &testutil.FakeLLM{DefaultResponse: reply})
 	require.NoError(t, err)
 	require.Len(t, got.Entities, 1)
 	assert.Equal(t, "Ana B", got.Entities[0].Name)
 
 	// A dedup failure keeps the original entities.
 	failing := &fakeEmbedder{batchErr: errors.New("x")}
-	store = newTestStore(t, newFakeWeaviate(t), WithEmbedder(failing))
-	got, err = store.ExtractFromText(context.Background(), "text", &fakeLLM{response: reply})
+	store = newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(failing))
+	got, err = store.ExtractFromText(context.Background(), "text", &testutil.FakeLLM{DefaultResponse: reply})
 	require.NoError(t, err)
 	assert.Len(t, got.Entities, 2)
 }

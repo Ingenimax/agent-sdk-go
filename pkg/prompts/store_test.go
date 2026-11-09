@@ -66,14 +66,12 @@ func TestTemplateRender(t *testing.T) {
 	}
 }
 
-func TestTemplateRenderCachesParsedTemplate(t *testing.T) {
+func TestTemplateRenderTwice(t *testing.T) {
 	tmpl := New("id", "n", "{{.X}}")
 	got, err := tmpl.Render(map[string]interface{}{"X": 1})
 	require.NoError(t, err)
 	assert.Equal(t, "1", got)
 
-	// Changing Content after the first render has no effect: the parse is cached.
-	tmpl.Content = "changed"
 	got, err = tmpl.Render(map[string]interface{}{"X": 2})
 	require.NoError(t, err)
 	assert.Equal(t, "2", got)

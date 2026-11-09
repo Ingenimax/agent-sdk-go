@@ -12,13 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/graphrag"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 func TestStoreEntitiesValidation(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 	ctx := context.Background()
 
@@ -40,11 +41,11 @@ func TestStoreEntitiesValidation(t *testing.T) {
 			assert.True(t, graphrag.IsValidationError(err))
 		})
 	}
-	assert.Empty(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects"))
+	assert.Empty(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects"))
 }
 
 func TestStoreEntitiesSendsObjects(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	emb := &fakeEmbedder{vectors: map[string][]float32{"A person": {1, 2}, "Acme": {3, 4}}}
 	store := newTestStore(t, fw, WithEmbedder(emb))
 	created := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -64,7 +65,7 @@ func TestStoreEntitiesSendsObjects(t *testing.T) {
 	assert.False(t, entities[1].CreatedAt.IsZero())
 	assert.False(t, entities[1].UpdatedAt.IsZero())
 
-	reqs := fw.requestsTo(http.MethodPost, "/v1/batch/objects")
+	reqs := fw.RequestsTo(http.MethodPost, "/v1/batch/objects")
 	require.Len(t, reqs, 1)
 	objs := batchObjects(t, reqs[0])
 	require.Len(t, objs, 2)
@@ -98,17 +99,17 @@ func TestStoreEntitiesTenantPrecedence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fw := newFakeWeaviate(t)
+			fw := testutil.NewFakeWeaviate(t)
 			store := newTestStore(t, fw, WithStoreTenant("store"))
 			require.NoError(t, store.StoreEntities(tt.ctx, []interfaces.Entity{{ID: "1", Name: "n", Type: "t"}}, tt.opts...))
-			objs := batchObjects(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects")[0])
+			objs := batchObjects(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects")[0])
 			assert.Equal(t, tt.want, objs[0]["properties"].(map[string]interface{})["orgId"])
 		})
 	}
 }
 
 func TestStoreEntitiesUsesGivenEmbeddingWithoutGeneration(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	emb := &fakeEmbedder{}
 	store := newTestStore(t, fw, WithEmbedder(emb))
 
@@ -119,21 +120,14 @@ func TestStoreEntitiesUsesGivenEmbeddingWithoutGeneration(t *testing.T) {
 	require.NoError(t, store.StoreEntities(context.Background(), entities, interfaces.WithGenerateEmbeddings(false)))
 	assert.Empty(t, emb.texts())
 
-	objs := batchObjects(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects")[0])
+	objs := batchObjects(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects")[0])
 	assert.Equal(t, []interface{}{7.0, 8.0}, objs[0]["vector"])
 	assert.NotContains(t, objs[1], "vector")
 }
 
 func TestStoreEntitiesBatching(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
-		if req.Path == "/v1/batch/objects" {
-			// One object fails and one succeeds in every batch.
-			return ok(`[{"result":{"errors":{"error":[{"message":"bad object"}]}}},{"result":{}}]`), true
-		}
-		return fakeReply{}, false
-	})
 
 	entities := make([]interfaces.Entity, 5)
 	for i := range entities {
@@ -141,7 +135,7 @@ func TestStoreEntitiesBatching(t *testing.T) {
 	}
 	require.NoError(t, store.StoreEntities(context.Background(), entities, interfaces.WithGraphBatchSize(2)))
 
-	reqs := fw.requestsTo(http.MethodPost, "/v1/batch/objects")
+	reqs := fw.RequestsTo(http.MethodPost, "/v1/batch/objects")
 	require.Len(t, reqs, 3)
 	assert.Len(t, batchObjects(t, reqs[0]), 2)
 	assert.Len(t, batchObjects(t, reqs[1]), 2)
@@ -149,11 +143,11 @@ func TestStoreEntitiesBatching(t *testing.T) {
 }
 
 func TestStoreEntitiesNonPositiveBatchSizeUsesDefault(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 	entities := []interfaces.Entity{{ID: "1", Name: "n", Type: "t"}, {ID: "2", Name: "n", Type: "t"}}
 	require.NoError(t, store.StoreEntities(context.Background(), entities, interfaces.WithGraphBatchSize(0)))
-	assert.Len(t, fw.requestsTo(http.MethodPost, "/v1/batch/objects"), 1)
+	assert.Len(t, fw.RequestsTo(http.MethodPost, "/v1/batch/objects"), 1)
 }
 
 func TestStoreEntitiesErrors(t *testing.T) {
@@ -161,48 +155,48 @@ func TestStoreEntitiesErrors(t *testing.T) {
 	entity := interfaces.Entity{ID: "1", Name: "n", Type: "t"}
 
 	t.Run("embedding fails", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t), WithEmbedder(&fakeEmbedder{err: errors.New("no vec")}))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t), WithEmbedder(&fakeEmbedder{err: errors.New("no vec")}))
 		require.ErrorContains(t, store.StoreEntities(ctx, []interfaces.Entity{entity}), "failed to generate embedding for entity 1")
 	})
 
 	t.Run("properties cannot be serialized", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		bad := entity
 		bad.Properties = map[string]interface{}{"ch": make(chan int)}
 		require.ErrorContains(t, store.StoreEntities(ctx, []interfaces.Entity{bad}), "failed to serialize properties for entity 1")
 	})
 
-	batchFails := func(req fakeRequest) (fakeReply, bool) {
+	batchFails := func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Path == "/v1/batch/objects" {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	}
 
 	t.Run("final batch fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setHandle(batchFails)
+		fw.SetHandle(batchFails)
 		require.ErrorContains(t, store.StoreEntities(ctx, []interfaces.Entity{entity}), "failed to store final entity batch")
 	})
 
 	t.Run("full batch fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setHandle(batchFails)
+		fw.SetHandle(batchFails)
 		err := store.StoreEntities(ctx, []interfaces.Entity{entity}, interfaces.WithGraphBatchSize(1))
 		require.ErrorContains(t, err, "failed to store entity batch")
 	})
 }
 
 func TestGetEntityFake(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	_, err := store.GetEntity(context.Background(), "")
 	require.ErrorIs(t, err, graphrag.ErrInvalidEntityID)
 
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity", map[string]interface{}{
 			"entityId":    "e1",
 			"name":        "Ana",
@@ -230,7 +224,7 @@ func TestGetEntityFake(t *testing.T) {
 		UpdatedAt:   time.Date(2024, 2, 2, 3, 4, 5, 0, time.UTC),
 	}, got)
 
-	q := fw.queries()[0]
+	q := fw.GraphQLQueries()[0]
 	assert.Contains(t, q, `path: ["entityId"] valueString: "e1"`)
 	assert.Contains(t, q, `path: ["orgId"] valueString: "org"`)
 	assert.Contains(t, q, "operator: And")
@@ -238,36 +232,36 @@ func TestGetEntityFake(t *testing.T) {
 }
 
 func TestGetEntityWithoutTenantFiltersOnlyByID(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(func(string) fakeReply { return getResponse("GraphEntity") })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return getResponse("GraphEntity") })
 
 	_, err := store.GetEntity(context.Background(), "e1")
 	require.ErrorIs(t, err, graphrag.ErrEntityNotFound)
 	assert.True(t, graphrag.IsNotFoundError(err))
-	q := fw.queries()[0]
+	q := fw.GraphQLQueries()[0]
 	assert.Contains(t, q, `path: ["entityId"] valueString: "e1"`)
 	assert.NotContains(t, q, "orgId\"]")
 }
 
 func TestGetEntityErrors(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	_, err := store.GetEntity(context.Background(), "e1")
 	require.ErrorContains(t, err, "failed to query entity")
 
-	fw.setGraphQL(func(string) fakeReply { return ok(`{"data":{"Get":{}}}`) })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return ok(`{"data":{"Get":{}}}`) })
 	_, err = store.GetEntity(context.Background(), "e1")
 	require.ErrorIs(t, err, graphrag.ErrEntityNotFound)
 }
 
 func TestUpdateEntityFake(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	emb := &fakeEmbedder{vectors: map[string][]float32{"Ana": {9, 9}}}
 	store := newTestStore(t, fw, WithEmbedder(emb))
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity", map[string]interface{}{"_additional": map[string]interface{}{"id": "uuid-1"}})
 	})
 
@@ -275,7 +269,7 @@ func TestUpdateEntityFake(t *testing.T) {
 	require.NoError(t, store.UpdateEntity(context.Background(), entity, interfaces.WithGraphTenant("org")))
 	assert.Equal(t, []string{"Ana"}, emb.texts(), "the name is embedded when there is no description")
 
-	reqs := fw.requestsTo(http.MethodPut, "/v1/objects/GraphEntity/uuid-1")
+	reqs := fw.RequestsTo(http.MethodPut, "/v1/objects/GraphEntity/uuid-1")
 	require.Len(t, reqs, 1)
 	var obj models.Object
 	require.NoError(t, json.Unmarshal(reqs[0].Body, &obj))
@@ -289,10 +283,10 @@ func TestUpdateEntityFake(t *testing.T) {
 }
 
 func TestUpdateEntityWithGivenEmbedding(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	emb := &fakeEmbedder{}
 	store := newTestStore(t, fw, WithEmbedder(emb))
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity", map[string]interface{}{"_additional": map[string]interface{}{"id": "uuid-1"}})
 	})
 
@@ -301,52 +295,52 @@ func TestUpdateEntityWithGivenEmbedding(t *testing.T) {
 	assert.Empty(t, emb.texts())
 
 	var obj models.Object
-	require.NoError(t, json.Unmarshal(fw.requestsTo(http.MethodPut, "/v1/objects/GraphEntity/uuid-1")[0].Body, &obj))
+	require.NoError(t, json.Unmarshal(fw.RequestsTo(http.MethodPut, "/v1/objects/GraphEntity/uuid-1")[0].Body, &obj))
 	assert.Equal(t, models.C11yVector{1, 1}, obj.Vector)
 }
 
 func TestUpdateEntityErrors(t *testing.T) {
 	ctx := context.Background()
-	found := func(string) fakeReply {
+	found := func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity", map[string]interface{}{"_additional": map[string]interface{}{"id": "uuid-1"}})
 	}
 
 	t.Run("missing id", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		require.ErrorIs(t, store.UpdateEntity(ctx, interfaces.Entity{}), graphrag.ErrInvalidEntityID)
 	})
 	t.Run("lookup fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(func(string) fakeReply { return gqlError })
+		fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 		require.ErrorContains(t, store.UpdateEntity(ctx, interfaces.Entity{ID: "e1"}), "failed to find entity")
 	})
 	t.Run("not found", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		require.ErrorIs(t, store.UpdateEntity(ctx, interfaces.Entity{ID: "e1"}), graphrag.ErrEntityNotFound)
 	})
 	t.Run("embedding fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw, WithEmbedder(&fakeEmbedder{err: errors.New("x")}))
-		fw.setGraphQL(found)
+		fw.SetGraphQL(found)
 		require.ErrorContains(t, store.UpdateEntity(ctx, interfaces.Entity{ID: "e1", Description: "d"}), "failed to generate embedding")
 	})
 	t.Run("properties cannot be serialized", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(found)
+		fw.SetGraphQL(found)
 		err := store.UpdateEntity(ctx, interfaces.Entity{ID: "e1", Properties: map[string]interface{}{"f": func() {}}})
 		require.ErrorContains(t, err, "failed to serialize properties")
 	})
 	t.Run("update request fails", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(found)
-		fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+		fw.SetGraphQL(found)
+		fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 			if req.Method == http.MethodPut {
 				return gqlError, true
 			}
-			return fakeReply{}, false
+			return testutil.WeaviateReply{}, false
 		})
 		require.ErrorContains(t, store.UpdateEntity(ctx, interfaces.Entity{ID: "e1"}), "failed to update entity")
 	})
@@ -354,31 +348,31 @@ func TestUpdateEntityErrors(t *testing.T) {
 
 func TestDeleteEntityFake(t *testing.T) {
 	ctx := context.Background()
-	found := func(string) fakeReply {
+	found := func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity", map[string]interface{}{"_additional": map[string]interface{}{"id": "uuid-1"}})
 	}
 
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(found)
+	fw.SetGraphQL(found)
 	require.NoError(t, store.DeleteEntity(ctx, "e1", interfaces.WithGraphTenant("org")))
-	assert.Len(t, fw.requestsTo(http.MethodDelete, "/v1/objects/GraphEntity/uuid-1"), 1)
-	assert.Contains(t, fw.queries()[0], `path: ["orgId"] valueString: "org"`)
+	assert.Len(t, fw.RequestsTo(http.MethodDelete, "/v1/objects/GraphEntity/uuid-1"), 1)
+	assert.Contains(t, fw.GraphQLQueries()[0], `path: ["orgId"] valueString: "org"`)
 
 	require.ErrorIs(t, store.DeleteEntity(ctx, ""), graphrag.ErrInvalidEntityID)
 
-	fw.setGraphQL(func(string) fakeReply { return getResponse("GraphEntity") })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return getResponse("GraphEntity") })
 	require.ErrorIs(t, store.DeleteEntity(ctx, "e1"), graphrag.ErrEntityNotFound)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	require.ErrorContains(t, store.DeleteEntity(ctx, "e1"), "failed to find entity")
 
-	fw.setGraphQL(found)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetGraphQL(found)
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Method == http.MethodDelete {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	require.ErrorContains(t, store.DeleteEntity(ctx, "e1"), "failed to delete entity")
 }

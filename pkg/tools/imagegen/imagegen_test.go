@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	"github.com/Ingenimax/agent-sdk-go/pkg/storage"
@@ -30,75 +31,6 @@ func (g *fakeGenerator) GenerateImage(_ context.Context, req interfaces.ImageGen
 func (g *fakeGenerator) SupportsImageGeneration() bool   { return true }
 func (g *fakeGenerator) SupportedImageFormats() []string { return []string{"png"} }
 
-// fakeSession records messages and returns a fixed response.
-type fakeSession struct {
-	resp     *interfaces.ImageEditResponse
-	err      error
-	history  []interfaces.ImageEditTurn
-	prompts  []string
-	lastOpts *interfaces.ImageEditOptions
-	closed   bool
-}
-
-func (s *fakeSession) SendMessage(_ context.Context, msg string, opts *interfaces.ImageEditOptions) (*interfaces.ImageEditResponse, error) {
-	s.prompts = append(s.prompts, msg)
-	s.lastOpts = opts
-	return s.resp, s.err
-}
-
-func (s *fakeSession) SendMessageWithImage(context.Context, string, *interfaces.ImageData, *interfaces.ImageEditOptions) (*interfaces.ImageEditResponse, error) {
-	return nil, errors.New("not used")
-}
-
-func (s *fakeSession) GetHistory() []interfaces.ImageEditTurn { return s.history }
-
-func (s *fakeSession) Close() error {
-	s.closed = true
-	return nil
-}
-
-// fakeEditor hands out sessions built by newSession.
-type fakeEditor struct {
-	unsupported bool
-	newSession  func() *fakeSession
-	err         error
-	sessions    []*fakeSession
-	lastOpts    *interfaces.ImageEditSessionOptions
-}
-
-func (e *fakeEditor) CreateImageEditSession(_ context.Context, opts *interfaces.ImageEditSessionOptions) (interfaces.ImageEditSession, error) {
-	e.lastOpts = opts
-	if e.err != nil {
-		return nil, e.err
-	}
-	s := &fakeSession{resp: &interfaces.ImageEditResponse{}}
-	if e.newSession != nil {
-		s = e.newSession()
-	}
-	e.sessions = append(e.sessions, s)
-	return s, nil
-}
-
-func (e *fakeEditor) SupportsMultiTurnImageEditing() bool { return !e.unsupported }
-
-// fakeStorage returns a URL per stored image or a fixed error.
-type fakeStorage struct {
-	err   error
-	metas []storage.StorageMetadata
-}
-
-func (f *fakeStorage) Store(_ context.Context, img *interfaces.GeneratedImage, meta storage.StorageMetadata) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	f.metas = append(f.metas, meta)
-	return "https://cdn.test/" + img.MimeType, nil
-}
-
-func (f *fakeStorage) Delete(context.Context, string) error        { return nil }
-func (f *fakeStorage) Get(context.Context, string) ([]byte, error) { return nil, nil }
-func (f *fakeStorage) Name() string                                { return "fake" }
-
 func image(mime string) interfaces.GeneratedImage {
 	return interfaces.GeneratedImage{Data: []byte("abcd"), Base64: "YWJjZA==", MimeType: mime}
 }
@@ -110,8 +42,8 @@ func oneImage() *interfaces.ImageGenerationResponse {
 	}
 }
 
-func respondWith(resp *interfaces.ImageEditResponse) func() *fakeSession {
-	return func() *fakeSession { return &fakeSession{resp: resp} }
+func respondWith(resp *interfaces.ImageEditResponse) func() *testutil.FakeImageEditSession {
+	return func() *testutil.FakeImageEditSession { return testutil.NewFakeImageEditSession(resp, nil) }
 }
 
 func TestNewDefaultsAndOptions(t *testing.T) {
@@ -146,8 +78,8 @@ func TestWithMultiTurnEditor(t *testing.T) {
 		want   bool
 	}{
 		{name: "nil editor", editor: nil, want: false},
-		{name: "unsupported editor", editor: &fakeEditor{unsupported: true}, want: false},
-		{name: "supported editor", editor: &fakeEditor{}, want: true},
+		{name: "unsupported editor", editor: &testutil.FakeImageEditor{Unsupported: true}, want: false},
+		{name: "supported editor", editor: &testutil.FakeImageEditor{}, want: true},
 	}
 
 	for _, tt := range tests {
@@ -177,7 +109,7 @@ func TestMetadataSingleShot(t *testing.T) {
 }
 
 func TestMetadataMultiTurn(t *testing.T) {
-	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}))
+	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}))
 	assert.Contains(t, tool.Description(), "Generate and edit images through conversation")
 
 	params := tool.Parameters()
@@ -210,7 +142,7 @@ func TestSingleShotRequest(t *testing.T) {
 
 func TestSingleShotWithStorage(t *testing.T) {
 	gen := &fakeGenerator{resp: oneImage()}
-	store := &fakeStorage{}
+	store := &testutil.FakeImageStorage{}
 	tool := New(gen, store)
 
 	out, err := tool.Execute(context.Background(), `{"prompt": "a fox"}`)
@@ -222,13 +154,14 @@ func TestSingleShotWithStorage(t *testing.T) {
 	assert.Contains(t, out, "Size: 4 bytes")
 	assert.Contains(t, out, "Tokens used: 2 input, 9 output")
 	assert.Equal(t, "https://cdn.test/image/png", gen.resp.Images[0].URL)
-	require.Len(t, store.metas, 1)
-	assert.Equal(t, "a fox", store.metas[0].Prompt)
+	metas := store.Metadata()
+	require.Len(t, metas, 1)
+	assert.Equal(t, "a fox", metas[0].Prompt)
 }
 
 func TestSingleShotWithStorageNoUsage(t *testing.T) {
 	gen := &fakeGenerator{resp: &interfaces.ImageGenerationResponse{Images: []interfaces.GeneratedImage{image("image/png")}}}
-	out, err := New(gen, &fakeStorage{}).Execute(context.Background(), `{"prompt": "a fox"}`)
+	out, err := New(gen, &testutil.FakeImageStorage{}).Execute(context.Background(), `{"prompt": "a fox"}`)
 	require.NoError(t, err)
 	assert.NotContains(t, out, "Tokens used")
 }
@@ -239,7 +172,7 @@ func TestSingleShotBase64(t *testing.T) {
 		store storage.ImageStorage
 	}{
 		{name: "no storage", store: nil},
-		{name: "storage failure", store: &fakeStorage{err: errors.New("bucket missing")}},
+		{name: "storage failure", store: &testutil.FakeImageStorage{Err: errors.New("bucket missing")}},
 	}
 
 	for _, tt := range tests {
@@ -286,7 +219,7 @@ func TestSingleShotErrors(t *testing.T) {
 }
 
 func TestMultiTurnGenerate(t *testing.T) {
-	editor := &fakeEditor{newSession: respondWith(&interfaces.ImageEditResponse{
+	editor := &testutil.FakeImageEditor{NewSession: respondWith(&interfaces.ImageEditResponse{
 		Text:   "done",
 		Images: []interfaces.GeneratedImage{image("image/png")},
 		Usage:  &interfaces.ImageUsage{InputTokens: 1, OutputTokens: 2},
@@ -296,10 +229,11 @@ func TestMultiTurnGenerate(t *testing.T) {
 	out, err := tool.Execute(context.Background(), `{"prompt": "a fox", "aspect_ratio": "16:9"}`)
 	require.NoError(t, err)
 
-	assert.Equal(t, "m", editor.lastOpts.Model)
-	require.Len(t, editor.sessions, 1)
-	assert.Equal(t, []string{"a fox"}, editor.sessions[0].prompts)
-	assert.Equal(t, &interfaces.ImageEditOptions{AspectRatio: "16:9", ImageSize: "1K"}, editor.sessions[0].lastOpts)
+	assert.Equal(t, "m", editor.LastOptions().Model)
+	sessions := editor.Sessions()
+	require.Len(t, sessions, 1)
+	assert.Equal(t, []string{"a fox"}, sessions[0].Prompts())
+	assert.Equal(t, &interfaces.ImageEditOptions{AspectRatio: "16:9", ImageSize: "1K"}, sessions[0].LastOptions())
 
 	assert.True(t, strings.HasPrefix(out, "Image generated successfully."))
 	assert.Contains(t, out, "Model: done")
@@ -311,7 +245,7 @@ func TestMultiTurnGenerate(t *testing.T) {
 }
 
 func TestMultiTurnGenerateReplacesSession(t *testing.T) {
-	editor := &fakeEditor{}
+	editor := &testutil.FakeImageEditor{}
 	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor))
 	ctx := multitenancy.WithOrgID(context.Background(), "org-a")
 
@@ -320,50 +254,55 @@ func TestMultiTurnGenerateReplacesSession(t *testing.T) {
 	_, err = tool.Execute(ctx, `{"action": "generate", "prompt": "two"}`)
 	require.NoError(t, err)
 
-	require.Len(t, editor.sessions, 2)
-	assert.True(t, editor.sessions[0].closed)
-	assert.False(t, editor.sessions[1].closed)
-	assert.Equal(t, "4K", editor.sessions[0].lastOpts.ImageSize)
+	sessions := editor.Sessions()
+	require.Len(t, sessions, 2)
+	assert.True(t, sessions[0].Closed())
+	assert.False(t, sessions[1].Closed())
+	assert.Equal(t, "4K", sessions[0].LastOptions().ImageSize)
 	assert.Equal(t, 1, tool.GetActiveSessions())
 	assert.Contains(t, tool.sessions, "org-a")
 }
 
 func TestMultiTurnGenerateErrors(t *testing.T) {
 	t.Run("missing prompt", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}))
 		_, err := tool.Execute(context.Background(), `{"action": "generate"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "prompt is required for generating an image")
 	})
 
 	t.Run("prompt too long", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}), WithMaxPromptLength(2))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}), WithMaxPromptLength(2))
 		_, err := tool.Execute(context.Background(), `{"prompt": "abc"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "prompt exceeds maximum length of 2 characters")
 	})
 
 	t.Run("create session error", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{err: errors.New("quota")}))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{Err: errors.New("quota")}))
 		_, err := tool.Execute(context.Background(), `{"prompt": "a"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create editing session: quota")
 	})
 
 	t.Run("initial message error", func(t *testing.T) {
-		editor := &fakeEditor{newSession: func() *fakeSession { return &fakeSession{err: errors.New("blocked")} }}
+		editor := &testutil.FakeImageEditor{NewSession: func() *testutil.FakeImageEditSession {
+			return testutil.NewFakeImageEditSession(nil, errors.New("blocked"))
+		}}
 		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor))
 		_, err := tool.Execute(context.Background(), `{"prompt": "a"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to generate initial image: blocked")
 		assert.Zero(t, tool.GetActiveSessions())
-		assert.True(t, editor.sessions[0].closed)
+		assert.True(t, editor.Sessions()[0].Closed())
 	})
 
 	t.Run("session limit", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}), WithMaxSessionsPerOrg(1))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}), WithMaxSessionsPerOrg(1))
 		// Seed a session under another key that belongs to the same org.
-		tool.sessions["other"] = &sessionEntry{session: &fakeSession{}, orgID: "org-a", lastUsed: time.Now()}
+		tool.sessionsMu.Lock()
+		tool.sessions["other"] = &sessionEntry{session: testutil.NewFakeImageEditSession(nil, nil), orgID: "org-a", lastUsed: time.Now()}
+		tool.sessionsMu.Unlock()
 
 		ctx := multitenancy.WithOrgID(context.Background(), "org-a")
 		_, err := tool.Execute(ctx, `{"prompt": "a"}`)
@@ -372,7 +311,7 @@ func TestMultiTurnGenerateErrors(t *testing.T) {
 	})
 
 	t.Run("unknown action", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}))
 		_, err := tool.Execute(context.Background(), `{"action": "paint", "prompt": "a"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown action: paint")
@@ -380,10 +319,10 @@ func TestMultiTurnGenerateErrors(t *testing.T) {
 }
 
 func TestMultiTurnEdit(t *testing.T) {
-	editor := &fakeEditor{newSession: respondWith(&interfaces.ImageEditResponse{
+	editor := &testutil.FakeImageEditor{NewSession: respondWith(&interfaces.ImageEditResponse{
 		Images: []interfaces.GeneratedImage{image("image/png"), image("image/jpeg")},
 	})}
-	store := &fakeStorage{}
+	store := &testutil.FakeImageStorage{}
 	tool := New(&fakeGenerator{}, store, WithMultiTurnEditor(editor))
 	ctx := multitenancy.WithOrgID(context.Background(), "org-a")
 
@@ -393,68 +332,72 @@ func TestMultiTurnEdit(t *testing.T) {
 	out, err := tool.Execute(ctx, `{"action": "edit", "prompt": "make it red", "image_size": "2K"}`)
 	require.NoError(t, err)
 
-	require.Len(t, editor.sessions, 1, "edit reuses the active session")
-	session := editor.sessions[0]
-	assert.Equal(t, []string{"a fox", "make it red"}, session.prompts)
-	assert.Equal(t, "2K", session.lastOpts.ImageSize)
+	sessions := editor.Sessions()
+	require.Len(t, sessions, 1, "edit reuses the active session")
+	assert.Equal(t, []string{"a fox", "make it red"}, sessions[0].Prompts())
+	assert.Equal(t, "2K", sessions[0].LastOptions().ImageSize)
 
 	assert.True(t, strings.HasPrefix(out, "Image edited successfully."))
 	assert.Contains(t, out, "![Generated image](https://cdn.test/image/png)")
 	assert.Contains(t, out, "--- Image 2 ---")
 	assert.Contains(t, out, "![Generated image](https://cdn.test/image/jpeg)")
-	require.NotEmpty(t, store.metas)
-	assert.Equal(t, "org-a", store.metas[len(store.metas)-1].OrgID)
-	assert.Equal(t, "make it red", store.metas[len(store.metas)-1].Prompt)
+	metas := store.Metadata()
+	require.NotEmpty(t, metas)
+	assert.Equal(t, "org-a", metas[len(metas)-1].OrgID)
+	assert.Equal(t, "make it red", metas[len(metas)-1].Prompt)
 }
 
 func TestMultiTurnEditStartsSessionWhenMissing(t *testing.T) {
-	editor := &fakeEditor{}
+	editor := &testutil.FakeImageEditor{}
 	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor))
 
 	out, err := tool.Execute(context.Background(), `{"action": "edit", "prompt": "a fox"}`)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(out, "Image generated successfully."))
 	assert.Contains(t, out, "No image was generated in this turn.")
-	assert.Len(t, editor.sessions, 1)
+	assert.Len(t, editor.Sessions(), 1)
 }
 
 func TestMultiTurnEditRestartsExpiredSession(t *testing.T) {
-	editor := &fakeEditor{}
+	editor := &testutil.FakeImageEditor{}
 	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor), WithSessionTimeout(time.Minute))
 
 	_, err := tool.Execute(context.Background(), `{"prompt": "one"}`)
 	require.NoError(t, err)
+	tool.sessionsMu.Lock()
 	tool.sessions["default"].lastUsed = time.Now().Add(-time.Hour)
+	tool.sessionsMu.Unlock()
 
 	out, err := tool.Execute(context.Background(), `{"action": "edit", "prompt": "two"}`)
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(out, "Image generated successfully."))
-	require.Len(t, editor.sessions, 2)
-	assert.True(t, editor.sessions[0].closed)
+	sessions := editor.Sessions()
+	require.Len(t, sessions, 2)
+	assert.True(t, sessions[0].Closed())
 	assert.Equal(t, 1, tool.GetActiveSessions())
 }
 
 func TestMultiTurnEditErrors(t *testing.T) {
 	t.Run("missing prompt", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}))
 		_, err := tool.Execute(context.Background(), `{"action": "edit"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "prompt is required for editing")
 	})
 
 	t.Run("prompt too long", func(t *testing.T) {
-		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&fakeEditor{}), WithMaxPromptLength(2))
+		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(&testutil.FakeImageEditor{}), WithMaxPromptLength(2))
 		_, err := tool.Execute(context.Background(), `{"action": "edit", "prompt": "abc"}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "prompt exceeds maximum length of 2 characters")
 	})
 
 	t.Run("send error", func(t *testing.T) {
-		editor := &fakeEditor{}
+		editor := &testutil.FakeImageEditor{}
 		tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor))
 		_, err := tool.Execute(context.Background(), `{"prompt": "a"}`)
 		require.NoError(t, err)
-		editor.sessions[0].err = errors.New("blocked")
+		editor.Sessions()[0].SetErr(errors.New("blocked"))
 
 		_, err = tool.Execute(context.Background(), `{"action": "edit", "prompt": "b"}`)
 		require.Error(t, err)
@@ -464,10 +407,10 @@ func TestMultiTurnEditErrors(t *testing.T) {
 }
 
 func TestMultiTurnStorageFailureFallsBackToBase64(t *testing.T) {
-	editor := &fakeEditor{newSession: respondWith(&interfaces.ImageEditResponse{
+	editor := &testutil.FakeImageEditor{NewSession: respondWith(&interfaces.ImageEditResponse{
 		Images: []interfaces.GeneratedImage{image("image/png")},
 	})}
-	tool := New(&fakeGenerator{}, &fakeStorage{err: errors.New("bucket missing")}, WithMultiTurnEditor(editor))
+	tool := New(&fakeGenerator{}, &testutil.FakeImageStorage{Err: errors.New("bucket missing")}, WithMultiTurnEditor(editor))
 
 	out, err := tool.Execute(context.Background(), `{"prompt": "a"}`)
 	require.NoError(t, err)
@@ -475,8 +418,10 @@ func TestMultiTurnStorageFailureFallsBackToBase64(t *testing.T) {
 }
 
 func TestMultiTurnEndSession(t *testing.T) {
-	editor := &fakeEditor{newSession: func() *fakeSession {
-		return &fakeSession{resp: &interfaces.ImageEditResponse{}, history: make([]interfaces.ImageEditTurn, 6)}
+	editor := &testutil.FakeImageEditor{NewSession: func() *testutil.FakeImageEditSession {
+		s := testutil.NewFakeImageEditSession(nil, nil)
+		s.SetHistory(make([]interfaces.ImageEditTurn, 6))
+		return s
 	}}
 	tool := New(&fakeGenerator{}, nil, WithMultiTurnEditor(editor))
 
@@ -491,7 +436,7 @@ func TestMultiTurnEndSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "Editing session closed.")
 	assert.Contains(t, out, "Total turns: 3")
-	assert.True(t, editor.sessions[0].closed)
+	assert.True(t, editor.Sessions()[0].Closed())
 	assert.Zero(t, tool.GetActiveSessions())
 }
 

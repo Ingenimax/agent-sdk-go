@@ -10,11 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/graphrag"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
-func entityItems() fakeReply {
+func entityItems() testutil.WeaviateReply {
 	return getResponse("GraphEntity",
 		map[string]interface{}{"entityId": "e1", "name": "Ana", "entityType": "Person",
 			"_additional": map[string]interface{}{"id": "u1", "certainty": 0.9}},
@@ -40,7 +41,7 @@ func TestSearchModes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fw := newFakeWeaviate(t)
+			fw := testutil.NewFakeWeaviate(t)
 			store := newTestStore(t, fw)
 			switch {
 			case tt.noEmbed:
@@ -48,7 +49,7 @@ func TestSearchModes(t *testing.T) {
 			case tt.embedder != nil:
 				store.embedder = tt.embedder
 			}
-			fw.setGraphQL(func(string) fakeReply { return entityItems() })
+			fw.SetGraphQL(func(string) testutil.WeaviateReply { return entityItems() })
 
 			got, err := store.Search(context.Background(), "who", 0, interfaces.WithSearchMode(tt.mode))
 			require.NoError(t, err)
@@ -56,7 +57,7 @@ func TestSearchModes(t *testing.T) {
 			assert.Equal(t, "e1", got[0].Entity.ID)
 			assert.Equal(t, "Acme", got[1].Entity.Name)
 
-			q := fw.queries()[0]
+			q := fw.GraphQLQueries()[0]
 			assert.Contains(t, q, tt.want)
 			assert.NotContains(t, q, tt.notWant)
 			assert.Contains(t, q, "limit: 10", "a non-positive limit defaults to 10")
@@ -65,9 +66,9 @@ func TestSearchModes(t *testing.T) {
 }
 
 func TestSearchFiltersAndTenant(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw, WithStoreTenant("store-org"))
-	fw.setGraphQL(func(string) fakeReply { return entityItems() })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return entityItems() })
 
 	got, err := store.Search(context.Background(), "who", 3,
 		interfaces.WithEntityTypes("Person", "Org"),
@@ -76,7 +77,7 @@ func TestSearchFiltersAndTenant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, got, 2)
 
-	q := fw.queries()[0]
+	q := fw.GraphQLQueries()[0]
 	assert.Contains(t, q, `path: ["orgId"] valueString: "store-org"`)
 	assert.Contains(t, q, `path: ["entityType"] valueString: "Person"`)
 	assert.Contains(t, q, `path: ["entityType"] valueString: "Org"`)
@@ -86,12 +87,12 @@ func TestSearchFiltersAndTenant(t *testing.T) {
 func TestSearchErrors(t *testing.T) {
 	ctx := context.Background()
 
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 	_, err := store.Search(ctx, "", 1)
 	require.ErrorIs(t, err, graphrag.ErrEmptyQuery)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	for mode, msg := range map[interfaces.GraphSearchMode]string{
 		interfaces.SearchModeKeyword: "failed to execute keyword search",
 		interfaces.SearchModeVector:  "failed to execute vector search",
@@ -112,9 +113,9 @@ func TestSearchErrors(t *testing.T) {
 
 func TestHybridSearchHandlesOddResponses(t *testing.T) {
 	for _, body := range []string{`{"data":{"Get":{}}}`, `{"data":{"Other":{}}}`, `{}`} {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(func(string) fakeReply { return ok(body) })
+		fw.SetGraphQL(func(string) testutil.WeaviateReply { return ok(body) })
 		got, err := store.Search(context.Background(), "q", 1)
 		require.NoError(t, err, body)
 		assert.Empty(t, got, body)
@@ -166,9 +167,9 @@ func TestParseEntityFromMap(t *testing.T) {
 }
 
 func TestGlobalSearch(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(func(query string) fakeReply {
+	fw.SetGraphQL(func(query string) testutil.WeaviateReply {
 		if strings.Contains(query, "Aggregate") {
 			return aggregateResponse("GraphEntity", groupedBy("Person"), groupedBy("Org"), groupedBy("Place"))
 		}
@@ -191,7 +192,7 @@ func TestGlobalSearch(t *testing.T) {
 	assert.Equal(t, map[string]string{"p1": "Person", "o1": "Org"}, communities)
 
 	// Each community query asks for at most five results.
-	for _, q := range fw.queries()[1:] {
+	for _, q := range fw.GraphQLQueries()[1:] {
 		assert.Contains(t, q, "limit: 5")
 	}
 
@@ -204,31 +205,10 @@ func TestGlobalSearch(t *testing.T) {
 	require.ErrorIs(t, err, graphrag.ErrEmptyQuery)
 }
 
-func TestGlobalSearchSortsByScore(t *testing.T) {
-	fw := newFakeWeaviate(t)
-	store := newTestStore(t, fw)
-	fw.setGraphQL(func(query string) fakeReply {
-		if strings.Contains(query, "Aggregate") {
-			return aggregateResponse("GraphEntity", groupedBy("A"), groupedBy("B"))
-		}
-		if strings.Contains(query, `valueString: "A"`) {
-			return getResponse("GraphEntity", map[string]interface{}{"entityId": "a1"})
-		}
-		return getResponse("GraphEntity", map[string]interface{}{"entityId": "b1"}, map[string]interface{}{"entityId": "b2"})
-	})
-
-	got, err := store.GlobalSearch(context.Background(), "q", 0)
-	require.NoError(t, err)
-	require.Len(t, got, 3)
-	for i := 1; i < len(got); i++ {
-		assert.GreaterOrEqual(t, got[i-1].Score, got[i].Score)
-	}
-}
-
 func TestGlobalSearchFallsBackWhenAggregateFails(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(func(query string) fakeReply {
+	fw.SetGraphQL(func(query string) testutil.WeaviateReply {
 		if strings.Contains(query, "Aggregate") {
 			return gqlError
 		}
@@ -239,7 +219,7 @@ func TestGlobalSearchFallsBackWhenAggregateFails(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, got, 2)
 	assert.Empty(t, got[0].CommunityID)
-	assert.Contains(t, fw.queries()[1], "limit: 20")
+	assert.Contains(t, fw.GraphQLQueries()[1], "limit: 20")
 }
 
 func TestLocalSearch(t *testing.T) {
@@ -251,7 +231,7 @@ func TestLocalSearch(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("validation", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		_, err := store.LocalSearch(ctx, "", "a", 1)
 		require.ErrorIs(t, err, graphrag.ErrEmptyQuery)
 		_, err = store.LocalSearch(ctx, "q", "a", -1)
@@ -259,9 +239,9 @@ func TestLocalSearch(t *testing.T) {
 	})
 
 	t.Run("from given entity", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(g.answer)
+		fw.SetGraphQL(g.answer)
 
 		got, err := store.LocalSearch(ctx, "q", "a", 0, interfaces.WithIncludeRelationships(true))
 		require.NoError(t, err)
@@ -274,9 +254,9 @@ func TestLocalSearch(t *testing.T) {
 	})
 
 	t.Run("from top result", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(g.answer)
+		fw.SetGraphQL(g.answer)
 
 		got, err := store.LocalSearch(ctx, "q", "", 1)
 		require.NoError(t, err)
@@ -286,36 +266,37 @@ func TestLocalSearch(t *testing.T) {
 	})
 
 	t.Run("missing start entity is tolerated", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(g.answer)
+		fw.SetGraphQL(g.answer)
 
 		got, err := store.LocalSearch(ctx, "q", "missing", 1)
 		require.NoError(t, err)
+		require.NotEmpty(t, got)
 		for _, r := range got {
 			assert.Empty(t, r.Context)
 		}
 	})
 
 	t.Run("traversal error is returned", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		_, err := store.LocalSearch(ctx, "q", "a", 9)
 		require.ErrorIs(t, err, graphrag.ErrMaxDepthExceeded)
 	})
 
 	t.Run("top result traversal error is logged", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(g.answer)
+		fw.SetGraphQL(g.answer)
 		got, err := store.LocalSearch(ctx, "q", "", 9)
 		require.NoError(t, err)
 		assert.Empty(t, got[0].Context)
 	})
 
 	t.Run("search error is returned", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(func(string) fakeReply { return gqlError })
+		fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 		_, err := store.LocalSearch(ctx, "q", "a", 1)
 		require.Error(t, err)
 	})

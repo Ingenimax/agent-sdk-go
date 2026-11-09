@@ -573,16 +573,15 @@ func (closerMemory) Close() error { return nil }
 
 func TestInferAzureModelFromDeployment(t *testing.T) {
 	tests := map[string]string{
-		"prod-GPT-4o":          "gpt-4o",
-		"gpt-4o-mini-east":     "gpt-4o-mini",
-		"gpt4-turbo":           "gpt-4-turbo",
-		"my-gpt-4":             "gpt-4",
-		"gpt-35-turbo":         "gpt-3.5-turbo",
-		"o1-preview-x":         "o1-preview",
-		"o1-mini":              "o1-mini",
-		"text-embedding-large": "text-embedding-ada-002",
-		"dalle":                "dall-e-3",
-		"llama":                "",
+		"prod-GPT-4o":      "gpt-4o",
+		"gpt-4o-mini-east": "gpt-4o-mini",
+		"gpt4-turbo":       "gpt-4-turbo",
+		"my-gpt-4":         "gpt-4",
+		"gpt-35-turbo":     "gpt-3.5-turbo",
+		"o1-preview-x":     "o1-preview",
+		"o1-mini":          "o1-mini",
+		"dalle":            "dall-e-3",
+		"llama":            "",
 	}
 	for in, want := range tests {
 		if got := inferAzureModelFromDeployment(in); got != want {
@@ -725,7 +724,7 @@ func TestUIServer_Traces(t *testing.T) {
 		t.Errorf("paged list = %+v", list)
 	}
 
-	id := c.traces[firstKey(c)].ID
+	id := anyTraceID(c)
 	var trace UITrace
 	if code := doJSON(t, http.MethodGet, ts.URL+"/api/v1/traces/"+id, "", &trace); code != http.StatusOK || trace.ID != id {
 		t.Errorf("get trace = %d %+v", code, trace)
@@ -754,12 +753,12 @@ func TestHandleTrace_InvalidPath(t *testing.T) {
 	}
 }
 
-// firstKey returns any trace ID held by c.
-func firstKey(c *UITraceCollector) string {
+// anyTraceID returns the ID of any trace held by c.
+func anyTraceID(c *UITraceCollector) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for k := range c.traces {
-		return k
+	for _, trace := range c.traces {
+		return trace.ID
 	}
 	return ""
 }
@@ -855,12 +854,12 @@ func TestHTTPServerWithUI_StartServesUI(t *testing.T) {
 	s := NewHTTPServerWithUI(newCustomAgent(t, nil, nil), freePort(t), uiConfig())
 	done := make(chan error, 1)
 	go func() { done <- s.Start() }()
-	url := baseURL(s.port)
-	waitForHTTP(t, url+"/health")
 	t.Cleanup(func() {
 		_ = s.Stop(context.Background())
 		<-done
 	})
+	url := baseURL(s.port)
+	waitForHTTP(t, url+"/health")
 
 	get := func(path string) (int, string) {
 		resp, err := http.Get(url + path)

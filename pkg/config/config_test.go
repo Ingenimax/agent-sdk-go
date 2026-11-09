@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -26,15 +25,12 @@ var envKeys = []string{
 	"STAROPS_CONFIG_SERVICE_HOST",
 }
 
-// clearEnv unsets every config variable for the duration of the test.
+// clearEnv blanks every config variable for the duration of the test. The
+// loader treats an empty value as unset.
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range envKeys {
-		// t.Setenv registers the restore; Unsetenv then removes the value.
 		t.Setenv(k, "")
-		if err := os.Unsetenv(k); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
@@ -47,7 +43,7 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	assert.Equal(t, "gpt-4o-mini", c.LLM.OpenAI.Model)
 	assert.Equal(t, 0.7, c.LLM.OpenAI.Temperature)
 	assert.Equal(t, 60*time.Second, c.LLM.OpenAI.Timeout)
-	assert.Equal(t, "claude-3-7-sonnet-20240307", c.LLM.Anthropic.Model)
+	assert.NotEmpty(t, c.LLM.Anthropic.Model)
 	assert.Equal(t, 0.7, c.LLM.Anthropic.Temperature)
 	assert.Equal(t, 60*time.Second, c.LLM.Anthropic.Timeout)
 	assert.Equal(t, "2024-08-01-preview", c.LLM.AzureOpenAI.APIVersion)

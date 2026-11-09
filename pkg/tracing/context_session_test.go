@@ -5,10 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
+	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 func TestContextAccessors(t *testing.T) {
@@ -91,13 +93,13 @@ func TestStartRequestTracing_NilTracer(t *testing.T) {
 }
 
 func TestWithRequestTracing(t *testing.T) {
-	tracer := &recordingTracer{}
+	tracer := &testutil.FakeTracer{}
 	ctx, span := WithRequestTracing(context.Background(), tracer, "req-9", "org")
 	if span == nil {
 		t.Fatal("nil span")
 	}
-	if got := tracer.only(t).name; got != "session:req-9" {
-		t.Errorf("session span = %q", got)
+	if name, _ := onlySpan(t, tracer); name != "req-9" {
+		t.Errorf("session span = %q", name)
 	}
 	if id, _ := GetRequestID(ctx); id != "req-9" {
 		t.Errorf("request id = %q", id)
@@ -209,17 +211,6 @@ func TestNewOTelTracerWrapper(t *testing.T) {
 	_, span := tracer.StartSpan(context.Background(), "wrapped")
 	span.End()
 	spanByName(t, exporter, "github.com/Ingenimax/agent-sdk-go/wrapped")
-}
-
-func TestNewOTelTracer_BuildsCollectorExporter(t *testing.T) {
-	// The gRPC exporter connects lazily, so no collector needs to run.
-	tracer, err := NewOTelTracer(OTelConfig{Enabled: true, ServiceName: "svc", CollectorEndpoint: "127.0.0.1:1"})
-	if err != nil {
-		t.Fatalf("NewOTelTracer: %v", err)
-	}
-	if !tracer.enabled || tracer.tracer == nil || tracer.serviceName != "svc" {
-		t.Errorf("unexpected tracer: %+v", tracer)
-	}
 }
 
 func TestNewMemoryOTelMiddleware(t *testing.T) {

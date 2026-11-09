@@ -329,10 +329,9 @@ func TestBuilderAddPreset(t *testing.T) {
 	_, err = NewBuilder().AddPreset("no-such-preset").BuildLazy()
 	assert.ErrorContains(t, err, `preset "no-such-preset" not found`)
 
-	if os.Getenv("GITHUB_TOKEN") == "" {
-		_, err = NewBuilder().AddPreset("github").BuildLazy()
-		assert.ErrorContains(t, err, "requires environment variable GITHUB_TOKEN")
-	}
+	t.Setenv("GITHUB_TOKEN", "")
+	_, err = NewBuilder().AddPreset("github").BuildLazy()
+	assert.ErrorContains(t, err, "requires environment variable GITHUB_TOKEN")
 }
 
 func TestBuilderInitializeServer(t *testing.T) {

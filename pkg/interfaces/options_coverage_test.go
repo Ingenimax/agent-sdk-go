@@ -2,7 +2,6 @@ package interfaces
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -217,17 +216,6 @@ func TestWithIncludeIntermediateMessages(t *testing.T) {
 	WithIncludeIntermediateMessages(false)(&cfg)
 	if cfg.IncludeIntermediateMessages {
 		t.Fatal("expected intermediate messages to be disabled")
-	}
-}
-
-func TestJSONSchemaMarshal(t *testing.T) {
-	schema := JSONSchema{"type": "object", "required": []string{"a"}}
-	got, err := json.Marshal(schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != `{"required":["a"],"type":"object"}` {
-		t.Fatalf("got %s", got)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
@@ -46,7 +47,7 @@ func sampleExtraction() *interfaces.ExtractionResult {
 }
 
 func TestExtractMetadata(t *testing.T) {
-	tool := NewExtractTool(&fakeStore{}, fakeLLM{})
+	tool := NewExtractTool(&fakeStore{}, testutil.NewFakeLLM())
 
 	assert.Equal(t, "graphrag_extract", tool.Name())
 	assert.NotEmpty(t, tool.Description())
@@ -61,7 +62,7 @@ func TestExtractMetadata(t *testing.T) {
 
 func TestExtractWithoutStoring(t *testing.T) {
 	store := &fakeStore{extractResult: sampleExtraction()}
-	llm := fakeLLM{}
+	llm := testutil.NewFakeLLM()
 	tool := NewExtractTool(store, llm)
 
 	out, err := tool.Execute(context.Background(), `{
@@ -73,7 +74,7 @@ func TestExtractWithoutStoring(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Ada works on Engine", store.extractText)
-	assert.Equal(t, llm, store.extractLLM)
+	assert.Same(t, llm, store.extractLLM)
 	assert.True(t, store.extractOpts.SchemaGuided)
 	assert.Equal(t, []string{"Person", "Project"}, store.extractOpts.EntityTypes)
 	assert.Equal(t, []string{"WORKS_ON"}, store.extractOpts.RelationshipTypes)
@@ -94,7 +95,7 @@ func TestExtractWithoutStoring(t *testing.T) {
 
 func TestExtractRunWithPlainText(t *testing.T) {
 	store := &fakeStore{extractResult: &interfaces.ExtractionResult{}}
-	tool := NewExtractTool(store, fakeLLM{})
+	tool := NewExtractTool(store, testutil.NewFakeLLM())
 
 	out, err := tool.Run(context.Background(), `Ada said "hello"`)
 	require.NoError(t, err)
@@ -110,14 +111,14 @@ func TestExtractRunWithPlainText(t *testing.T) {
 
 func TestExtractRunWithJSON(t *testing.T) {
 	store := &fakeStore{extractResult: &interfaces.ExtractionResult{}}
-	_, err := NewExtractTool(store, fakeLLM{}).Run(context.Background(), `  {"text": "hi"}`)
+	_, err := NewExtractTool(store, testutil.NewFakeLLM()).Run(context.Background(), `  {"text": "hi"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "hi", store.extractText)
 }
 
 func TestExtractStoresResults(t *testing.T) {
 	store := &fakeStore{extractResult: sampleExtraction()}
-	out, err := NewExtractTool(store, fakeLLM{}).Execute(context.Background(), `{"text": "t", "store_results": true}`)
+	out, err := NewExtractTool(store, testutil.NewFakeLLM()).Execute(context.Background(), `{"text": "t", "store_results": true}`)
 	require.NoError(t, err)
 
 	assert.Len(t, store.storedEntities, 2)
@@ -134,7 +135,7 @@ func TestExtractStoresEntitiesWithoutRelationships(t *testing.T) {
 	result.Relationships = nil
 	store := &fakeStore{extractResult: result, storeRelsErr: errors.New("must not be called")}
 
-	_, err := NewExtractTool(store, fakeLLM{}).Execute(context.Background(), `{"text": "t", "store_results": true}`)
+	_, err := NewExtractTool(store, testutil.NewFakeLLM()).Execute(context.Background(), `{"text": "t", "store_results": true}`)
 	require.NoError(t, err)
 	assert.Len(t, store.storedEntities, 2)
 }
@@ -144,7 +145,7 @@ func TestExtractSkipsStoreWhenNoEntities(t *testing.T) {
 		extractResult:    &interfaces.ExtractionResult{},
 		storeEntitiesErr: errors.New("must not be called"),
 	}
-	out, err := NewExtractTool(store, fakeLLM{}).Execute(context.Background(), `{"text": "t", "store_results": true}`)
+	out, err := NewExtractTool(store, testutil.NewFakeLLM()).Execute(context.Background(), `{"text": "t", "store_results": true}`)
 	require.NoError(t, err)
 
 	var got extractOutput
@@ -183,7 +184,7 @@ func TestExtractErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewExtractTool(tt.store, fakeLLM{}).Execute(context.Background(), tt.args)
+			_, err := NewExtractTool(tt.store, testutil.NewFakeLLM()).Execute(context.Background(), tt.args)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})

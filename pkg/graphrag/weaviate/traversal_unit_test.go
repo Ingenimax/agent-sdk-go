@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/graphrag"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
@@ -41,7 +42,7 @@ func relIDs(rels []interfaces.Relationship) []string {
 }
 
 func TestTraverseFromValidation(t *testing.T) {
-	store := newTestStore(t, newFakeWeaviate(t))
+	store := newTestStore(t, testutil.NewFakeWeaviate(t))
 	ctx := context.Background()
 
 	_, err := store.TraverseFrom(ctx, "", 1)
@@ -55,9 +56,9 @@ func TestTraverseFromValidation(t *testing.T) {
 }
 
 func TestTraverseFromOneHop(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(sampleGraph().answer)
+	fw.SetGraphQL(sampleGraph().answer)
 
 	got, err := store.TraverseFrom(context.Background(), "a", 1)
 	require.NoError(t, err)
@@ -71,9 +72,9 @@ func TestTraverseFromOneHop(t *testing.T) {
 }
 
 func TestTraverseFromDefaultDepthReachesTwoHops(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(sampleGraph().answer)
+	fw.SetGraphQL(sampleGraph().answer)
 
 	got, err := store.TraverseFrom(context.Background(), "a", 0,
 		interfaces.WithSearchTenant("org"), interfaces.WithRelationshipTypes("LINK"))
@@ -82,7 +83,7 @@ func TestTraverseFromDefaultDepthReachesTwoHops(t *testing.T) {
 	assert.ElementsMatch(t, []string{"a", "b", "c", "d"}, entityIDs(got.Entities))
 
 	// The tenant and relationship type reach every relationship query.
-	for _, q := range fw.queries() {
+	for _, q := range fw.GraphQLQueries() {
 		if strings.Contains(q, "GraphRelationship") {
 			assert.Contains(t, q, `path: ["orgId"] valueString: "org"`)
 			assert.Contains(t, q, `path: ["relationshipType"] valueString: "LINK"`)
@@ -91,10 +92,10 @@ func TestTraverseFromDefaultDepthReachesTwoHops(t *testing.T) {
 }
 
 func TestTraverseFromToleratesRelationshipErrors(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 	g := sampleGraph()
-	fw.setGraphQL(func(q string) fakeReply {
+	fw.SetGraphQL(func(q string) testutil.WeaviateReply {
 		if strings.Contains(q, "GraphRelationship") {
 			return gqlError
 		}
@@ -111,7 +112,7 @@ func TestShortestPath(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("validation", func(t *testing.T) {
-		store := newTestStore(t, newFakeWeaviate(t))
+		store := newTestStore(t, testutil.NewFakeWeaviate(t))
 		_, err := store.ShortestPath(ctx, "", "b")
 		require.ErrorIs(t, err, graphrag.ErrInvalidEntityID)
 		_, err = store.ShortestPath(ctx, "a", "")
@@ -119,9 +120,9 @@ func TestShortestPath(t *testing.T) {
 	})
 
 	t.Run("same entity", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(sampleGraph().answer)
+		fw.SetGraphQL(sampleGraph().answer)
 
 		got, err := store.ShortestPath(ctx, "a", "a")
 		require.NoError(t, err)
@@ -134,9 +135,9 @@ func TestShortestPath(t *testing.T) {
 	})
 
 	t.Run("two hops", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(sampleGraph().answer)
+		fw.SetGraphQL(sampleGraph().answer)
 
 		got, err := store.ShortestPath(ctx, "a", "d", interfaces.WithSearchTenant("org"), interfaces.WithRelationshipTypes("LINK"))
 		require.NoError(t, err)
@@ -148,9 +149,9 @@ func TestShortestPath(t *testing.T) {
 	})
 
 	t.Run("follows incoming edges", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(sampleGraph().answer)
+		fw.SetGraphQL(sampleGraph().answer)
 
 		got, err := store.ShortestPath(ctx, "a", "c")
 		require.NoError(t, err)
@@ -159,27 +160,27 @@ func TestShortestPath(t *testing.T) {
 	})
 
 	t.Run("no path", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(sampleGraph().answer)
+		fw.SetGraphQL(sampleGraph().answer)
 
 		_, err := store.ShortestPath(ctx, "a", "e")
 		require.ErrorIs(t, err, graphrag.ErrPathNotFound)
 	})
 
 	t.Run("depth limit", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(sampleGraph().answer)
+		fw.SetGraphQL(sampleGraph().answer)
 
 		_, err := store.ShortestPath(ctx, "a", "d", interfaces.WithMaxDepth(1))
 		require.ErrorIs(t, err, graphrag.ErrPathNotFound)
 	})
 
 	t.Run("relationship errors end the search", func(t *testing.T) {
-		fw := newFakeWeaviate(t)
+		fw := testutil.NewFakeWeaviate(t)
 		store := newTestStore(t, fw)
-		fw.setGraphQL(func(string) fakeReply { return gqlError })
+		fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 
 		_, err := store.ShortestPath(ctx, "a", "d")
 		require.ErrorIs(t, err, graphrag.ErrPathNotFound)
@@ -188,9 +189,9 @@ func TestShortestPath(t *testing.T) {
 
 func TestBuildPathResult(t *testing.T) {
 	ctx := context.Background()
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(sampleGraph().answer)
+	fw.SetGraphQL(sampleGraph().answer)
 
 	_, err := store.buildPathResult(ctx, []string{"a"}, nil, "")
 	require.ErrorIs(t, err, graphrag.ErrPathNotFound)

@@ -231,7 +231,7 @@ func TestGeminiEmbedWithConfigUsesFallbackModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, srv.path(), ModelTextEmbedding005)
 	req := srv.body()["requests"].([]interface{})[0].(map[string]interface{})
-	// Dimensions above the int32 guard are not sent.
+	// Dimensions above 32767 are not sent.
 	assert.NotContains(t, req, "outputDimensionality")
 }
 

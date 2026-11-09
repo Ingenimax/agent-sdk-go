@@ -4,23 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
 func TestNewCreatesMissingSchema(t *testing.T) {
-	fw := newFakeWeaviate(t)
-	store, err := New(&Config{Host: fw.host(), Scheme: "http", ClassPrefix: "Kg"})
+	fw := testutil.NewFakeWeaviate(t)
+	store, err := New(&Config{Host: fw.Host(), Scheme: "http", ClassPrefix: "Kg"})
 	require.NoError(t, err)
 	assert.Equal(t, "KgEntity", store.getEntityClassName())
 	assert.Equal(t, "KgRelationship", store.getRelationshipClassName())
 
-	created := fw.requestsTo(http.MethodPost, "/v1/schema")
+	created := fw.RequestsTo(http.MethodPost, "/v1/schema")
 	require.Len(t, created, 2)
 	var names []string
 	for _, req := range created {
@@ -38,41 +40,41 @@ func TestNewCreatesMissingSchema(t *testing.T) {
 }
 
 func TestNewSkipsExistingSchema(t *testing.T) {
-	fw := newFakeWeaviate(t)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw := testutil.NewFakeWeaviate(t)
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Method == http.MethodGet && req.Path == "/v1/schema" {
 			return ok(`{"classes":[{"class":"GraphEntity"},{"class":"GraphRelationship"}]}`), true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
-	_, err := New(&Config{Host: fw.host(), Scheme: "http"})
+	_, err := New(&Config{Host: fw.Host(), Scheme: "http"})
 	require.NoError(t, err)
-	assert.Empty(t, fw.requestsTo(http.MethodPost, "/v1/schema"))
+	assert.Empty(t, fw.RequestsTo(http.MethodPost, "/v1/schema"))
 }
 
 func TestNewToleratesSchemaErrors(t *testing.T) {
 	tests := []struct {
 		name   string
-		handle func(req fakeRequest) (fakeReply, bool)
+		handle func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool)
 	}{
-		{"schema lookup fails", func(req fakeRequest) (fakeReply, bool) {
+		{"schema lookup fails", func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 			if req.Path == "/v1/schema" {
 				return gqlError, true
 			}
-			return fakeReply{}, false
+			return testutil.WeaviateReply{}, false
 		}},
-		{"class create fails", func(req fakeRequest) (fakeReply, bool) {
+		{"class create fails", func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 			if req.Method == http.MethodPost && req.Path == "/v1/schema" {
 				return gqlError, true
 			}
-			return fakeReply{}, false
+			return testutil.WeaviateReply{}, false
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fw := newFakeWeaviate(t)
-			fw.setHandle(tt.handle)
-			store, err := New(&Config{Host: fw.host(), Scheme: "http"})
+			fw := testutil.NewFakeWeaviate(t)
+			fw.SetHandle(tt.handle)
+			store, err := New(&Config{Host: fw.Host(), Scheme: "http"})
 			require.NoError(t, err, "schema errors are logged, not returned")
 			assert.NotNil(t, store.client)
 		})
@@ -80,55 +82,55 @@ func TestNewToleratesSchemaErrors(t *testing.T) {
 }
 
 func TestEnsureSchemaErrors(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	// The entity class exists, so only the relationship class is created, and that fails.
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		switch {
 		case req.Method == http.MethodGet && req.Path == "/v1/schema":
 			return ok(`{"classes":[{"class":"GraphEntity"}]}`), true
 		case req.Method == http.MethodPost && req.Path == "/v1/schema":
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	err := store.ensureSchema(context.Background())
 	require.ErrorContains(t, err, "failed to create relationship schema")
 	require.ErrorContains(t, err, "failed to create relationship class")
 
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Path == "/v1/schema" {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	err = store.ensureSchema(context.Background())
 	require.ErrorContains(t, err, "failed to create entity schema")
 	require.ErrorContains(t, err, "failed to check if class exists")
 	require.ErrorContains(t, store.ensureRelationshipSchema(context.Background()), "failed to check if class exists")
 
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Method == http.MethodPost && req.Path == "/v1/schema" {
 			return gqlError, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	require.ErrorContains(t, store.ensureEntitySchema(context.Background()), "failed to create entity class")
 }
 
 func TestNewWithAPIKeySendsBearerToken(t *testing.T) {
-	fw := newFakeWeaviate(t)
-	_, err := New(&Config{Host: fw.host(), Scheme: "http", APIKey: "secret"})
+	fw := testutil.NewFakeWeaviate(t)
+	_, err := New(&Config{Host: fw.Host(), Scheme: "http", APIKey: "secret"})
 	require.NoError(t, err)
 
-	reqs := fw.requestsTo(http.MethodGet, "/v1/schema")
+	reqs := fw.RequestsTo(http.MethodGet, "/v1/schema")
 	require.NotEmpty(t, reqs)
 	assert.Equal(t, "Bearer secret", reqs[0].Header.Get("Authorization"))
 }
 
 func TestStoreOptions(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	schema := &interfaces.GraphSchema{EntityTypes: []interfaces.EntityTypeSchema{{Name: "Person"}}}
 	store := newTestStore(t, fw,
 		WithClassPrefix("Custom"),
@@ -146,7 +148,7 @@ func TestStoreOptions(t *testing.T) {
 }
 
 func TestApplyAndDiscoverStoredSchema(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	schema := interfaces.GraphSchema{
@@ -158,13 +160,13 @@ func TestApplyAndDiscoverStoredSchema(t *testing.T) {
 	got, err := store.DiscoverSchema(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, schema, *got)
-	assert.Empty(t, fw.queries(), "a stored schema needs no query")
+	assert.Empty(t, fw.GraphQLQueries(), "a stored schema needs no query")
 }
 
 func TestDiscoverSchemaFromData(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(func(query string) fakeReply {
+	fw.SetGraphQL(func(query string) testutil.WeaviateReply {
 		if containsAll(query, "Aggregate", "GraphEntity") {
 			return aggregateResponse("GraphEntity", groupedBy("Person"), groupedBy("Org"), map[string]interface{}{"bad": 1})
 		}
@@ -181,15 +183,15 @@ func TestDiscoverSchemaFromData(t *testing.T) {
 	assert.Equal(t, "WORKS_AT", got.RelationshipTypes[0].Name)
 	assert.Equal(t, "Discovered relationship type: WORKS_AT", got.RelationshipTypes[0].Description)
 
-	for _, q := range fw.queries() {
+	for _, q := range fw.GraphQLQueries() {
 		assert.Contains(t, q, "groupBy")
 	}
 }
 
 func TestDiscoverSchemaQueryErrors(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 
 	got, err := store.DiscoverSchema(context.Background())
 	require.NoError(t, err, "discovery errors are logged, not returned")
@@ -213,32 +215,32 @@ func TestApplyOptionDefaults(t *testing.T) {
 }
 
 func TestCountAllEntities(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return aggregateResponse("GraphEntity", map[string]interface{}{"meta": map[string]interface{}{"count": 42}})
 	})
 	n, err := store.CountAllEntities(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 42, n)
-	assert.Contains(t, fw.queries()[0], "Aggregate")
+	assert.Contains(t, fw.GraphQLQueries()[0], "Aggregate")
 
-	fw.setGraphQL(func(string) fakeReply { return ok(`{"data":{}}`) })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return ok(`{"data":{}}`) })
 	n, err = store.CountAllEntities(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	_, err = store.CountAllEntities(context.Background())
 	require.Error(t, err)
 }
 
 func TestListAllEntities(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
-	fw.setGraphQL(func(string) fakeReply {
+	fw.SetGraphQL(func(string) testutil.WeaviateReply {
 		return getResponse("GraphEntity",
 			map[string]interface{}{"entityId": "e1", "name": "Ana", "entityType": "Person"},
 			map[string]interface{}{"entityId": "e2", "name": "Acme", "entityType": "Org"},
@@ -249,110 +251,109 @@ func TestListAllEntities(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, "Ana", got[0].Name)
 	assert.Equal(t, "Org", got[1].Type)
-	assert.Contains(t, fw.queries()[0], "limit: 100", "a non-positive limit defaults to 100")
+	assert.Contains(t, fw.GraphQLQueries()[0], "limit: 100", "a non-positive limit defaults to 100")
 
-	fw.reset()
-	fw.setGraphQL(func(string) fakeReply { return ok(`{"data":{"Get":{}}}`) })
+	fw.Reset()
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return ok(`{"data":{"Get":{}}}`) })
 	got, err = store.ListAllEntities(context.Background(), 7)
 	require.NoError(t, err)
 	assert.Empty(t, got)
-	assert.Contains(t, fw.queries()[0], "limit: 7")
+	assert.Contains(t, fw.GraphQLQueries()[0], "limit: 7")
 
-	fw.setGraphQL(func(string) fakeReply { return gqlError })
+	fw.SetGraphQL(func(string) testutil.WeaviateReply { return gqlError })
 	_, err = store.ListAllEntities(context.Background(), 1)
 	require.Error(t, err)
 }
 
 func TestDeleteSchema(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	schemaReply := ok(`{"classes":[{"class":"GraphEntity"},{"class":"GraphRelationship"}]}`)
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Method == http.MethodGet && req.Path == "/v1/schema" {
 			return schemaReply, true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	require.NoError(t, store.DeleteSchema(context.Background()))
-	assert.Len(t, fw.requestsTo(http.MethodDelete, "/v1/schema/GraphEntity"), 1)
-	assert.Len(t, fw.requestsTo(http.MethodDelete, "/v1/schema/GraphRelationship"), 1)
+	assert.Len(t, fw.RequestsTo(http.MethodDelete, "/v1/schema/GraphEntity"), 1)
+	assert.Len(t, fw.RequestsTo(http.MethodDelete, "/v1/schema/GraphRelationship"), 1)
 
 	// Nothing to delete when neither class exists.
-	fw.reset()
-	fw.setHandle(nil)
+	fw.Reset()
+	fw.SetHandle(nil)
 	require.NoError(t, store.DeleteSchema(context.Background()))
-	assert.Empty(t, fw.requestsTo(http.MethodDelete, "/v1/schema/GraphEntity"))
+	assert.Empty(t, fw.RequestsTo(http.MethodDelete, "/v1/schema/GraphEntity"))
 }
 
 func TestDeleteSchemaErrors(t *testing.T) {
 	tests := []struct {
 		name    string
-		handle  func(req fakeRequest) (fakeReply, bool)
+		handle  func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool)
 		wantErr string
 	}{
 		{
 			name: "entity check fails",
-			handle: func(req fakeRequest) (fakeReply, bool) {
+			handle: func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 				if req.Path == "/v1/schema" {
 					return gqlError, true
 				}
-				return fakeReply{}, false
+				return testutil.WeaviateReply{}, false
 			},
 			wantErr: "failed to check entity class",
 		},
 		{
 			name: "entity delete fails",
-			handle: func(req fakeRequest) (fakeReply, bool) {
+			handle: func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 				switch {
 				case req.Path == "/v1/schema":
 					return ok(`{"classes":[{"class":"GraphEntity"}]}`), true
 				case req.Method == http.MethodDelete:
 					return gqlError, true
 				}
-				return fakeReply{}, false
+				return testutil.WeaviateReply{}, false
 			},
 			wantErr: "failed to delete entity class",
 		},
 		{
 			name: "relationship delete fails",
-			handle: func(req fakeRequest) (fakeReply, bool) {
+			handle: func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 				switch {
 				case req.Path == "/v1/schema":
 					return ok(`{"classes":[{"class":"GraphRelationship"}]}`), true
 				case req.Method == http.MethodDelete:
 					return gqlError, true
 				}
-				return fakeReply{}, false
+				return testutil.WeaviateReply{}, false
 			},
 			wantErr: "failed to delete relationship class",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fw := newFakeWeaviate(t)
+			fw := testutil.NewFakeWeaviate(t)
 			store := newTestStore(t, fw)
-			fw.setHandle(tt.handle)
+			fw.SetHandle(tt.handle)
 			require.ErrorContains(t, store.DeleteSchema(context.Background()), tt.wantErr)
 		})
 	}
 }
 
 func TestDeleteSchemaRelationshipCheckFails(t *testing.T) {
-	fw := newFakeWeaviate(t)
+	fw := testutil.NewFakeWeaviate(t)
 	store := newTestStore(t, fw)
 
 	// The first schema lookup succeeds and the second fails.
-	calls := 0
-	fw.setHandle(func(req fakeRequest) (fakeReply, bool) {
+	var calls atomic.Int32
+	fw.SetHandle(func(req testutil.WeaviateRequest) (testutil.WeaviateReply, bool) {
 		if req.Path == "/v1/schema" {
-			calls++
-			if calls > 1 {
+			if calls.Add(1) > 1 {
 				return gqlError, true
 			}
 			return ok(`{"classes":[]}`), true
 		}
-		return fakeReply{}, false
+		return testutil.WeaviateReply{}, false
 	})
 	require.ErrorContains(t, store.DeleteSchema(context.Background()), "failed to check relationship class")
 }

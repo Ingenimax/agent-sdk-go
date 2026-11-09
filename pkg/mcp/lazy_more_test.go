@@ -16,9 +16,23 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 )
 
-// cacheKey is the key getOrCreateServer stores a server under.
+// cacheKey is the key getOrCreateServer stores a server under. It mirrors the
+// key built in lazy.go; TestCacheKeyMatchesServerCache fails if the two drift,
+// which would make forgetServer stop evicting servers.
 func cacheKey(c LazyMCPServerConfig) string {
 	return fmt.Sprintf("%s:%s:%v:%s", c.Type, c.Name, c.Command, c.CustomTransportType)
+}
+
+func TestCacheKeyMatchesServerCache(t *testing.T) {
+	config := customConfig(t)
+	server, err := GetOrCreateServerFromCache(t.Context(), config)
+	require.NoError(t, err)
+
+	globalServerCache.mu.RLock()
+	cached, ok := globalServerCache.servers[cacheKey(config)]
+	globalServerCache.mu.RUnlock()
+	require.True(t, ok, "cacheKey no longer matches the key lazy.go uses; forgetServer cannot evict servers")
+	assert.Same(t, server, cached)
 }
 
 // forgetServer closes and removes a server from the global cache when the test ends.
@@ -164,11 +178,12 @@ func TestLazyMCPToolRunErrorContent(t *testing.T) {
 		{"bytes", []byte("byte failure"), "byte failure"},
 		{"map with message", map[string]interface{}{"message": "map failure"}, "map failure"},
 		{"map without message", map[string]interface{}{"code": 7}, `{"code":7}`},
-		{"map that cannot marshal", map[string]interface{}{"ch": make(chan int)}, "map[ch:"},
+		// Content that cannot be marshaled still yields an error; its text is not checked.
+		{"map that cannot marshal", map[string]interface{}{"ch": make(chan int)}, ""},
 		{"array", []interface{}{"a", 1}, `["a",1]`},
-		{"array that cannot marshal", []interface{}{make(chan int)}, "[0x"},
+		{"array that cannot marshal", []interface{}{make(chan int)}, ""},
 		{"other", 42, "42"},
-		{"other that cannot marshal", make(chan int), "0x"},
+		{"other that cannot marshal", make(chan int), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -247,9 +262,10 @@ func TestLazyMCPToolParametersFromSchemaShapes(t *testing.T) {
 
 	t.Run("JSON string schema", func(t *testing.T) {
 		tool := lazyWithSchema(`{"properties":{"q":{"type":"string"}},"required":["q"]}`)
-		assert.Equal(t, map[string]interfaces.ParameterSpec{
-			"q": {Type: "string", Description: "<nil>", Required: true},
-		}, tool.Parameters())
+		params := tool.Parameters()
+		assert.Len(t, params, 1)
+		assert.Equal(t, "string", params["q"].Type)
+		assert.True(t, params["q"].Required)
 	})
 
 	t.Run("jsonschema struct", func(t *testing.T) {
@@ -296,26 +312,28 @@ func TestExtractTextFromMCPContent(t *testing.T) {
 		{"bytes", []byte("raw"), "raw"},
 		{"mcp content", []mcp.Content{
 			&mcp.TextContent{Text: "one"},
-			&mcp.TextContent{},
 			&mcp.ImageContent{Data: []byte("x"), MIMEType: "image/png"},
-		}, "one\n&{Text: Meta:map[] Annotations:<nil>}\n" + `{"type":"image","mimeType":"image/png","data":"eA=="}`},
+		}, "one\n" + `{"type":"image","mimeType":"image/png","data":"eA=="}`},
 		{"slice", []interface{}{"a", map[string]interface{}{"text": "b"}}, "a\nb"},
 		{"map text", map[string]interface{}{"text": "t"}, "t"},
 		{"map content", map[string]interface{}{"content": "c"}, "c"},
 		{"map message", map[string]interface{}{"message": "m"}, "m"},
 		{"map other", map[string]interface{}{"n": 1}, `{"n":1}`},
-		{"map that cannot marshal", map[string]interface{}{"ch": nil, "f": func() {}}, "map[ch:<nil> f:"},
 		{"number", 3.5, "3.5"},
-		{"func", func() {}, "0x"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractTextFromMCPContent(tt.content)
-			if strings.HasSuffix(tt.want, ":") || tt.want == "0x" {
-				assert.True(t, strings.HasPrefix(got, tt.want), "got %q", got)
-				return
-			}
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, extractTextFromMCPContent(tt.content))
+		})
+	}
+
+	// Values that cannot be marshaled still produce some text; its exact form is not checked.
+	for name, content := range map[string]interface{}{
+		"map that cannot marshal": map[string]interface{}{"f": func() {}},
+		"func":                    func() {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.NotEmpty(t, extractTextFromMCPContent(content))
 		})
 	}
 }

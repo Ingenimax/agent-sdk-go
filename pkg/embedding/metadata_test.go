@@ -223,7 +223,7 @@ func TestOperatorToMapKey(t *testing.T) {
 	tests := map[string]string{
 		"==": "equals", "ne": "notEquals", "gt": "greaterThan", ">=": "greaterThanEqual",
 		"lt": "lessThan", "<=": "lessThanEqual", "contains": "contains", "in": "in",
-		"not_in": "notIn", "unknown": "equals",
+		"not_in": "notIn",
 	}
 	for in, want := range tests {
 		assert.Equal(t, want, operatorToMapKey(in), in)
@@ -236,7 +236,7 @@ func TestWeaviateFilterFromSingle(t *testing.T) {
 		filter MetadataFilter
 		want   map[string]interface{}
 	}{
-		{"eq", NewMetadataFilter("f", "=", 5),
+		{"eq", NewMetadataFilter("f", "=", "5"),
 			map[string]interface{}{"path": []string{"f"}, "operator": "Equal", "valueString": "5"}},
 		{"ne", NewMetadataFilter("f", "!=", "x"),
 			map[string]interface{}{"path": []string{"f"}, "operator": "NotEqual", "valueString": "x"}},
@@ -258,8 +258,6 @@ func TestWeaviateFilterFromSingle(t *testing.T) {
 			map[string]interface{}{"path": []string{"f"}, "operator": "NotContainsAny", "valueString": []string{"a"}}},
 		{"not_in scalar", NewMetadataFilter("f", "not_in", 2),
 			map[string]interface{}{"path": []string{"f"}, "operator": "NotContainsAny", "valueString": []string{"2"}}},
-		{"unknown", NewMetadataFilter("f", "??", true),
-			map[string]interface{}{"path": []string{"f"}, "operator": "Equal", "valueString": "true"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

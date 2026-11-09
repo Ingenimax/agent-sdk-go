@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -134,15 +136,39 @@ func TestWithLevelFiltersMessages(t *testing.T) {
 	assert.Equal(t, []any{"warn", "error"}, messages)
 }
 
+// newCaptured builds a logger with New while os.Stdout points at a temp file,
+// writes one info line, and returns what was written.
+func newCaptured(t *testing.T) string {
+	t.Helper()
+	f, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	orig := os.Stdout
+	os.Stdout = f
+	l := New()
+	os.Stdout = orig
+
+	l.Info(context.Background(), "hello", nil)
+	out, err := os.ReadFile(f.Name())
+	require.NoError(t, err)
+	return string(out)
+}
+
 func TestNew(t *testing.T) {
 	// The package-level flag is shared, so restore it after the test.
 	orig := zeroLogJsonEnable
 	t.Cleanup(func() { zeroLogJsonEnable = orig })
 
 	zeroLogJsonEnable = false
-	assert.NotNil(t, New())
+	console := newCaptured(t)
+	assert.Contains(t, console, "hello")
+	assert.False(t, json.Valid([]byte(console)), "console output is not JSON: %s", console)
 
 	SetZeroLogJsonEnabled()
 	assert.True(t, zeroLogJsonEnable)
-	assert.NotNil(t, New())
+	var line map[string]any
+	require.NoError(t, json.Unmarshal([]byte(newCaptured(t)), &line))
+	assert.Equal(t, "hello", line["message"])
+	assert.Equal(t, "info", line["level"])
 }

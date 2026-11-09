@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 type searchOutput struct {
@@ -129,9 +128,8 @@ func TestSearchModes(t *testing.T) {
 
 func TestSearchFormatsResults(t *testing.T) {
 	store := &fakeStore{searchResults: sampleSearchResults()}
-	ctx := multitenancy.WithOrgID(context.Background(), "org-1")
 
-	out, err := NewSearchTool(store).Execute(ctx, `{"query": "ada"}`)
+	out, err := NewSearchTool(store).Execute(context.Background(), `{"query": "ada"}`)
 	require.NoError(t, err)
 
 	var got []searchOutput

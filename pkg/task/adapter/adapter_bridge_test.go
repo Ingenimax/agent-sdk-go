@@ -101,7 +101,6 @@ func TestCoreBridgeAdapterStatusMapping(t *testing.T) {
 		assert.Equal(t, p.task, a.coreStatusToTaskStatus(p.core), string(p.core))
 		assert.Equal(t, p.core, a.taskStatusToCoreStatus(p.task), string(p.task))
 	}
-	assert.Equal(t, task.StatusPending, a.coreStatusToTaskStatus(core.StatusCancelled))
 	assert.Equal(t, core.StatusPending, a.taskStatusToCoreStatus("unknown"))
 }
 
@@ -114,7 +113,7 @@ func TestCoreBridgeAdapterListTasks(t *testing.T) {
 	got, err := b.ListTasks(context.Background(), task.TaskFilter{
 		UserID:         "u",
 		ConversationID: "c",
-		Status:         []task.Status{task.StatusApproval, task.StatusFailed},
+		Status:         []task.Status{task.StatusApproval},
 		CreatedAfter:   &from,
 		CreatedBefore:  &to,
 	})

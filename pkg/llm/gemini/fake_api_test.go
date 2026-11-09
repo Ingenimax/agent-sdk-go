@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genai"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/testutil"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
@@ -166,38 +167,16 @@ func dig(v any, path ...any) any {
 	return v
 }
 
-// scriptedTool is a tool that returns a fixed result or error and records its arguments.
-type scriptedTool struct {
-	name   string
-	result string
-	err    error
-	mu     sync.Mutex
-	args   []string
-}
-
-func (s *scriptedTool) Name() string        { return s.name }
-func (s *scriptedTool) DisplayName() string { return s.name }
-func (s *scriptedTool) Description() string { return "tool " + s.name }
-func (s *scriptedTool) Internal() bool      { return false }
-func (s *scriptedTool) Parameters() map[string]interfaces.ParameterSpec {
-	return map[string]interfaces.ParameterSpec{
-		"q": {Type: "string", Description: "query", Required: true},
+// scriptedTool returns a fake tool with one required "q" parameter that
+// answers with result or err and records its arguments.
+func scriptedTool(name, result string, err error) *testutil.FakeTool {
+	return &testutil.FakeTool{
+		ToolName: name,
+		Desc:     "tool " + name,
+		Result:   result,
+		Err:      err,
+		Params: map[string]interfaces.ParameterSpec{
+			"q": {Type: "string", Description: "query", Required: true},
+		},
 	}
-}
-
-func (s *scriptedTool) Run(ctx context.Context, input string) (string, error) {
-	return s.Execute(ctx, input)
-}
-
-func (s *scriptedTool) Execute(_ context.Context, args string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.args = append(s.args, args)
-	return s.result, s.err
-}
-
-func (s *scriptedTool) calls() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.args)
 }
