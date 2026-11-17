@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,12 @@ import (
 type fakeExecutor struct {
 	err    error
 	nilCmd bool
+	// refuseAfter, when positive, makes every call after the first
+	// refuseAfter calls fail.
+	refuseAfter int
+	// serverEnv, when set, replaces the environment that selects the test
+	// server, to run the legacy server instead, say.
+	serverEnv []string
 
 	mu    sync.Mutex
 	calls []fakeExecutorCall
@@ -34,17 +42,72 @@ type fakeExecutorCall struct {
 func (f *fakeExecutor) Command(ctx context.Context, name string, args []string, env []string) (*exec.Cmd, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, fakeExecutorCall{name: name, args: args, env: env})
+	n := len(f.calls)
 	f.mu.Unlock()
 	if f.err != nil {
 		return nil, f.err
 	}
+	if f.refuseAfter > 0 && n > f.refuseAfter {
+		return nil, fmt.Errorf("call %d refused", n)
+	}
 	if f.nilCmd {
 		return nil, nil
 	}
+	serverEnv := f.serverEnv
+	if serverEnv == nil {
+		serverEnv = []string{stdioServerEnv + "=1"}
+	}
 	// #nosec G204 -- the test binary itself.
 	cmd := exec.CommandContext(ctx, os.Args[0])
-	cmd.Env = append(os.Environ(), stdioServerEnv+"=1")
+	cmd.Env = append(os.Environ(), serverEnv...)
 	return cmd, nil
+}
+
+// A server restarted for the initialize handshake must start the same way as
+// the first time: through the executor, never directly on the host.
+func TestNewStdioServerRestartGoesThroughExecutor(t *testing.T) {
+	newConfig := func(executor CommandExecutor) StdioServerConfig {
+		return StdioServerConfig{
+			// Not on the host's PATH, so a start that skipped the executor
+			// would fail.
+			Command:         "sandboxed-legacy-server",
+			Logger:          logging.New(),
+			Executor:        executor,
+			DiscoverTimeout: 200 * time.Millisecond,
+		}
+	}
+
+	t.Run("restart", func(t *testing.T) {
+		env, starts := legacyServerEnvVars(t, "die")
+		executor := &fakeExecutor{serverEnv: env}
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+
+		server, err := NewStdioServer(ctx, newConfig(executor))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = server.Close() })
+
+		assert.Equal(t, 2, starts())
+		calls := executor.recorded()
+		require.Len(t, calls, 2)
+		for _, call := range calls {
+			assert.Equal(t, "sandboxed-legacy-server", call.name)
+		}
+		assert.Equal(t, legacyServerProtocol, negotiatedProtocol(t, server))
+	})
+
+	t.Run("executor refuses the restart", func(t *testing.T) {
+		env, starts := legacyServerEnvVars(t, "die")
+		executor := &fakeExecutor{serverEnv: env, refuseAfter: 1}
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+
+		_, err := NewStdioServer(ctx, newConfig(executor))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "command executor refused")
+		assert.Equal(t, 1, starts())
+		assert.Len(t, executor.recorded(), 2)
+	})
 }
 
 func (f *fakeExecutor) recorded() []fakeExecutorCall {
