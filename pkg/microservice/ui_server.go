@@ -4,8 +4,10 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"log"
 	"net/http"
 	"os"
@@ -1271,14 +1273,9 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	req, content, err := parseRunRequest(w, r)
+	if err != nil {
+		writeRequestError(w, err)
 		return
 	}
 
@@ -1294,13 +1291,10 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add user input to conversation history
-	h.addToConversationHistory("user", req.Input, map[string]interface{}{
-		"conversation_id": req.ConversationID,
-		"org_id":          req.OrgID,
-	})
+	h.addToConversationHistory("user", content.Text(), userHistoryMetadata(req, content))
 
 	// Execute agent with detailed tracking
-	response, err := h.agent.RunDetailed(ctx, req.Input)
+	response, err := h.agent.RunWithContentDetailed(ctx, content)
 
 	// Add response to conversation history
 	if err != nil {
@@ -1309,11 +1303,9 @@ func (h *HTTPServerWithUI) handleRun(w http.ResponseWriter, r *http.Request) {
 			"org_id":          req.OrgID,
 		})
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":  err.Error(),
-			"output": "",
-		})
+		// Agent errors are reported in the body with status 200, as the UI
+		// expects. Content the model cannot take is a client error.
+		writeJSONError(w, runErrorStatus(err, http.StatusOK), err, map[string]any{"output": ""})
 		return
 	}
 
@@ -1366,22 +1358,11 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	req, content, err := parseRunRequest(w, r)
+	if err != nil {
+		writeRequestError(w, err)
 		return
 	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
-		return
-	}
-
-	// Set up SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Set up context with org ID if provided
 	ctx := r.Context()
@@ -1395,31 +1376,18 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Add user input to conversation history
-	h.addToConversationHistory("user", req.Input, map[string]interface{}{
-		"conversation_id": req.ConversationID,
-		"org_id":          req.OrgID,
-	})
+	h.addToConversationHistory("user", content.Text(), userHistoryMetadata(req, content))
 
 	// Check if agent supports streaming
-	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
-	if !ok {
+	if _, ok := interface{}(h.agent).(interfaces.StreamingAgent); !ok {
 		// Fall back to non-streaming with detailed tracking
-		response, err := h.agent.RunDetailed(ctx, req.Input)
+		response, err := h.agent.RunWithContentDetailed(ctx, content)
 
 		if err != nil {
-			h.addToConversationHistory("error", err.Error(), map[string]interface{}{
-				"conversation_id": req.ConversationID,
-				"org_id":          req.OrgID,
-			})
-
-			event := SSEEvent{
-				Event:     "error",
-				Data:      StreamEventData{Type: "error", Content: err.Error(), IsFinal: true},
-				Timestamp: time.Now().UnixMilli(),
-			}
-			h.sendSSEEvent(w, event)
+			h.sendUIStreamStartError(w, req, err)
 			return
 		}
+		setUISSEHeaders(w)
 
 		// Log detailed execution information for UI streaming fallback
 		{
@@ -1461,24 +1429,19 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Stream events from agent
-	eventChan, err := streamingAgent.RunStream(ctx, req.Input)
+	eventChan, err := h.agent.RunWithContentStream(ctx, content)
+	var events iter.Seq[interfaces.AgentStreamEvent]
+	if err == nil {
+		events, err = streamEvents(ctx, content, eventChan)
+	}
 	if err != nil {
-		h.addToConversationHistory("error", err.Error(), map[string]interface{}{
-			"conversation_id": req.ConversationID,
-			"org_id":          req.OrgID,
-		})
-
-		event := SSEEvent{
-			Event:     "error",
-			Data:      StreamEventData{Type: "error", Content: err.Error(), IsFinal: true},
-			Timestamp: time.Now().UnixMilli(),
-		}
-		h.sendSSEEvent(w, event)
+		h.sendUIStreamStartError(w, req, err)
 		return
 	}
+	setUISSEHeaders(w)
 
 	var fullResponse strings.Builder
-	for agentEvent := range eventChan {
+	for agentEvent := range events {
 		// Collect content for conversation history
 		if agentEvent.Content != "" && agentEvent.Type == interfaces.AgentEventContent {
 			fullResponse.WriteString(agentEvent.Content)
@@ -1531,6 +1494,54 @@ func (h *HTTPServerWithUI) handleStream(w http.ResponseWriter, r *http.Request) 
 			"org_id":          req.OrgID,
 		})
 	}
+}
+
+// userHistoryMetadata returns the metadata of the local history entry for a
+// request's input, with the number of attachments when it has any.
+func userHistoryMetadata(req *StreamRequest, content *interfaces.Content) map[string]interface{} {
+	metadata := map[string]interface{}{
+		"conversation_id": req.ConversationID,
+		"org_id":          req.OrgID,
+	}
+	attachments := 0
+	for _, p := range content.Parts {
+		if !p.IsText() {
+			attachments++
+		}
+	}
+	if attachments > 0 {
+		metadata["attachments"] = attachments
+	}
+	return metadata
+}
+
+// setUISSEHeaders sets the headers of the UI server's SSE responses.
+func setUISSEHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+}
+
+// sendUIStreamStartError records a stream that failed to start in the local
+// history and answers the request. Content the agent or its model cannot take
+// is a client error, answered with a JSON body and status 422. Any other
+// error is sent as an SSE error event, as before.
+func (h *HTTPServerWithUI) sendUIStreamStartError(w http.ResponseWriter, req *StreamRequest, err error) {
+	h.addToConversationHistory("error", err.Error(), map[string]interface{}{
+		"conversation_id": req.ConversationID,
+		"org_id":          req.OrgID,
+	})
+	if errors.Is(err, interfaces.ErrContentUnsupported) {
+		writeJSONError(w, http.StatusUnprocessableEntity, err, nil)
+		return
+	}
+	setUISSEHeaders(w)
+	h.sendSSEEvent(w, SSEEvent{
+		Event:     "error",
+		Data:      StreamEventData{Type: "error", Content: err.Error(), IsFinal: true},
+		Timestamp: time.Now().UnixMilli(),
+	})
 }
 
 // sendSSEEvent sends a server-sent event

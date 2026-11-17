@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Ingenimax/agent-sdk-go/internal/multimodal"
 	"github.com/Ingenimax/agent-sdk-go/pkg/agent"
 	"github.com/Ingenimax/agent-sdk-go/pkg/config"
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
@@ -137,6 +138,102 @@ type DirectExecutionConfig struct {
 	MCPConfigFile              string
 	AllowedTools               []string
 	DangerouslySkipPermissions bool
+
+	// Attachments are the files and URLs to send with the prompt, in
+	// command-line order.
+	Attachments []Attachment
+}
+
+// The direct execution flags that attach media to the prompt. Each can be
+// repeated.
+const (
+	flagImagePath = "--image-path"
+	flagImageURL  = "--image-url"
+	flagPDFPath   = "--pdf-path"
+)
+
+// maxAttachmentBytes caps the size of each file attached with --image-path
+// or --pdf-path.
+const maxAttachmentBytes = 32 << 20
+
+// Attachment is a file or URL that a direct execution flag sends with the
+// prompt.
+type Attachment struct {
+	Flag  string // flagImagePath, flagImageURL, or flagPDFPath
+	Value string // the path or URL
+}
+
+// parseAttachmentFlag reports whether args[*i] is an attachment flag, in the
+// form --flag=value or --flag value, and returns the attachment. It moves *i
+// past a separate value.
+func parseAttachmentFlag(args []string, i *int) (Attachment, bool, error) {
+	arg := args[*i]
+	for _, flag := range []string{flagImagePath, flagImageURL, flagPDFPath} {
+		value, joined := strings.CutPrefix(arg, flag+"=")
+		if !joined && arg != flag {
+			continue
+		}
+		if !joined {
+			if *i+1 >= len(args) {
+				return Attachment{}, true, fmt.Errorf("%s needs a value", flag)
+			}
+			*i++
+			value = args[*i]
+		}
+		if value == "" {
+			return Attachment{}, true, fmt.Errorf("%s needs a value", flag)
+		}
+		return Attachment{Flag: flag, Value: value}, true, nil
+	}
+	return Attachment{}, false, nil
+}
+
+// buildPromptContent returns the run input for a direct prompt: the
+// attachments, in command-line order, followed by the prompt text.
+func buildPromptContent(prompt string, attachments []Attachment) (*interfaces.Content, error) {
+	parts := make([]*interfaces.Part, 0, len(attachments)+1)
+	for _, a := range attachments {
+		part, err := loadAttachment(a)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+	}
+	parts = append(parts, interfaces.NewPartFromText(prompt))
+	return interfaces.NewContentFromParts(parts, interfaces.MessageRoleUser), nil
+}
+
+// loadAttachment returns the content part for an attachment. The type of a
+// file comes from its content, not its name, and must suit the flag: an image
+// for --image-path and --image-url, and a PDF for --pdf-path.
+func loadAttachment(a Attachment) (*interfaces.Part, error) {
+	var part *interfaces.Part
+	var err error
+	if a.Flag == flagImageURL {
+		part, err = multimodal.NewImageURLPart(a.Value)
+	} else {
+		part, err = multimodal.ReadFile(a.Value, maxAttachmentBytes)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", a.Flag, shortValue(a.Value), err)
+	}
+	switch {
+	case a.Flag == flagPDFPath && !part.IsPDF():
+		return nil, fmt.Errorf("%s %s: the file is %s, not a PDF; attach images with %s", a.Flag, a.Value, part.MIMEType(), flagImagePath)
+	case a.Flag != flagPDFPath && !part.IsImage():
+		return nil, fmt.Errorf("%s %s: the file is %s, not an image; attach PDFs with %s", a.Flag, a.Value, part.MIMEType(), flagPDFPath)
+	}
+	return part, nil
+}
+
+// shortValue shortens a data URL for an error message, so its data does not
+// flood the terminal. Paths and other URLs are returned whole.
+func shortValue(value string) string {
+	const limit = 80
+	if len(value) <= limit || !strings.HasPrefix(strings.ToLower(value), "data:") {
+		return value
+	}
+	return value[:limit] + "..."
 }
 
 func hasDirectExecutionFlags() bool {
@@ -153,6 +250,14 @@ func parseDirectExecutionFlags() (*DirectExecutionConfig, error) {
 
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
+
+		if attachment, ok, err := parseAttachmentFlag(os.Args, &i); ok {
+			if err != nil {
+				return nil, err
+			}
+			config.Attachments = append(config.Attachments, attachment)
+			continue
+		}
 
 		if strings.HasPrefix(arg, "--prompt=") {
 			config.Prompt = strings.TrimPrefix(arg, "--prompt=")
@@ -201,6 +306,7 @@ func executeDirectPrompt() {
 		"mcp_config_file":              directConfig.MCPConfigFile,
 		"allowed_tools_count":          len(directConfig.AllowedTools),
 		"dangerously_skip_permissions": directConfig.DangerouslySkipPermissions,
+		"attachments_count":            len(directConfig.Attachments),
 	})
 
 	// Load MCP servers from config file if provided
@@ -295,6 +401,12 @@ func loadMCPServersFromFile(filePath string) ([]MCPServerConfig, error) {
 func runDirectAgent(directConfig *DirectExecutionConfig, mcpServers []MCPServerConfig) error {
 	ctx := context.Background()
 
+	// Load attachments first, so a bad file fails before any LLM setup.
+	content, err := buildPromptContent(directConfig.Prompt, directConfig.Attachments)
+	if err != nil {
+		return err
+	}
+
 	// Load base configuration
 	config := loadConfig()
 	logger.Debug(ctx, "Base configuration loaded", map[string]interface{}{
@@ -366,10 +478,11 @@ func runDirectAgent(directConfig *DirectExecutionConfig, mcpServers []MCPServerC
 
 	logger.Info(ctx, "Agent created successfully, executing prompt", map[string]interface{}{
 		"prompt_length": len(directConfig.Prompt),
+		"attachments":   len(directConfig.Attachments),
 	})
 
-	// Execute the prompt
-	response, err := agentInstance.Run(ctx, directConfig.Prompt)
+	// Execute the prompt with its attachments
+	response, err := agentInstance.RunWithContent(ctx, content)
 	if err != nil {
 		logger.Error(ctx, "Agent execution failed", map[string]interface{}{
 			"error": err.Error(),
@@ -410,6 +523,9 @@ func printDirectUsage() {
 	fmt.Println()
 	fmt.Println("OPTIONS:")
 	fmt.Println("    --prompt <text>                    The prompt to execute")
+	fmt.Println("    --image-path <file>               Attach a PNG, JPEG, GIF, or WebP image (repeatable)")
+	fmt.Println("    --image-url <url>                 Attach an image by http(s) or base64 data URL (repeatable)")
+	fmt.Println("    --pdf-path <file>                 Attach a PDF document (repeatable)")
 	fmt.Println("    --mcp-config <file>               JSON file with MCP server configuration")
 	fmt.Println("    --allowedTools <tool1,tool2>      Comma-separated list of allowed tools")
 	fmt.Println("    --dangerously-skip-permissions    Skip permission checks (use with caution)")
@@ -417,6 +533,10 @@ func printDirectUsage() {
 	fmt.Println("EXAMPLES:")
 	fmt.Println("    # Simple prompt execution")
 	fmt.Println("    agent-cli --prompt \"What is the weather today?\"")
+	fmt.Println()
+	fmt.Println("    # Ask about an image and a PDF")
+	fmt.Println("    agent-cli --prompt \"Does the chart match the report?\" \\")
+	fmt.Println("      --image-path ./chart.png --pdf-path ./report.pdf")
 	fmt.Println()
 	fmt.Println("    # With MCP server and specific tools")
 	fmt.Println("    agent-cli --prompt \"List my EC2 instances\" \\")
@@ -454,6 +574,9 @@ EXAMPLES:
 
     # Direct execution with prompt
     agent-cli --prompt "What is the weather today?"
+
+    # Direct execution with an image
+    agent-cli --prompt "What is in this picture?" --image-path ./photo.jpg
 
     # Direct execution with MCP server
     agent-cli --prompt "List my EC2 instances" \

@@ -118,19 +118,42 @@ agent-cli --prompt "List my EC2 instances" \
 # With specific tool restrictions
 agent-cli --prompt "Search for recent AI news" \
   --allowedTools "websearch"
+
+# With an image and a PDF
+agent-cli --prompt "Does the chart match the numbers in the report?" \
+  --image-path ./chart.png \
+  --pdf-path ./report.pdf
+
+# With an image by URL
+agent-cli --prompt "What is in this picture?" \
+  --image-url https://example.com/photo.jpg
 ```
 
 **Direct Execution Options:**
 - `--prompt <text>` - The prompt to execute (required)
+- `--image-path <file>` - Attach a local PNG, JPEG, GIF, or WebP image (repeatable)
+- `--image-url <url>` - Attach an image by `http`, `https`, or base64 `data:` URL (repeatable)
+- `--pdf-path <file>` - Attach a local PDF document (repeatable)
 - `--mcp-config <file>` - JSON file with MCP server configuration
 - `--allowedTools <tool1,tool2>` - Comma-separated list of allowed tools
 - `--dangerously-skip-permissions` - Skip permission checks (use with caution)
+
+**Attachments:** The CLI sends attachments in the order you give them, followed
+by the prompt. It detects the type of a local file from its content, not its
+extension, so a PDF passed to `--image-path` is refused. Each file can be up to
+32 MiB. The CLI doesn't download an `http` or `https` image: the provider fetches
+it, so the URL path must end in `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`. A
+`data:` URL is decoded and sent inline. Whether the model accepts an image or a
+PDF depends on the provider; see
+[Provider support](../../docs/content-input.md#provider-support). A provider
+that can't send an attachment returns an error instead of dropping it.
 
 **Benefits:**
 - **No Setup Required**: Works without running `init` first
 - **Automation Friendly**: Perfect for scripts and CI/CD pipelines
 - **Flexible Tool Control**: Specify exactly which tools can be used
 - **MCP Integration**: Load MCP servers from external JSON configurations
+- **Images and PDFs**: Attach files or image URLs to the prompt
 
 ### `chat` - Interactive Chat Mode
 
