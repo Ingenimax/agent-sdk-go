@@ -356,3 +356,33 @@ func TestAsAdminConversationMemory(t *testing.T) {
 		})
 	}
 }
+
+// removerMemory implements MessageRemover.
+type removerMemory struct{ stubMemory }
+
+func (removerMemory) RemoveLastMessage(context.Context, func(Message) bool) (bool, error) {
+	return false, nil
+}
+
+func TestAsMessageRemover(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Memory
+		ok   bool
+	}{
+		{"nil", nil, false},
+		{"plain memory", stubMemory{}, false},
+		{"direct", removerMemory{}, true},
+		{"wrapped", wrapMemory{inner: wrapMemory{inner: removerMemory{}}}, true},
+		{"wrapped plain", wrapMemory{inner: stubMemory{}}, false},
+		{"wraps nil", wrapMemory{}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mr, ok := AsMessageRemover(tc.in)
+			if ok != tc.ok || (mr != nil) != tc.ok {
+				t.Fatalf("got (%v, %v), want ok=%v", mr, ok, tc.ok)
+			}
+		})
+	}
+}

@@ -180,6 +180,7 @@ func (a *Agent) runLocalStream(ctx context.Context, content *interfaces.Content)
 			// For now, plan actions are not streamed - fall back to regular handling
 			result, err := a.handlePlanAction(ctx, taskID, action, planInput)
 			if err != nil {
+				a.forgetRefusedInput(ctx, content, err)
 				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
 					Error:     err,
@@ -232,6 +233,7 @@ func (a *Agent) runLocalStream(ctx context.Context, content *interfaces.Content)
 			// For now, fall back to non-streaming execution plan generation
 			result, err := a.runWithExecutionPlan(ctx, processedInput, mediaParts(content), a.planGeneratorFor(allTools))
 			if err != nil {
+				a.forgetRefusedInput(ctx, content, err)
 				sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 					Type:      interfaces.AgentEventError,
 					Error:     err,
@@ -255,6 +257,11 @@ func (a *Agent) runLocalStream(ctx context.Context, content *interfaces.Content)
 		length, err := a.runStreamingGeneration(ctx, processedInput, partOptions(content), allTools, streamingLLM, eventChan)
 		responseLength = length
 		if err != nil {
+			// The providers refuse a part before the stream starts, so the
+			// consumer sees the refusal only after the stored message is gone.
+			// A refusal sent as a stream event has been forwarded already, but
+			// the message is still removed before the channel closes.
+			a.forgetRefusedInput(ctx, content, err)
 			sendEvent(ctx, eventChan, interfaces.AgentStreamEvent{
 				Type:      interfaces.AgentEventError,
 				Error:     err,

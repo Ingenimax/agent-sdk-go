@@ -202,6 +202,17 @@ func (c *ConversationSummary) Clear(ctx context.Context) error {
 	return nil
 }
 
+// RemoveLastMessage removes the most recent message of the conversation for
+// which match returns true, satisfying interfaces.MessageRemover.
+//
+// It searches only the messages not yet summarized. Once a message is folded
+// into the summary only its text remains, and the summary is not rewritten.
+func (c *ConversationSummary) RemoveLastMessage(ctx context.Context, match func(interfaces.Message) bool) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buffer.RemoveLastMessage(ctx, match)
+}
+
 // summarize summarizes a list of messages.
 //
 // prior is the existing summary for this conversation, or "" if there is none.

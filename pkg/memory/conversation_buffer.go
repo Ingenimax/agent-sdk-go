@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -123,6 +124,35 @@ func (c *ConversationBuffer) Clear(ctx context.Context) error {
 	delete(c.messages, conversationID)
 
 	return nil
+}
+
+// RemoveLastMessage removes the most recent message of the conversation for
+// which match returns true, satisfying interfaces.MessageRemover.
+func (c *ConversationBuffer) RemoveLastMessage(ctx context.Context, match func(interfaces.Message) bool) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	conversationID, err := getConversationID(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	messages := c.messages[conversationID]
+	for i := len(messages) - 1; i >= 0; i-- {
+		if !match(messages[i]) {
+			continue
+		}
+		if len(messages) == 1 {
+			// Leave no empty conversation behind for GetAllConversations to list.
+			delete(c.messages, conversationID)
+			return true, nil
+		}
+		// GetMessages hands out the stored slice itself, so build a new one
+		// rather than shifting elements a caller may still be reading.
+		c.messages[conversationID] = slices.Concat(messages[:i], messages[i+1:])
+		return true, nil
+	}
+	return false, nil
 }
 
 // Helper function to get conversation ID from context

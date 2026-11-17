@@ -984,6 +984,17 @@ func (a *Agent) runLocalWithTracking(ctx context.Context, content *interfaces.Co
 	if err != nil {
 		return "", err
 	}
+
+	response, err := a.runLocalInput(ctx, content)
+	if err != nil {
+		a.forgetRefusedInput(ctx, content, err)
+	}
+	return response, err
+}
+
+// runLocalInput runs a local agent on input that beginRun has already guarded
+// and stored.
+func (a *Agent) runLocalInput(ctx context.Context, content *interfaces.Content) (string, error) {
 	input := content.Text()
 
 	taskID, action, planInput := a.extractPlanAction(input)
