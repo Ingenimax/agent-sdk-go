@@ -2,12 +2,18 @@ coverage:
   precision: 2
   round: down
   range: "70...100"
-  patch:
-    default:
-      target: 70%
-      threshold: 10%
+  status:
+    patch:
+      default:
+        target: 70%
+        threshold: 10%
 
 comment:
   layout: ""
   require_changes: false
   behavior: once
+
+# Compile-only packages: they exist so `go build ./...` checks code that is
+# shown in docs/, and are never executed, so coverage does not apply to them.
+ignore:
+  - "internal/docexamples"
