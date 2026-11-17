@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -706,12 +709,41 @@ func (s *MCPServerImpl) Close() error {
 	return err
 }
 
+// LegacyProtocolVersion is the newest MCP protocol version whose handshake
+// starts with initialize. From protocol 2026-07-28 on, the handshake starts
+// with the server/discover probe of SEP-2575 instead.
+const LegacyProtocolVersion = "2025-11-25"
+
+// DefaultDiscoverTimeout is how long a stdio server has to answer the
+// server/discover probe when StdioServerConfig.DiscoverTimeout is zero.
+const DefaultDiscoverTimeout = 2 * time.Second
+
 // StdioServerConfig holds configuration for a stdio MCP server
 type StdioServerConfig struct {
 	Command string
 	Args    []string
 	Env     []string
 	Logger  logging.Logger
+
+	// ProtocolVersion pins the MCP protocol version the client offers.
+	//
+	// When it is empty, the client offers the newest version, whose handshake
+	// opens with a server/discover probe. A server that does not answer the
+	// probe within DiscoverTimeout gets the initialize handshake instead: on
+	// the same connection first, and if that connection has died, on a
+	// freshly started process.
+	//
+	// Set it to LegacyProtocolVersion (or an older supported version) to skip
+	// the probe for a server known to predate it. A version from 2026-07-28 on
+	// leaves the probe unbounded, so the handshake waits on ctx as the go-sdk
+	// client does by default.
+	ProtocolVersion string
+
+	// DiscoverTimeout bounds the server/discover probe when ProtocolVersion is
+	// empty. The time a server takes to start counts against it. A server
+	// that answers too late still connects, over the initialize handshake.
+	// Zero means DefaultDiscoverTimeout.
+	DiscoverTimeout time.Duration
 }
 
 // NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
@@ -724,6 +756,10 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 	// Validate the command and arguments to mitigate command injection risks
 	if config.Command == "" {
 		return nil, fmt.Errorf("command cannot be empty")
+	}
+	if config.ProtocolVersion != "" && !slices.Contains(mcp.SupportedProtocolVersions(), config.ProtocolVersion) {
+		return nil, fmt.Errorf("unsupported MCP protocol version %q: supported versions are %s",
+			config.ProtocolVersion, strings.Join(mcp.SupportedProtocolVersions(), ", "))
 	}
 
 	// Additional validation of command and arguments
@@ -787,12 +823,7 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		}
 	}
 
-	// Create the command with context
-	// #nosec G204 -- commandPath is validated above with LookPath and security checks
-	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
-		cmd.Env = append(os.Environ(), config.Env...)
-
 		// Log the full command being executed for debugging
 		config.Logger.Info(ctx, "[STDIO SERVER] Creating subprocess with command", map[string]interface{}{
 			"command":   commandPath,
@@ -814,28 +845,97 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		}
 	}
 
-	// Capture stderr for debugging. Use a mutex-guarded buffer because
-	// os/exec writes stderr from a background goroutine while this code
-	// also reads via stderrBuf.String() below.
-	stderrBuf := &syncBuffer{}
-	cmd.Stderr = stderrBuf
+	// newCmd builds the server process. An exec.Cmd starts only once, and the
+	// handshake may have to start the server a second time.
+	newCmd := func() *exec.Cmd {
+		// #nosec G204 -- commandPath is validated above with LookPath and security checks
+		cmd := exec.CommandContext(ctx, commandPath, config.Args...)
+		if len(config.Env) > 0 {
+			cmd.Env = append(os.Environ(), config.Env...)
+		}
+		return cmd
+	}
 
-	// Create the command transport using the official SDK
-	transport := &mcp.CommandTransport{Command: cmd}
+	return connectStdio(ctx, config, newCmd)
+}
 
-	server, mcpErr := newServerFromTransport(ctx, transport, "stdio-server", "stdio", nil, config.Logger)
-	if mcpErr != nil {
+// connectStdio starts the server that newCmd builds and opens an MCP session
+// with it.
+//
+// With no ProtocolVersion pinned, the go-sdk client offers protocol
+// 2026-07-28, whose handshake opens with a server/discover probe. The SDK
+// falls back to initialize only when the server answers the probe with an
+// error. Servers built on older libraries may not answer at all: Python
+// servers on older mcp releases (1.0.0, for one) fail to validate the
+// unknown method, their session dies, and the process sits on stdin until
+// the next line arrives, then exits. Left alone, the handshake waits until
+// ctx ends.
+//
+// So the probe gets DiscoverTimeout. When it expires, the SDK sends
+// initialize on the same connection, which a server that merely ignored the
+// probe answers. If that connection has died instead, the server is started
+// again and the handshake opens with initialize.
+func connectStdio(ctx context.Context, config StdioServerConfig, newCmd func() *exec.Cmd) (interfaces.MCPServer, error) {
+	hs := handshake{protocolVersion: config.ProtocolVersion}
+	if hs.protocolVersion == "" {
+		hs.discoverTimeout = config.DiscoverTimeout
+		if hs.discoverTimeout <= 0 {
+			hs.discoverTimeout = DefaultDiscoverTimeout
+		}
+	}
+
+	attempt := attemptStdio(ctx, newCmd, hs, config.Logger)
+	if attempt.err != nil && attempt.discoverTimedOut && ctx.Err() == nil {
+		config.Logger.Warn(ctx, "[STDIO SERVER] MCP server did not answer server/discover and its connection failed; restarting it with the initialize handshake", map[string]interface{}{
+			"command":          config.Command,
+			"discover_timeout": hs.discoverTimeout.String(),
+			"protocol_version": LegacyProtocolVersion,
+			"error":            attempt.err.Error(),
+			"stderr":           attempt.stderr.String(),
+			"hint":             "set ProtocolVersion to " + LegacyProtocolVersion + " to skip the probe for this server",
+		})
+		attempt = attemptStdio(ctx, newCmd, handshake{protocolVersion: LegacyProtocolVersion}, config.Logger)
+	}
+	if attempt.err != nil {
 		config.Logger.Error(ctx, "[STDIO SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
-			"error":      mcpErr.Error(),
-			"error_type": mcpErr.ErrorType,
-			"retryable":  mcpErr.Retryable,
+			"error":      attempt.err.Error(),
+			"error_type": attempt.err.ErrorType,
+			"retryable":  attempt.err.Retryable,
 			"command":    config.Command,
 			"args":       config.Args,
-			"stderr":     stderrBuf.String(),
+			"stderr":     attempt.stderr.String(),
 		})
-		return nil, mcpErr
+		return nil, attempt.err
 	}
-	return server, nil
+	if attempt.discoverTimedOut {
+		config.Logger.Info(ctx, "[STDIO SERVER] MCP server did not answer server/discover in time; connected with the initialize handshake", map[string]interface{}{
+			"command":          config.Command,
+			"discover_timeout": hs.discoverTimeout.String(),
+		})
+	}
+	return attempt.server, nil
+}
+
+// stdioAttempt is the outcome of one stdio connection attempt.
+type stdioAttempt struct {
+	server           interfaces.MCPServer
+	err              *MCPError
+	discoverTimedOut bool
+	// stderr holds what the server process wrote to stderr.
+	stderr *syncBuffer
+}
+
+// attemptStdio starts one server process and runs the handshake with it.
+func attemptStdio(ctx context.Context, newCmd func() *exec.Cmd, hs handshake, logger logging.Logger) stdioAttempt {
+	cmd := newCmd()
+	// Capture stderr for debugging. Use a mutex-guarded buffer because
+	// os/exec writes stderr from a background goroutine while the caller
+	// also reads it.
+	stderr := &syncBuffer{}
+	cmd.Stderr = stderr
+
+	server, timedOut, err := newServerWithHandshake(ctx, &mcp.CommandTransport{Command: cmd}, "stdio-server", "stdio", nil, logger, hs)
+	return stdioAttempt{server: server, err: err, discoverTimedOut: timedOut, stderr: stderr}
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server
@@ -997,6 +1097,47 @@ func NewCustomTransportServerWithRetry(ctx context.Context, config CustomTranspo
 }
 
 func newServerFromTransport(ctx context.Context, transport mcp.Transport, serverName, serverType string, retryConfig *RetryConfig, logger logging.Logger) (interfaces.MCPServer, *MCPError) {
+	server, _, err := newServerWithHandshake(ctx, transport, serverName, serverType, retryConfig, logger, handshake{})
+	return server, err
+}
+
+// handshake configures how the client opens an MCP session. The zero value
+// is the go-sdk default.
+type handshake struct {
+	// protocolVersion is the version the client offers. Empty means the
+	// newest version the SDK supports.
+	protocolVersion string
+	// discoverTimeout, when positive, bounds the server/discover probe that
+	// opens the handshake from protocol 2026-07-28 on.
+	discoverTimeout time.Duration
+}
+
+// boundDiscover returns sending middleware that gives the server/discover
+// probe at most timeout to be answered. When the probe fails, the SDK falls
+// back to initialize on the same connection with the caller's context.
+// timedOut records that the probe ran out of its own time rather than the
+// caller's.
+func boundDiscover(timeout time.Duration, timedOut *atomic.Bool) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if _, ok := req.(*mcp.DiscoverRequest); !ok {
+				return next(ctx, method, req)
+			}
+			probeCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			res, err := next(probeCtx, method, req)
+			if err != nil && ctx.Err() == nil && errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+				timedOut.Store(true)
+			}
+			return res, err
+		}
+	}
+}
+
+// newServerWithHandshake connects over transport as hs describes. It also
+// reports whether the server/discover probe ran out of time, whether or not
+// the connection then succeeded.
+func newServerWithHandshake(ctx context.Context, transport mcp.Transport, serverName, serverType string, retryConfig *RetryConfig, logger logging.Logger, hs handshake) (interfaces.MCPServer, bool, *MCPError) {
 
 	// Create a new client with basic implementation info
 	client := mcp.NewClient(&mcp.Implementation{
@@ -1007,11 +1148,20 @@ func newServerFromTransport(ctx context.Context, transport mcp.Transport, server
 	// Add tracing middleware to the client
 	client.AddSendingMiddleware(tracingMiddleware)
 
+	var discoverTimedOut atomic.Bool
+	if hs.discoverTimeout > 0 {
+		client.AddSendingMiddleware(boundDiscover(hs.discoverTimeout, &discoverTimedOut))
+	}
+	var opts *mcp.ClientSessionOptions
+	if hs.protocolVersion != "" {
+		opts = &mcp.ClientSessionOptions{ProtocolVersion: hs.protocolVersion}
+	}
+
 	// Connect to the server using the provided transport
-	session, err := client.Connect(ctx, transport, nil)
+	session, err := client.Connect(ctx, transport, opts)
 	if err != nil {
 		mcpErr := ClassifyError(err, "Connect", serverName, serverType)
-		return nil, mcpErr
+		return nil, discoverTimedOut.Load(), mcpErr
 	}
 
 	// Get initialization result immediately after connection
@@ -1056,8 +1206,8 @@ func newServerFromTransport(ctx context.Context, transport mcp.Transport, server
 
 	// Wrap with retry logic if configured
 	if retryConfig != nil {
-		return NewRetryableServer(server, retryConfig), nil
+		return NewRetryableServer(server, retryConfig), discoverTimedOut.Load(), nil
 	}
 
-	return server, nil
+	return server, discoverTimedOut.Load(), nil
 }

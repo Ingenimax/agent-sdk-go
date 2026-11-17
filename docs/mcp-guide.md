@@ -514,6 +514,25 @@ if err == nil && len(servers) > 0 {
 }
 ```
 
+#### 6. Slow Connections to Older Stdio Servers
+
+**Symptom**: connecting to a stdio server takes a few seconds longer than expected, and the log says the server did not answer `server/discover`.
+
+The client offers MCP protocol 2026-07-28 first, which opens with a `server/discover` probe. Servers built on older MCP libraries (for example Python servers on older `mcp` releases) do not answer it, and some stop serving the connection altogether. The client gives the probe `DiscoverTimeout` (2 seconds by default), then falls back to the `initialize` handshake, restarting the server if its connection died.
+
+**Solutions**:
+- Pin the older protocol for a server known to predate the probe, so the handshake starts with `initialize` at once
+- Raise `DiscoverTimeout` for a modern server that is slow to start (a container, say) and should keep the newer protocol
+
+```go
+server, err := mcp.NewStdioServer(ctx, mcp.StdioServerConfig{
+    Command:         "docker",
+    Args:            []string{"run", "--rm", "-i", "mcp/time"},
+    Logger:          logger,
+    ProtocolVersion: mcp.LegacyProtocolVersion,
+})
+```
+
 ### Debug Mode
 
 Enable detailed logging for troubleshooting:

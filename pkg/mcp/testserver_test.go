@@ -28,6 +28,9 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if mode := os.Getenv(legacyServerEnv); mode != "" {
+		os.Exit(runLegacyStdioServer(mode))
+	}
 	os.Exit(m.Run())
 }
 
