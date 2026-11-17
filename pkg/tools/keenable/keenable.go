@@ -1,8 +1,11 @@
 // Package keenable provides a web search tool backed by the Keenable Search API.
 //
-// The tool works without an API key: requests then go to Keenable's keyless
-// public endpoint, which is rate-limited per IP. Pass a key (for example from
-// KEENABLE_API_KEY) to use the keyed endpoint and lift that limit.
+// Search queries are sent to Keenable, a third-party service. The tool works
+// without an API key: requests then go to Keenable's keyless public endpoint,
+// which allows 1,000 requests per hour per IP address, shared by everything
+// calling from that IP. Pass a key (for example from KEENABLE_API_KEY) to use
+// the keyed endpoint, which lifts the hourly cap and is billed in Keenable
+// credits.
 //
 // It is a drop-in alternative to the Google Custom Search based websearch tool:
 // it uses the same tool name ("web_search"), the same parameters (query,
@@ -22,7 +25,6 @@ import (
 	"time"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
-	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
 const (
@@ -33,6 +35,15 @@ const (
 	maxNumResults     = 50
 	maxResponseBytes  = 4 << 20
 	cacheTTL          = time.Hour
+
+	// maxCacheEntries bounds the cache. Every distinct query an LLM writes is
+	// a new key, so a long-running agent would otherwise keep them all.
+	maxCacheEntries = 1000
+
+	// maxErrorBytes bounds how much of an error response is quoted. Tool
+	// errors are passed to the LLM verbatim, and an HTML error page from a
+	// proxy can be megabytes. Keenable's own JSON errors fit well within it.
+	maxErrorBytes = 512
 )
 
 // Tool implements a web search tool using Keenable.
@@ -42,6 +53,7 @@ type Tool struct {
 	name       string
 	title      string
 	httpClient *http.Client
+	now        func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -85,6 +97,7 @@ func New(apiKey string, options ...Option) *Tool {
 		name:       "web_search",
 		title:      "agent-sdk-go",
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		now:        time.Now,
 		cache:      make(map[string]cacheEntry),
 	}
 	for _, option := range options {
@@ -164,12 +177,9 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 	}
 
 	cacheKey := fmt.Sprintf("%d\x00%s", numResults, query)
-	t.mu.Lock()
-	if entry, ok := t.cache[cacheKey]; ok && time.Since(entry.timestamp) < cacheTTL {
-		t.mu.Unlock()
-		return entry.result, nil
+	if result, ok := t.cached(cacheKey); ok {
+		return result, nil
 	}
-	t.mu.Unlock()
 
 	body, err := json.Marshal(searchRequest{Query: query, MaxResults: numResults})
 	if err != nil {
@@ -193,9 +203,6 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 	if t.apiKey != "" {
 		req.Header.Set("X-API-Key", t.apiKey)
 	}
-	if orgID, _ := multitenancy.GetOrgID(ctx); orgID != "" {
-		req.Header.Set("X-Organization-ID", orgID)
-	}
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
@@ -208,7 +215,7 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("keenable search returned status code %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return "", fmt.Errorf("keenable search returned status code %d: %s", resp.StatusCode, errorExcerpt(raw))
 	}
 
 	var result searchResponse
@@ -234,12 +241,64 @@ func (t *Tool) Run(ctx context.Context, input string) (string, error) {
 		}
 		fmt.Fprintf(&sb, "   %s\n\n", item.Snippet)
 	}
+	if n == 0 {
+		sb.WriteString("No results found.\n")
+	}
 
 	out := sb.String()
-	t.mu.Lock()
-	t.cache[cacheKey] = cacheEntry{result: out, timestamp: time.Now()}
-	t.mu.Unlock()
+	t.store(cacheKey, out)
 	return out, nil
+}
+
+// cached returns a live cache entry, dropping the entry if it has expired.
+func (t *Tool) cached(key string) (string, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry, ok := t.cache[key]
+	if !ok {
+		return "", false
+	}
+	if t.now().Sub(entry.timestamp) >= cacheTTL {
+		delete(t.cache, key)
+		return "", false
+	}
+	return entry.result, true
+}
+
+// store caches a result. When the cache is full it first drops expired
+// entries, then the oldest one.
+func (t *Tool) store(key, result string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	if _, exists := t.cache[key]; !exists && len(t.cache) >= maxCacheEntries {
+		for k, entry := range t.cache {
+			if now.Sub(entry.timestamp) >= cacheTTL {
+				delete(t.cache, k)
+			}
+		}
+		if len(t.cache) >= maxCacheEntries {
+			var oldestKey string
+			var oldest time.Time
+			for k, entry := range t.cache {
+				if oldestKey == "" || entry.timestamp.Before(oldest) {
+					oldestKey, oldest = k, entry.timestamp
+				}
+			}
+			delete(t.cache, oldestKey)
+		}
+	}
+	t.cache[key] = cacheEntry{result: result, timestamp: now}
+}
+
+// errorExcerpt quotes at most maxErrorBytes of an error response, as valid
+// UTF-8.
+func errorExcerpt(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if len(text) <= maxErrorBytes {
+		return text
+	}
+	return strings.ToValidUTF8(text[:maxErrorBytes], "") + "...(truncated)"
 }
 
 // Execute runs the tool with JSON arguments.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
@@ -81,7 +82,10 @@ func TestKeylessSearch(t *testing.T) {
 	}
 }
 
-func TestKeyedSearchAndOrgHeader(t *testing.T) {
+// TestKeyedSearchDoesNotSendOrgID also guards against forwarding the tenant ID:
+// Keenable is a third party and its API has no X-Organization-ID header, so
+// sending it would only tell the vendor which tenant made each query.
+func TestKeyedSearchDoesNotSendOrgID(t *testing.T) {
 	var calls int32
 	var got captured
 	server := newServer(t, &calls, &got)
@@ -95,8 +99,8 @@ func TestKeyedSearchAndOrgHeader(t *testing.T) {
 	if got.path != "/v1/search" || got.apiKey != "test-key" {
 		t.Errorf("path = %s, X-API-Key = %q", got.path, got.apiKey)
 	}
-	if got.org != "org-1" {
-		t.Errorf("X-Organization-ID = %q", got.org)
+	if got.org != "" {
+		t.Errorf("X-Organization-ID = %q, want it not sent to a third party", got.org)
 	}
 	if got.body["query"] != "plain text query" {
 		t.Errorf("body = %v", got.body)
@@ -135,6 +139,62 @@ func TestErrors(t *testing.T) {
 	_, err := tool.Run(context.Background(), "q")
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Errorf("expected 401 error, got %v", err)
+	}
+}
+
+func TestErrorBodyIsTruncated(t *testing.T) {
+	// An HTML error page from a proxy or CDN. Tool errors are passed to the LLM
+	// verbatim, so the whole page would land in the model's context.
+	page := "<html>" + strings.Repeat("é", 2<<20) + "</html>"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(page))
+	}))
+	defer server.Close()
+
+	_, err := keenable.New("", keenable.WithBaseURL(server.URL)).Run(context.Background(), "q")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	msg := err.Error()
+	if len(msg) > 1024 {
+		t.Errorf("error is %d bytes, want it bounded", len(msg))
+	}
+	if !strings.Contains(msg, "502") || !strings.Contains(msg, "(truncated)") {
+		t.Errorf("error should keep the status and mark the cut: %q", msg)
+	}
+	if !utf8.ValidString(msg) {
+		t.Error("truncated error is not valid UTF-8")
+	}
+}
+
+func TestRateLimitErrorKeepsRetryHint(t *testing.T) {
+	body := `{"code":"public_rate_limit_hourly","limit":{"scope":"ip","window":"1h","max":1000,"resets_at":"2026-11-16T10:00:00Z"},"retry_after_seconds":1200}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "1200")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	_, err := keenable.New("", keenable.WithBaseURL(server.URL)).Run(context.Background(), "q")
+	if err == nil || !strings.Contains(err.Error(), body) {
+		t.Errorf("a short error body should be kept whole, got %v", err)
+	}
+}
+
+func TestEmptyResults(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"query":"q","results":[]}`))
+	}))
+	defer server.Close()
+
+	out, err := keenable.New("", keenable.WithBaseURL(server.URL)).Run(context.Background(), "nothing matches")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "No results found") {
+		t.Errorf("empty result set should say so, got %q", out)
 	}
 }
 
