@@ -3,6 +3,7 @@ package microservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,9 +23,16 @@ type HTTPServer struct {
 	server *http.Server
 }
 
-// StreamRequest represents the JSON request for streaming
+// StreamRequest represents the JSON request for the run and stream endpoints.
 type StreamRequest struct {
-	Input          string            `json:"input"`
+	Input string `json:"input"`
+
+	// Content optionally sends the agent more than text, such as an image or
+	// a PDF. Its parts come first, followed by Input as a text part when
+	// Input is set. The server detects the type of inline data from the data
+	// and accepts images and PDFs only; see docs/content-input.md.
+	Content *interfaces.Content `json:"content,omitempty"`
+
 	OrgID          string            `json:"org_id,omitempty"`
 	ConversationID string            `json:"conversation_id,omitempty"`
 	Context        map[string]string `json:"context,omitempty"`
@@ -154,14 +162,9 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
+	req, content, err := parseRunRequest(w, r)
+	if err != nil {
+		writeRequestError(w, err)
 		return
 	}
 
@@ -175,13 +178,9 @@ func (h *HTTPServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Execute agent with detailed tracking
-	response, err := h.agent.RunDetailed(ctx, req.Input)
+	response, err := h.agent.RunWithContentDetailed(ctx, content)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": err.Error(),
-		})
+		writeJSONError(w, runErrorStatus(err, http.StatusInternalServerError), err, nil)
 		return
 	}
 
@@ -231,22 +230,11 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request
-	var req StreamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+	req, content, err := parseRunRequest(w, r)
+	if err != nil {
+		writeRequestError(w, err)
 		return
 	}
-
-	if req.Input == "" {
-		http.Error(w, "Input is required", http.StatusBadRequest)
-		return
-	}
-
-	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
 	// Get flusher for immediate response sending
 	flusher, ok := w.(http.Flusher)
@@ -265,18 +253,14 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if agent supports streaming
-	streamingAgent, ok := interface{}(h.agent).(interfaces.StreamingAgent)
-	if !ok {
+	if _, ok := interface{}(h.agent).(interfaces.StreamingAgent); !ok {
 		// Fall back to non-streaming execution
-		response, err := h.agent.RunDetailed(ctx, req.Input)
+		response, err := h.agent.RunWithContentDetailed(ctx, content)
 		if err != nil {
-			h.sendSSEEvent(w, flusher, "error", StreamEventData{
-				Type:    "error",
-				Error:   err.Error(),
-				IsFinal: true,
-			})
+			h.sendStreamStartError(w, flusher, err)
 			return
 		}
+		setSSEHeaders(w)
 
 		// Log detailed execution information for streaming fallback
 		{
@@ -310,15 +294,17 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start streaming
-	eventChan, err := streamingAgent.RunStream(ctx, req.Input)
+	eventChan, err := h.agent.RunWithContentStream(ctx, content)
 	if err != nil {
-		h.sendSSEEvent(w, flusher, "error", StreamEventData{
-			Type:    "error",
-			Error:   err.Error(),
-			IsFinal: true,
-		})
+		h.sendStreamStartError(w, flusher, err)
 		return
 	}
+	events, err := streamEvents(ctx, content, eventChan)
+	if err != nil {
+		h.sendStreamStartError(w, flusher, err)
+		return
+	}
+	setSSEHeaders(w)
 
 	// Send initial connection event
 	h.sendSSEEvent(w, flusher, "connected", StreamEventData{
@@ -330,7 +316,7 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// Stream events to client
 	eventID := 0
-	for event := range eventChan {
+	for event := range events {
 		eventID++
 
 		// Convert agent event to HTTP event data
@@ -370,6 +356,31 @@ func (h *HTTPServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	// Send final completion event
 	h.sendSSEEvent(w, flusher, "done", StreamEventData{
 		Type:    "done",
+		IsFinal: true,
+	})
+}
+
+// setSSEHeaders sets the headers of an SSE response.
+func setSSEHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+}
+
+// sendStreamStartError answers a stream request whose run failed to start.
+// Content the agent or its model cannot take is a client error, answered
+// with a JSON body and status 422. Any other error is sent as an SSE error
+// event, as before.
+func (h *HTTPServer) sendStreamStartError(w http.ResponseWriter, flusher http.Flusher, err error) {
+	if errors.Is(err, interfaces.ErrContentUnsupported) {
+		writeJSONError(w, http.StatusUnprocessableEntity, err, nil)
+		return
+	}
+	setSSEHeaders(w)
+	h.sendSSEEvent(w, flusher, "error", StreamEventData{
+		Type:    "error",
+		Error:   err.Error(),
 		IsFinal: true,
 	})
 }
