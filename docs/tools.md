@@ -23,6 +23,20 @@ searchTool := websearch.New(
 )
 ```
 
+`websearch` uses the Google Custom Search JSON API, which Google has closed to new customers and is discontinuing on January 1, 2027 ([overview](https://developers.google.com/custom-search/v1/overview)).
+
+### Web Search (Keenable)
+
+A drop-in alternative backed by the [Keenable](https://docs.keenable.ai) Search API. It has the same tool name (`web_search`), the same parameters and the same output format as `websearch`. Search queries are sent to Keenable, a third-party service.
+
+No API key is required: with an empty key it calls the keyless public endpoint, which allows 1,000 requests per hour per IP address, shared by everything calling from that IP. Servers behind a shared egress IP or NAT reach it quickly. A key lifts the hourly cap, and keyed searches are billed in Keenable credits. See [rate limits](https://docs.keenable.ai/rate-limits).
+
+```go
+import "github.com/Ingenimax/agent-sdk-go/pkg/tools/keenable"
+
+searchTool := keenable.New(os.Getenv("KEENABLE_API_KEY")) // "" works too
+```
+
 ### Calculator
 
 Allows the agent to perform mathematical calculations:
