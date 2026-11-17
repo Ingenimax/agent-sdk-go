@@ -3,7 +3,9 @@ package prompts
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -504,29 +506,24 @@ func (m *Manager) RenderLatest(ctx context.Context, id string, data map[string]i
 
 // isPathSafe reports whether filePath resolves to a location inside basePath.
 //
-// The check used to be a bare strings.HasPrefix, which has no notion of a path
-// boundary: with basePath "/srv/prompts" it accepted "/srv/prompts-evil/x",
-// because that string does start with the base. A sibling directory whose name
-// merely begins with the base name escaped the sandbox.
+// filepath.Rel compares path elements rather than bytes, so a sibling directory
+// whose name merely begins with the base name ("/srv/prompts-evil" for base
+// "/srv/prompts") does not count as inside, as it did with strings.HasPrefix.
 //
-// filepath.Rel compares path elements rather than bytes, so a sibling no longer
-// matches. Symlinks are resolved on both sides first: resolving only one is the
-// mirror-image bug, rejecting legitimate paths when a parent is itself a link.
+// Both sides are resolved with resolveExistingPath before comparing, so the
+// check agrees with what the OS will do with the path. That matters when the
+// target does not exist yet, as on every Save: resolving symlinks in only one
+// side rejected every write under a base reached through a link (/tmp and /var
+// on macOS), and accepted a write through a link inside the base that points
+// out of it.
 func isPathSafe(filePath string, basePath string) bool {
-	root, err := filepath.Abs(basePath)
+	root, err := resolveExistingPath(basePath)
 	if err != nil {
 		return false
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
-
-	target, err := filepath.Abs(filePath)
+	target, err := resolveExistingPath(filePath)
 	if err != nil {
 		return false
-	}
-	if resolved, err := filepath.EvalSymlinks(target); err == nil {
-		target = resolved
 	}
 
 	rel, err := filepath.Rel(root, target)
@@ -534,4 +531,48 @@ func isPathSafe(filePath string, basePath string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveExistingPath returns the absolute form of path with every symlink in
+// it resolved, including when path, or some of its parent directories, do not
+// exist yet.
+//
+// filepath.EvalSymlinks fails for a path that does not exist, so this resolves
+// the deepest ancestor that does and appends the missing components unchanged.
+// Those components cannot be links, since they do not exist, and cannot be ".."
+// either, since filepath.Abs has already cleaned the path.
+//
+// Existence is tested with os.Lstat rather than by trying EvalSymlinks on each
+// ancestor in turn, so a dangling symlink counts as existing. Resolving it then
+// fails and so does the call: writing to a dangling link would create its
+// target, which may be anywhere, so it must not be treated as a missing file.
+func resolveExistingPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	existing, missing := abs, ""
+	for {
+		_, err := os.Lstat(existing)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			// Even the filesystem root is missing; EvalSymlinks reports why.
+			break
+		}
+		missing = filepath.Join(filepath.Base(existing), missing)
+		existing = parent
+	}
+
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, missing), nil
 }
