@@ -712,6 +712,11 @@ type StdioServerConfig struct {
 	Args    []string
 	Env     []string
 	Logger  logging.Logger
+
+	// Executor, when set, builds the server's process instead of running
+	// Command directly on the host, for example to run it in a container.
+	// Command is then resolved by the executor, not on the host's PATH.
+	Executor CommandExecutor
 }
 
 // NewStdioServer creates a new MCPServer that communicates over stdio using the official SDK
@@ -726,6 +731,61 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		return nil, fmt.Errorf("command cannot be empty")
 	}
 
+	var cmd *exec.Cmd
+	var err error
+	if config.Executor != nil {
+		cmd, err = newExecutorCommand(ctx, config)
+	} else {
+		cmd, err = newHostCommand(ctx, config)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Capture stderr for debugging. Use a mutex-guarded buffer because
+	// os/exec writes stderr from a background goroutine while this code
+	// also reads via stderrBuf.String() below.
+	stderrBuf := &syncBuffer{}
+	cmd.Stderr = stderrBuf
+
+	// Create the command transport using the official SDK
+	transport := &mcp.CommandTransport{Command: cmd}
+
+	server, mcpErr := newServerFromTransport(ctx, transport, "stdio-server", "stdio", nil, config.Logger)
+	if mcpErr != nil {
+		config.Logger.Error(ctx, "[STDIO SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
+			"error":      mcpErr.Error(),
+			"error_type": mcpErr.ErrorType,
+			"retryable":  mcpErr.Retryable,
+			"command":    config.Command,
+			"args":       config.Args,
+			"stderr":     stderrBuf.String(),
+		})
+		return nil, mcpErr
+	}
+	return server, nil
+}
+
+// newExecutorCommand builds the server's process through config.Executor.
+func newExecutorCommand(ctx context.Context, config StdioServerConfig) (*exec.Cmd, error) {
+	config.Logger.Debug(ctx, "Creating MCP server command through executor", map[string]interface{}{
+		"command":      config.Command,
+		"args":         config.Args,
+		"env_provided": len(config.Env),
+		"executor":     fmt.Sprintf("%T", config.Executor),
+	})
+	cmd, err := config.Executor.Command(ctx, config.Command, config.Args, config.Env)
+	if err != nil {
+		return nil, fmt.Errorf("command executor refused %q: %w", config.Command, err)
+	}
+	if cmd == nil {
+		return nil, fmt.Errorf("command executor returned no command for %q", config.Command)
+	}
+	return cmd, nil
+}
+
+// newHostCommand builds the server's process to run directly on the host.
+func newHostCommand(ctx context.Context, config StdioServerConfig) (*exec.Cmd, error) {
 	// Additional validation of command and arguments
 	// Using LookPath to ensure the command exists in the system
 	commandPath, err := exec.LookPath(config.Command)
@@ -813,29 +873,7 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 			}
 		}
 	}
-
-	// Capture stderr for debugging. Use a mutex-guarded buffer because
-	// os/exec writes stderr from a background goroutine while this code
-	// also reads via stderrBuf.String() below.
-	stderrBuf := &syncBuffer{}
-	cmd.Stderr = stderrBuf
-
-	// Create the command transport using the official SDK
-	transport := &mcp.CommandTransport{Command: cmd}
-
-	server, mcpErr := newServerFromTransport(ctx, transport, "stdio-server", "stdio", nil, config.Logger)
-	if mcpErr != nil {
-		config.Logger.Error(ctx, "[STDIO SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
-			"error":      mcpErr.Error(),
-			"error_type": mcpErr.ErrorType,
-			"retryable":  mcpErr.Retryable,
-			"command":    config.Command,
-			"args":       config.Args,
-			"stderr":     stderrBuf.String(),
-		})
-		return nil, mcpErr
-	}
-	return server, nil
+	return cmd, nil
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server

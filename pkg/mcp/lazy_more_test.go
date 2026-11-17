@@ -23,6 +23,14 @@ func cacheKey(c LazyMCPServerConfig) string {
 	return fmt.Sprintf("%s:%s:%v:%s", c.Type, c.Name, c.Command, c.CustomTransportType)
 }
 
+// cacheKeyFor is cacheKey for configs that may carry an executor.
+func cacheKeyFor(c LazyMCPServerConfig) string {
+	if c.Executor == nil {
+		return cacheKey(c)
+	}
+	return lazyServerKey(c)
+}
+
 func TestCacheKeyMatchesServerCache(t *testing.T) {
 	config := customConfig(t)
 	server, err := GetOrCreateServerFromCache(t.Context(), config)
@@ -39,7 +47,7 @@ func TestCacheKeyMatchesServerCache(t *testing.T) {
 func forgetServer(t *testing.T, c LazyMCPServerConfig) {
 	t.Helper()
 	t.Cleanup(func() {
-		key := cacheKey(c)
+		key := cacheKeyFor(c)
 		globalServerCache.mu.Lock()
 		server := globalServerCache.servers[key]
 		delete(globalServerCache.servers, key)

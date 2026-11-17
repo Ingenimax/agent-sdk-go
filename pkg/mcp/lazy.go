@@ -35,9 +35,20 @@ var globalServerCache = &LazyMCPServerCache{
 	logger:         logging.New(),
 }
 
+// lazyServerKey is the key a server is cached under in the global cache.
+func lazyServerKey(config LazyMCPServerConfig) string {
+	key := fmt.Sprintf("%s:%s:%v:%s", config.Type, config.Name, config.Command, config.CustomTransportType)
+	if config.Executor != nil {
+		// A server started through an executor (a sandbox, say) must never be
+		// handed to a caller that asked for a different one, or for none.
+		key += ":executor=" + executorKey(config.Executor)
+	}
+	return key
+}
+
 // getOrCreateServer gets an existing server or creates a new one
 func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config LazyMCPServerConfig) (interfaces.MCPServer, error) {
-	serverKey := fmt.Sprintf("%s:%s:%v:%s", config.Type, config.Name, config.Command, config.CustomTransportType)
+	serverKey := lazyServerKey(config)
 
 	// Try to get existing server (read lock)
 	cache.mu.RLock()
@@ -91,12 +102,14 @@ func (cache *LazyMCPServerCache) getOrCreateServer(ctx context.Context, config L
 			"args":        config.Args,
 			"env_count":   len(config.Env),
 			"env_vars":    envDebug,
+			"executor":    config.Executor != nil,
 		})
 		server, err = NewStdioServer(ctx, StdioServerConfig{
-			Command: config.Command,
-			Args:    config.Args,
-			Env:     config.Env,
-			Logger:  serverLogger,
+			Command:  config.Command,
+			Args:     config.Args,
+			Env:      config.Env,
+			Logger:   serverLogger,
+			Executor: config.Executor,
 		})
 	case "http":
 		cache.logger.Info(ctx, "Initializing MCP server on demand", map[string]interface{}{
@@ -209,6 +222,10 @@ type LazyMCPServerConfig struct {
 	CustomMCPTransport  mcp.Transport  // Custom transport for "custom" server type
 	Logger              logging.Logger // Optional logger for server initialization
 	CustomTransportType string         // Type of custom transport (e.g. "websocket", "kafka")
+
+	// Executor, when set, builds the process of a "stdio" server instead of
+	// running Command on the host. See CommandExecutor.
+	Executor CommandExecutor
 }
 
 // LazyMCPTool is a tool that initializes its MCP server on first use
