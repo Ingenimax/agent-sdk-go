@@ -163,39 +163,50 @@ func UnwrapMemory(m Memory) Memory {
 // returns false for a perfectly capable Memory that merely happens to be
 // wrapped in tracing or another decorator.
 func AsConversationMemory(m Memory) (ConversationMemory, bool) {
-	for m != nil {
-		if cm, ok := m.(ConversationMemory); ok {
-			return cm, true
-		}
-		unwrapper, ok := m.(MemoryUnwrapper)
-		if !ok {
-			return nil, false
-		}
-		inner := unwrapper.Unwrap()
-		if inner == nil {
-			return nil, false
-		}
-		m = inner
-	}
-	return nil, false
+	return findMemory[ConversationMemory](m)
 }
 
 // AsAdminConversationMemory reports whether m, or any Memory it decorates,
 // supports cross-organization conversation operations.
 func AsAdminConversationMemory(m Memory) (AdminConversationMemory, bool) {
+	return findMemory[AdminConversationMemory](m)
+}
+
+// MessageRemover is implemented by a Memory that can take back a message it
+// stored.
+//
+// The agent stores a run's user message before the provider sees it, because
+// the providers build each request from memory. When the provider then refuses
+// one of the message's parts with ErrContentUnsupported, the agent uses this
+// to remove the message again. Without it the refused part stays in the
+// conversation, every later turn replays it, and even a text-only follow-up
+// fails the same way.
+type MessageRemover interface {
+	// RemoveLastMessage removes the most recent message of the current
+	// conversation for which match returns true, and reports whether it
+	// removed one. It finds the conversation the same way AddMessage does.
+	RemoveLastMessage(ctx context.Context, match func(Message) bool) (bool, error)
+}
+
+// AsMessageRemover reports whether m, or any Memory it decorates, can remove
+// a stored message.
+func AsMessageRemover(m Memory) (MessageRemover, bool) {
+	return findMemory[MessageRemover](m)
+}
+
+// findMemory returns the first value in m's MemoryUnwrapper chain, starting
+// with m itself, that implements T.
+func findMemory[T any](m Memory) (T, bool) {
 	for m != nil {
-		if am, ok := m.(AdminConversationMemory); ok {
-			return am, true
+		if found, ok := m.(T); ok {
+			return found, true
 		}
 		unwrapper, ok := m.(MemoryUnwrapper)
 		if !ok {
-			return nil, false
+			break
 		}
-		inner := unwrapper.Unwrap()
-		if inner == nil {
-			return nil, false
-		}
-		m = inner
+		m = unwrapper.Unwrap()
 	}
-	return nil, false
+	var zero T
+	return zero, false
 }

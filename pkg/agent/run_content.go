@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
@@ -22,8 +23,11 @@ import (
 // With memory set, the agent stores the content with its parts, so later
 // turns in the conversation still show the model its media. A provider that
 // cannot send a part returns an error that wraps
-// interfaces.ErrContentUnsupported. Custom run functions and remote agents
-// take text only, and return the same error for content with media.
+// interfaces.ErrContentUnsupported, and the agent then removes the refused
+// message from memory again, so later turns in the conversation do not replay
+// it. That needs a memory that implements interfaces.MessageRemover, as the
+// ones in pkg/memory do. Custom run functions and remote agents take text
+// only, and return the same error for content with media.
 func (a *Agent) RunWithContent(ctx context.Context, content *interfaces.Content) (string, error) {
 	response, err := a.runInternal(ctx, content, false)
 	if err != nil {
@@ -97,6 +101,53 @@ func userMessage(content *interfaces.Content) interfaces.Message {
 		msg.Parts = content.Parts
 	}
 	return msg
+}
+
+// forgetRefusedInput takes the run's user message back out of memory when
+// the run failed because the model refused one of its parts.
+//
+// beginRun stores the message before the provider sees it, because the
+// providers build each request from memory. A provider that cannot send a part
+// refuses the request with ErrContentUnsupported, but by then the message is
+// stored, and every later turn in the conversation replays it: even a
+// text-only follow-up then fails the same way. Removing the message leaves the
+// conversation as it was before the run.
+//
+// Only a run whose input has media can have been refused for its own input. A
+// text run refused for media in an earlier message keeps its message, since
+// removing it would not unblock the conversation.
+//
+// A failed removal is logged rather than returned: the caller is already
+// returning the refusal, which is the error that matters.
+func (a *Agent) forgetRefusedInput(ctx context.Context, content *interfaces.Content, runErr error) {
+	if a.memory == nil || !errors.Is(runErr, interfaces.ErrContentUnsupported) || !interfaces.HasMedia(content.Parts) {
+		return
+	}
+
+	remover, ok := interfaces.AsMessageRemover(a.memory)
+	if !ok {
+		a.logger.Warn(ctx, "Memory cannot remove messages, so the refused input stays in the conversation and later turns will replay it", map[string]interface{}{
+			"memory": fmt.Sprintf("%T", a.memory),
+		})
+		return
+	}
+
+	// The run may have ended with its context cancelled, by a caller that
+	// stopped reading a stream, say. The cleanup still has to reach the store.
+	ctx = context.WithoutCancel(ctx)
+
+	stored := userMessage(content)
+	removed, err := remover.RemoveLastMessage(ctx, func(m interfaces.Message) bool {
+		return m.Role == stored.Role && m.Content == stored.Content && reflect.DeepEqual(m.Parts, stored.Parts)
+	})
+	switch {
+	case err != nil:
+		a.logger.Warn(ctx, "Failed to remove the refused input from memory", map[string]interface{}{
+			"error": err.Error(),
+		})
+	case !removed:
+		a.logger.Warn(ctx, "The refused input was not found in memory to remove", nil)
+	}
 }
 
 // partOptions returns the generate option that sends the input as parts when

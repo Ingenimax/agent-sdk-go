@@ -377,6 +377,43 @@ func (r *RedisMemory) Clear(ctx context.Context) error {
 	return nil
 }
 
+// RemoveLastMessage removes the most recent message of the conversation for
+// which match returns true, satisfying interfaces.MessageRemover.
+//
+// It searches only the live messages. A message already folded into a summary
+// or moved to the archive is left where it is.
+func (r *RedisMemory) RemoveLastMessage(ctx context.Context, match func(interfaces.Message) bool) (bool, error) {
+	if _, err := getConversationID(ctx); err != nil {
+		return false, fmt.Errorf("failed to get conversation ID: %w", err)
+	}
+	key := r.conversationKey(ctx)
+
+	results, err := r.client.LRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to get messages from Redis: %w", err)
+	}
+
+	for i := len(results) - 1; i >= 0; i-- {
+		var message interfaces.Message
+		if err := json.Unmarshal([]byte(results[i]), &message); err != nil {
+			return false, fmt.Errorf("failed to unmarshal message: %w", err)
+		}
+		if !match(message) {
+			continue
+		}
+		// Remove by the stored value rather than by index, so a message
+		// appended or trimmed since the read cannot shift what gets removed.
+		// A negative count removes from the tail: the newest equal entry.
+		removed, err := r.client.LRem(ctx, key, -1, results[i]).Result()
+		if err != nil {
+			return false, fmt.Errorf("failed to remove message from Redis: %w", err)
+		}
+		return removed > 0, nil
+	}
+
+	return false, nil
+}
+
 // ... additional methods for advanced Redis operations ...
 
 // NewRedisMemoryFromConfig creates a new Redis memory from configuration
