@@ -10,6 +10,7 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
 	"github.com/Ingenimax/agent-sdk-go/pkg/task/core"
+	"github.com/google/uuid"
 )
 
 //-----------------------------------------------------------------------------
@@ -478,6 +479,13 @@ func (p *SimplePlannerCore) CreatePlan(ctx context.Context, task interface{}) (s
 	return "Simple plan", nil
 }
 
+// newID returns a unique identifier such as "task-<uuid>". The prefix keeps
+// IDs readable; the UUID makes them unique even when several objects are
+// created within the wall clock's resolution, which a timestamp does not.
+func newID(prefix string) string {
+	return prefix + "-" + uuid.NewString()
+}
+
 // SimpleMemoryService implements interfaces.TaskService
 type SimpleMemoryService struct {
 	tasks   map[string]*core.Task
@@ -495,7 +503,7 @@ func (s *SimpleMemoryService) CreateTask(ctx context.Context, req interface{}) (
 	}
 
 	task := &core.Task{
-		ID:          "task-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:          newID("task"),
 		Name:        coreReq.Name,
 		Description: coreReq.Description,
 		Status:      core.StatusPending,
@@ -595,7 +603,7 @@ func (s *SimpleMemoryService) UpdateTask(ctx context.Context, taskID string, upd
 		case "add_step":
 			if stepData, ok := update.Value.(map[string]interface{}); ok {
 				step := &core.Step{
-					ID:          "step-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+					ID:          newID("step"),
 					Name:        "Step",
 					Description: stepData["description"].(string),
 					Status:      core.StatusPending,
@@ -627,7 +635,7 @@ func (s *SimpleMemoryService) AddTaskLog(ctx context.Context, taskID string, mes
 	}
 
 	log := &core.Log{
-		ID:        "log-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:        newID("log"),
 		TaskID:    taskID,
 		Message:   message,
 		Level:     level,
