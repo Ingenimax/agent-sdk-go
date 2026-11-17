@@ -82,6 +82,7 @@ type Agent struct {
 	llmConfig            *interfaces.LLMConfig
 	mcpServers           []interfaces.MCPServer   // MCP servers for the agent
 	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
+	mcpExecutor          mcp.CommandExecutor      // Builds stdio MCP server processes; nil runs them on the host
 	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
 	disableFinalSummary  bool                     // When true, skip the final summary LLM call
 	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
@@ -478,6 +479,20 @@ func WithMCPServers(mcpServers []interfaces.MCPServer) Option {
 func WithLazyMCPConfigs(configs []LazyMCPConfig) Option {
 	return func(a *Agent) {
 		a.lazyMCPConfigs = configs
+	}
+}
+
+// WithMCPCommandExecutor runs every stdio MCP server the agent starts through
+// executor instead of directly on the host. It applies to servers from
+// WithLazyMCPConfigs, WithMCPURLs, WithMCPPresets and MCP YAML configuration.
+// Servers passed with WithMCPServers are already running, so it does not
+// apply to them; set mcp.StdioServerConfig.Executor when creating those.
+//
+// sandbox.NewDockerExecutor returns an executor that runs each server in its
+// own locked-down container. The agent does not close the executor.
+func WithMCPCommandExecutor(executor mcp.CommandExecutor) Option {
+	return func(a *Agent) {
+		a.mcpExecutor = executor
 	}
 }
 
@@ -1155,6 +1170,26 @@ func (a *Agent) collectMCPTools(ctx context.Context) ([]interfaces.Tool, error) 
 	return mcpTools, nil
 }
 
+// lazyServerConfig converts an agent's lazy MCP config into the mcp
+// package's form, adding the agent's command executor to stdio servers.
+func (a *Agent) lazyServerConfig(config LazyMCPConfig) mcp.LazyMCPServerConfig {
+	serverConfig := mcp.LazyMCPServerConfig{
+		Name:              config.Name,
+		Type:              config.Type,
+		Command:           config.Command,
+		Args:              config.Args,
+		Env:               config.Env,
+		URL:               config.URL,
+		Token:             config.Token,
+		HttpTransportMode: config.HttpTransportMode,
+		AllowedTools:      config.AllowedTools,
+	}
+	if config.Type == "stdio" {
+		serverConfig.Executor = a.mcpExecutor
+	}
+	return serverConfig
+}
+
 // createLazyMCPTools creates lazy MCP tools from configurations
 func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	var lazyTools []interfaces.Tool
@@ -1162,18 +1197,7 @@ func (a *Agent) createLazyMCPTools() []interfaces.Tool {
 	a.logger.Info(context.Background(), fmt.Sprintf("Creating lazy MCP tools from %d configs...", len(a.lazyMCPConfigs)), nil)
 	for _, config := range a.lazyMCPConfigs {
 		a.logger.Info(context.Background(), fmt.Sprintf("Processing MCP config: %s (type: %s)", config.Name, config.Type), nil)
-		// Create lazy server config
-		lazyServerConfig := mcp.LazyMCPServerConfig{
-			Name:              config.Name,
-			Type:              config.Type,
-			Command:           config.Command,
-			Args:              config.Args,
-			Env:               config.Env,
-			URL:               config.URL,
-			Token:             config.Token,
-			HttpTransportMode: config.HttpTransportMode,
-			AllowedTools:      config.AllowedTools,
-		}
+		lazyServerConfig := a.lazyServerConfig(config)
 
 		// If no specific tools are defined, discover all tools from the server
 		if len(config.Tools) == 0 {
