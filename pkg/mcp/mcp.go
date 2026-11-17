@@ -725,6 +725,13 @@ type StdioServerConfig struct {
 	Env     []string
 	Logger  logging.Logger
 
+	// Executor, when set, builds the server's process instead of running
+	// Command directly on the host, for example to run it in a container.
+	// Command is then resolved by the executor, not on the host's PATH.
+	// A server restarted for the initialize handshake (see ProtocolVersion)
+	// goes through the executor again.
+	Executor CommandExecutor
+
 	// ProtocolVersion pins the MCP protocol version the client offers.
 	//
 	// When it is empty, the client offers the newest version, whose handshake
@@ -762,6 +769,39 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 			config.ProtocolVersion, strings.Join(mcp.SupportedProtocolVersions(), ", "))
 	}
 
+	// newCmd builds the server's process. An exec.Cmd starts only once, and
+	// the handshake may have to start the server a second time, which must
+	// run the same way as the first: through the executor when there is one.
+	newCmd := func() (*exec.Cmd, error) {
+		if config.Executor != nil {
+			return newExecutorCommand(ctx, config)
+		}
+		return newHostCommand(ctx, config)
+	}
+
+	return connectStdio(ctx, config, newCmd)
+}
+
+// newExecutorCommand builds the server's process through config.Executor.
+func newExecutorCommand(ctx context.Context, config StdioServerConfig) (*exec.Cmd, error) {
+	config.Logger.Debug(ctx, "Creating MCP server command through executor", map[string]interface{}{
+		"command":      config.Command,
+		"args":         config.Args,
+		"env_provided": len(config.Env),
+		"executor":     fmt.Sprintf("%T", config.Executor),
+	})
+	cmd, err := config.Executor.Command(ctx, config.Command, config.Args, config.Env)
+	if err != nil {
+		return nil, fmt.Errorf("command executor refused %q: %w", config.Command, err)
+	}
+	if cmd == nil {
+		return nil, fmt.Errorf("command executor returned no command for %q", config.Command)
+	}
+	return cmd, nil
+}
+
+// newHostCommand builds the server's process to run directly on the host.
+func newHostCommand(ctx context.Context, config StdioServerConfig) (*exec.Cmd, error) {
 	// Additional validation of command and arguments
 	// Using LookPath to ensure the command exists in the system
 	commandPath, err := exec.LookPath(config.Command)
@@ -823,7 +863,12 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 		}
 	}
 
+	// Create the command with context
+	// #nosec G204 -- commandPath is validated above with LookPath and security checks
+	cmd := exec.CommandContext(ctx, commandPath, config.Args...)
 	if len(config.Env) > 0 {
+		cmd.Env = append(os.Environ(), config.Env...)
+
 		// Log the full command being executed for debugging
 		config.Logger.Info(ctx, "[STDIO SERVER] Creating subprocess with command", map[string]interface{}{
 			"command":   commandPath,
@@ -844,19 +889,7 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 			}
 		}
 	}
-
-	// newCmd builds the server process. An exec.Cmd starts only once, and the
-	// handshake may have to start the server a second time.
-	newCmd := func() *exec.Cmd {
-		// #nosec G204 -- commandPath is validated above with LookPath and security checks
-		cmd := exec.CommandContext(ctx, commandPath, config.Args...)
-		if len(config.Env) > 0 {
-			cmd.Env = append(os.Environ(), config.Env...)
-		}
-		return cmd
-	}
-
-	return connectStdio(ctx, config, newCmd)
+	return cmd, nil
 }
 
 // connectStdio starts the server that newCmd builds and opens an MCP session
@@ -875,7 +908,7 @@ func NewStdioServerWithRetry(ctx context.Context, config StdioServerConfig, retr
 // initialize on the same connection, which a server that merely ignored the
 // probe answers. If that connection has died instead, the server is started
 // again and the handshake opens with initialize.
-func connectStdio(ctx context.Context, config StdioServerConfig, newCmd func() *exec.Cmd) (interfaces.MCPServer, error) {
+func connectStdio(ctx context.Context, config StdioServerConfig, newCmd func() (*exec.Cmd, error)) (interfaces.MCPServer, error) {
 	hs := handshake{protocolVersion: config.ProtocolVersion}
 	if hs.protocolVersion == "" {
 		hs.discoverTimeout = config.DiscoverTimeout
@@ -884,7 +917,10 @@ func connectStdio(ctx context.Context, config StdioServerConfig, newCmd func() *
 		}
 	}
 
-	attempt := attemptStdio(ctx, newCmd, hs, config.Logger)
+	attempt, err := attemptStdio(ctx, newCmd, hs, config.Logger)
+	if err != nil {
+		return nil, err
+	}
 	if attempt.err != nil && attempt.discoverTimedOut && ctx.Err() == nil {
 		config.Logger.Warn(ctx, "[STDIO SERVER] MCP server did not answer server/discover and its connection failed; restarting it with the initialize handshake", map[string]interface{}{
 			"command":          config.Command,
@@ -894,7 +930,10 @@ func connectStdio(ctx context.Context, config StdioServerConfig, newCmd func() *
 			"stderr":           attempt.stderr.String(),
 			"hint":             "set ProtocolVersion to " + LegacyProtocolVersion + " to skip the probe for this server",
 		})
-		attempt = attemptStdio(ctx, newCmd, handshake{protocolVersion: LegacyProtocolVersion}, config.Logger)
+		attempt, err = attemptStdio(ctx, newCmd, handshake{protocolVersion: LegacyProtocolVersion}, config.Logger)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if attempt.err != nil {
 		config.Logger.Error(ctx, "[STDIO SERVER ERROR] Failed to connect to MCP server", map[string]interface{}{
@@ -925,17 +964,22 @@ type stdioAttempt struct {
 	stderr *syncBuffer
 }
 
-// attemptStdio starts one server process and runs the handshake with it.
-func attemptStdio(ctx context.Context, newCmd func() *exec.Cmd, hs handshake, logger logging.Logger) stdioAttempt {
-	cmd := newCmd()
+// attemptStdio starts one server process and runs the handshake with it. It
+// returns an error only when newCmd cannot build the process; a failed
+// handshake is reported in the attempt.
+func attemptStdio(ctx context.Context, newCmd func() (*exec.Cmd, error), hs handshake, logger logging.Logger) (stdioAttempt, error) {
+	cmd, err := newCmd()
+	if err != nil {
+		return stdioAttempt{}, err
+	}
 	// Capture stderr for debugging. Use a mutex-guarded buffer because
 	// os/exec writes stderr from a background goroutine while the caller
 	// also reads it.
 	stderr := &syncBuffer{}
 	cmd.Stderr = stderr
 
-	server, timedOut, err := newServerWithHandshake(ctx, &mcp.CommandTransport{Command: cmd}, "stdio-server", "stdio", nil, logger, hs)
-	return stdioAttempt{server: server, err: err, discoverTimedOut: timedOut, stderr: stderr}
+	server, timedOut, mcpErr := newServerWithHandshake(ctx, &mcp.CommandTransport{Command: cmd}, "stdio-server", "stdio", nil, logger, hs)
+	return stdioAttempt{server: server, err: mcpErr, discoverTimedOut: timedOut, stderr: stderr}, nil
 }
 
 // HTTPServerConfig holds configuration for an HTTP MCP server

@@ -118,6 +118,18 @@ func (v *VectorStoreRetriever) GetMessages(ctx context.Context, options ...inter
 	return messages, nil
 }
 
+// RemoveLastMessage removes the most recent message of the conversation for
+// which match returns true, satisfying interfaces.MessageRemover.
+//
+// It removes the message from the recent-message buffer, which is the only
+// place its parts are kept. The text copy in the vector store stays: it carries
+// no parts, and recall returns it only as text context.
+func (v *VectorStoreRetriever) RemoveLastMessage(ctx context.Context, match func(interfaces.Message) bool) (bool, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.buffer.RemoveLastMessage(ctx, match)
+}
+
 // Clear clears the memory
 func (v *VectorStoreRetriever) Clear(ctx context.Context) error {
 	v.mu.Lock()

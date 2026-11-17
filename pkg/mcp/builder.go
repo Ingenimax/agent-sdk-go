@@ -296,10 +296,11 @@ func (b *Builder) initializeServer(ctx context.Context, config LazyMCPServerConf
 	switch config.Type {
 	case "stdio":
 		server, err = NewStdioServerWithRetry(ctx, StdioServerConfig{
-			Command: config.Command,
-			Args:    config.Args,
-			Env:     config.Env,
-			Logger:  b.logger,
+			Command:  config.Command,
+			Args:     config.Args,
+			Env:      config.Env,
+			Logger:   b.logger,
+			Executor: config.Executor,
 		}, &RetryConfig{
 			MaxAttempts:       b.retryOptions.MaxAttempts,
 			InitialDelay:      b.retryOptions.InitialDelay,

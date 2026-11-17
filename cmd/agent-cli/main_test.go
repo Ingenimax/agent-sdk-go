@@ -94,16 +94,19 @@ func withStdin(t *testing.T, input string) {
 // fakeOllama serves the Ollama generate and chat endpoints with a fixed reply
 // and selects it as the CLI provider.
 type fakeOllama struct {
-	mu    sync.Mutex
-	paths []string
+	mu     sync.Mutex
+	paths  []string
+	bodies []string
 }
 
 func startFakeOllama(t *testing.T, reply string) *fakeOllama {
 	t.Helper()
 	f := &fakeOllama{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		f.paths = append(f.paths, r.URL.Path)
+		f.bodies = append(f.bodies, string(body))
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -125,6 +128,16 @@ func (f *fakeOllama) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.paths)
+}
+
+// lastBody returns the body of the last request, or "" before any request.
+func (f *fakeOllama) lastBody() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.bodies) == 0 {
+		return ""
+	}
+	return f.bodies[len(f.bodies)-1]
 }
 
 func TestDirectExecutionFlags(t *testing.T) {

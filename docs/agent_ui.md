@@ -107,6 +107,10 @@ The UI communicates with these endpoints:
 - `GET /api/v1/agent/metadata` - Agent information
 - `GET /health` - Health check
 
+The run and stream endpoints take text, or images and PDFs as JSON `content`
+or as `multipart/form-data` uploads. See
+[Send content over HTTP](content-input.md#send-content-over-http).
+
 ### New UI-Specific Endpoints
 - `GET /api/v1/agent/config` - Detailed agent configuration
 - `GET /api/v1/agent/subagents` - List all sub-agents with details

@@ -429,6 +429,35 @@ myAgent, err := agent.NewAgent(
 )
 ```
 
+### 6. Run stdio Servers in a Sandbox
+
+A stdio MCP server normally runs on the host with your user's permissions. To contain one, give the agent a Docker executor from `pkg/sandbox`. Each server then runs in its own container, with no network, a read-only filesystem, no Linux capabilities and resource limits by default:
+
+```go
+executor, err := sandbox.NewDockerExecutor(sandbox.Config{
+    Image:           "mcp/filesystem@sha256:...", // pin by digest
+    AllowedCommands: []string{"node"},
+    MountPaths:      []sandbox.MountPath{{Host: "/srv/docs", Container: "/projects"}},
+}, logger)
+if err != nil {
+    log.Fatal(err)
+}
+defer executor.Close(context.Background())
+
+myAgent, err := agent.NewAgent(
+    agent.WithLLM(llm),
+    agent.WithLazyMCPConfigs([]agent.LazyMCPConfig{{
+        Name:    "files",
+        Type:    "stdio",
+        Command: "node",
+        Args:    []string{"/app/dist/index.js", "/projects"},
+    }}),
+    agent.WithMCPCommandExecutor(executor),
+)
+```
+
+The executor applies to every stdio server the agent starts, including ones from `WithMCPURLs`, `WithMCPPresets` and YAML configuration. See [pkg/sandbox/README.md](../pkg/sandbox/README.md) for the options, the security model and its limits, and [examples/mcp/sandbox](../examples/mcp/sandbox) for a runnable example.
+
 ## Troubleshooting
 
 ### Common Issues

@@ -388,6 +388,54 @@ func TestSimpleMemoryService(t *testing.T) {
 	})
 }
 
+// IDs used to come from time.Now().UnixNano(), so objects created back to back
+// could share an ID and overwrite each other in the store.
+func TestSimpleMemoryServiceGeneratesUniqueIDs(t *testing.T) {
+	ctx := context.Background()
+	s := newMemoryService()
+
+	const n = 1000
+	taskIDs := make(map[string]bool, n)
+	for range n {
+		obj, err := s.CreateTask(ctx, core.CreateTaskRequest{UserID: "u"})
+		require.NoError(t, err)
+		id := obj.(*core.Task).ID
+		require.True(t, strings.HasPrefix(id, "task-"), id)
+		require.False(t, taskIDs[id], "duplicate task ID %s", id)
+		taskIDs[id] = true
+	}
+	assert.Len(t, s.tasks, n)
+
+	var taskID string
+	for id := range taskIDs {
+		taskID = id
+		break
+	}
+
+	updates := make([]core.TaskUpdate, n)
+	for i := range updates {
+		updates[i] = core.TaskUpdate{Field: "add_step", Value: map[string]interface{}{"description": "s"}}
+	}
+	obj, err := s.UpdateTask(ctx, taskID, updates)
+	require.NoError(t, err)
+	stepIDs := make(map[string]bool, n)
+	for _, step := range obj.(*core.Task).Steps {
+		require.True(t, strings.HasPrefix(step.ID, "step-"), step.ID)
+		stepIDs[step.ID] = true
+	}
+	assert.Len(t, stepIDs, n)
+
+	for range n {
+		require.NoError(t, s.AddTaskLog(ctx, taskID, "m", "info"))
+	}
+	logIDs := make(map[string]bool, n)
+	for _, log := range s.logs[taskID] {
+		require.True(t, strings.HasPrefix(log.ID, "log-"), log.ID)
+		logIDs[log.ID] = true
+	}
+	assert.Len(t, logIDs, n)
+}
+
 func TestSimpleBridgeAdapterConvertsTasks(t *testing.T) {
 	ctx := context.Background()
 	coreTask := &core.Task{

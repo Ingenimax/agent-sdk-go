@@ -77,6 +77,100 @@ err := mem.AddMessage(ctx, interfaces.Message{
 })
 ```
 
+## Send content from the agent CLI
+
+In direct execution mode, `agent-cli` attaches images and PDFs to the prompt
+with `--image-path`, `--image-url`, and `--pdf-path`. Each flag can be
+repeated:
+
+```bash
+agent-cli --prompt "Does the chart match the numbers in the report?" \
+  --image-path ./chart.png \
+  --pdf-path ./report.pdf
+```
+
+For details, see the
+[agent CLI README](../cmd/agent-cli/README.md#direct-execution-mode).
+
+## Send content over HTTP
+
+The run and stream endpoints of `microservice.NewHTTPServer` and
+`microservice.NewHTTPServerWithUI`, `POST /api/v1/agent/run` and
+`POST /api/v1/agent/stream`, take content as well as text. A request with
+only `input` works as it always has.
+
+With JSON, put the content in the `content` field, in the JSON form of
+`interfaces.Content`. Inline data is base64. When `input` is also set, it is
+sent after the content's parts, as a text part:
+
+```bash
+curl -s http://localhost:8080/api/v1/agent/run \
+  -H 'Content-Type: application/json' \
+  -d @- <<EOF
+{
+  "input": "What trend does this chart show?",
+  "conversation_id": "conv-1",
+  "content": {
+    "parts": [
+      {"inlineData": {"mimeType": "image/png", "data": "$(base64 < chart.png | tr -d '\n')"}}
+    ]
+  }
+}
+EOF
+```
+
+To send an image by URL instead, use a `fileData` part:
+
+```json
+{"fileData": {"mimeType": "image/jpeg", "fileUri": "https://example.com/photo.jpg"}}
+```
+
+With `multipart/form-data`, send the text in the `input` field and each file
+in a `files` field. The `org_id` and `conversation_id` fields work as they do
+in JSON. The files are sent first, in the order you upload them, followed by
+`input`:
+
+```bash
+curl -s http://localhost:8080/api/v1/agent/run \
+  --form-string 'input=Does the chart match the numbers in the report?' \
+  -F files=@chart.png \
+  -F files=@report.pdf
+```
+
+The stream endpoint takes the same bodies and answers with server-sent
+events.
+
+The server checks every request before the agent runs:
+
+- The body can be up to 32 MiB (`microservice.MaxRunRequestBytes`), with
+  files and base64 included.
+- A request can carry up to 10 files or data parts
+  (`microservice.MaxRunRequestFiles`).
+- The server detects the type of each file and of inline data from the data,
+  not from the file name or a declared `mimeType`, and accepts PNG, JPEG, GIF,
+  and WebP images and PDFs. The detected type replaces a declared one.
+- File data must declare one of those types and point at an `https` URL. The
+  server refuses other schemes, such as `s3://` and `gs://`, because the
+  provider would read them with the server's credentials.
+- Each part must set `text`, `inlineData`, or `fileData`. A part with none of
+  them, such as one with a misspelled `inline_data` field, is refused instead
+  of being read as empty text.
+
+The endpoints answer bad input with a 4xx status:
+
+| Status | When |
+| --- | --- |
+| 400 | The JSON or form is invalid, there is no input, a file has a type the server doesn't accept, there are too many files, or a part is invalid. |
+| 413 | The body is larger than 32 MiB. |
+| 422 | The agent can't send a part, so it returns an error that wraps `interfaces.ErrContentUnsupported`. For example, Ollama takes no PDFs, and custom run functions and remote agents take text only. |
+
+The stream endpoint returns the 422 before the SSE response starts. For a
+request with files or data, it waits for the run's first event, because a
+provider refuses a part before it sends anything else. Other agent errors are
+reported as before: status 500 from the run endpoint of `NewHTTPServer`, an
+`error` field with status 200 from the run endpoint of `NewHTTPServerWithUI`,
+and an `error` event on the stream endpoints.
+
 ## Provider support
 
 | Provider | What it sends |
