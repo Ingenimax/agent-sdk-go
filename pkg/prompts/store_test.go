@@ -291,6 +291,54 @@ func TestFileStoreSaveWriteError(t *testing.T) {
 	require.ErrorContains(t, err, "failed to write template file")
 }
 
+// TestFileStoreThroughSymlinkedBasePath is the regression test for Save
+// rejecting every template with "invalid template path" when the base path is
+// reached through a symlink, as /tmp and /var are on macOS. The link is created
+// explicitly so the test reproduces on Linux as well.
+func TestFileStoreThroughSymlinkedBasePath(t *testing.T) {
+	root := resolvedTempDir(t)
+	real := filepath.Join(root, "real")
+	require.NoError(t, os.MkdirAll(real, 0o750))
+	link := filepath.Join(root, "link")
+	symlinkOrSkip(t, real, link)
+
+	ctx := context.Background()
+	store, err := NewFileStore(filepath.Join(link, "prompts"))
+	require.NoError(t, err)
+
+	require.NoError(t, store.Save(ctx, New("greet", "Greeting", "Hello {{.Name}}")))
+	require.FileExists(t, filepath.Join(real, "prompts", "greet_1.0.0.tmpl"),
+		"the template should land in the directory the symlink points to")
+
+	got, err := store.Get(ctx, "greet", "1.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, "Greeting", got.Name)
+
+	all, err := store.List(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, "greet", all[0].ID)
+
+	require.NoError(t, store.Delete(ctx, "greet", "1.0.0"))
+	assert.NoFileExists(t, filepath.Join(real, "prompts", "greet_1.0.0.tmpl"))
+}
+
+// TestFileStoreSaveRefusesDanglingSymlinkEscape checks that a dangling symlink
+// planted under a template's file name cannot make Save create a file outside
+// the store directory: writing to a dangling link creates the link's target.
+func TestFileStoreSaveRefusesDanglingSymlinkEscape(t *testing.T) {
+	root := resolvedTempDir(t)
+	store, err := NewFileStore(filepath.Join(root, "prompts"))
+	require.NoError(t, err)
+
+	planted := filepath.Join(root, "outside.tmpl")
+	symlinkOrSkip(t, planted, filepath.Join(store.basePath, "greet_1.0.0.tmpl"))
+
+	err = store.Save(context.Background(), New("greet", "Greeting", "Hello"))
+	require.ErrorContains(t, err, "invalid template path")
+	assert.NoFileExists(t, planted, "Save wrote outside the store through a dangling symlink")
+}
+
 // memStore is an in-memory TemplateStore for Manager tests.
 type memStore struct {
 	templates []*Template
