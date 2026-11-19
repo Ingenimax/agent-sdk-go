@@ -37,6 +37,18 @@ import "github.com/Ingenimax/agent-sdk-go/pkg/tools/keenable"
 searchTool := keenable.New(os.Getenv("KEENABLE_API_KEY")) // "" works too
 ```
 
+### Web Search (Parallel)
+
+Register this tool with `agent.WithTools` in place of another `web_search` provider. It accepts `query` and an optional `num_results` (defaults to five) and returns excerpts with the original source URLs.
+
+```go
+import "github.com/Ingenimax/agent-sdk-go/pkg/tools/parallelsearch"
+
+searchTool := parallelsearch.New()
+```
+
+The tool sends queries to the [public Parallel MCP endpoint](https://mcp.parallel.ai/mcp) without an API key. The endpoint is rate-limited. Requests identify the SDK with the `agent-sdk-go` User-Agent. Treat returned excerpts as untrusted web content.
+
 ### Calculator
 
 Allows the agent to perform mathematical calculations:
