@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -126,8 +127,8 @@ func (t *Tool) Parameters() map[string]interfaces.ParameterSpec {
 }
 
 type searchArgs struct {
-	Query      string `json:"query"`
-	NumResults *int   `json:"num_results"`
+	Query      string   `json:"query"`
+	NumResults *float64 `json:"num_results"`
 }
 
 type searchResponse struct {
@@ -140,7 +141,7 @@ type searchResponse struct {
 
 // Run searches using a plain query or a JSON arguments object.
 func (t *Tool) Run(ctx context.Context, input string) (string, error) {
-	if strings.HasPrefix(strings.TrimSpace(input), "{") {
+	if strings.HasPrefix(strings.TrimSpace(input), "{") && json.Valid([]byte(input)) {
 		return t.Execute(ctx, input)
 	}
 	return t.search(ctx, searchArgs{Query: input})
@@ -162,7 +163,11 @@ func (t *Tool) search(ctx context.Context, args searchArgs) (string, error) {
 	}
 	numResults := defaultNumResults
 	if args.NumResults != nil {
-		numResults = min(max(*args.NumResults, 1), maxNumResults)
+		count := *args.NumResults
+		if count != math.Trunc(count) {
+			return "", fmt.Errorf("num_results parameter must be an integer")
+		}
+		numResults = int(min(max(count, 1), maxNumResults))
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, searchTimeout)

@@ -162,7 +162,7 @@ func TestExecuteWire(t *testing.T) {
 	const firstCitation = "1. First\n   URL: https://example.org/a?q=one%20two#section\n   Snippet\n   Another excerpt"
 	var search interfaces.Tool = tool
 	ctx := multitenancy.WithOrgID(t.Context(), "fixture-tenant-one")
-	out, err := search.Execute(ctx, `{"query":"public Go documentation","num_results":1}`)
+	out, err := search.Execute(ctx, `{"query":"public Go documentation","num_results":1.0}`)
 	if err != nil || !strings.Contains(out, firstCitation) ||
 		strings.Contains(out, "Second") || strings.Contains(out, "javascript:") {
 		t.Fatalf("limited results = %q, err = %v", out, err)
@@ -249,20 +249,24 @@ func TestInvalidArguments(t *testing.T) {
 	tool := fixtureTool(t, func(http.ResponseWriter, *http.Request, rpcRequest) {
 		t.Error("invalid input reached the server")
 	})
-	for _, input := range []string{`{}`, `{"query":"  "}`, `{"query":7}`, `{"query":"q","num_results":"two"}`, `{"query":`} {
+	for _, input := range []string{`{}`, `{"query":"  "}`, `{"query":7}`, `{"query":"q","num_results":"two"}`, `{"query":"q","num_results":1.5}`, `{"query":`} {
 		if _, err := tool.Execute(t.Context(), input); err == nil {
 			t.Errorf("expected an error for %q", input)
 		}
 	}
 }
 
-func TestRunPlainNumber(t *testing.T) {
-	tool := fixtureTool(t, func(w http.ResponseWriter, _ *http.Request, msg rpcRequest) {
-		assertSearch(t, msg, "2026")
-		writeRPC(t, w, msg, sampleResults)
-	})
-	if _, err := tool.Run(t.Context(), "2026"); err != nil {
-		t.Fatal(err)
+func TestRunPlainQueries(t *testing.T) {
+	for _, query := range []string{"2026", "{ x | x is a Go identifier }"} {
+		t.Run(query, func(t *testing.T) {
+			tool := fixtureTool(t, func(w http.ResponseWriter, _ *http.Request, msg rpcRequest) {
+				assertSearch(t, msg, query)
+				writeRPC(t, w, msg, sampleResults)
+			})
+			if _, err := tool.Run(t.Context(), query); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
