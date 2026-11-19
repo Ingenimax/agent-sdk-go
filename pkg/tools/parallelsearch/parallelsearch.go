@@ -161,7 +161,7 @@ func (t *Tool) search(ctx context.Context, args searchArgs) (string, error) {
 		return "", fmt.Errorf("call Parallel web_search: %w", err)
 	}
 	if result.IsError {
-		return "", fmt.Errorf("Parallel web_search returned a tool error")
+		return "", fmt.Errorf("received a tool error from Parallel web_search")
 	}
 
 	results, err := decodeResults(result)
@@ -210,7 +210,7 @@ func decodeResults(result *mcp.CallToolResult) (searchResponse, error) {
 
 	var response searchResponse
 	if err := json.Unmarshal(data, &response); err != nil || response.Results == nil {
-		return searchResponse{}, fmt.Errorf("Parallel web_search returned invalid results")
+		return searchResponse{}, fmt.Errorf("received invalid results from Parallel web_search")
 	}
 	return response, nil
 }

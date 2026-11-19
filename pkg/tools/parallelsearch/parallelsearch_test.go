@@ -182,7 +182,7 @@ func TestExecuteResponses(t *testing.T) {
 		{name: "empty", response: `{"content":[],"structuredContent":{"results":[]}}`, want: "No results found."},
 		{name: "text fallback", response: `{"content":[{"type":"text","text":"{\"results\":[]}"}]}`, want: "No results found."},
 		{name: "malformed result", response: `{"content":[],"structuredContent":{"unexpected":true}}`, wantErr: "invalid results"},
-		{name: "tool error", response: `{"content":[{"type":"text","text":"untrusted remote diagnostic"}],"isError":true}`, wantErr: "returned a tool error"},
+		{name: "tool error", response: `{"content":[{"type":"text","text":"untrusted remote diagnostic"}],"isError":true}`, wantErr: "tool error"},
 		{name: "rate limited", status: http.StatusTooManyRequests, wantErr: "Too Many Requests"},
 		{name: "auth required", status: http.StatusUnauthorized, wantErr: "Unauthorized"},
 		{name: "redirect", status: http.StatusTemporaryRedirect, wantErr: "Temporary Redirect"},
