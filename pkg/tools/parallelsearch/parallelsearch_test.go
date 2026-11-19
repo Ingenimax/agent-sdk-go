@@ -14,6 +14,12 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/multitenancy"
 )
 
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 type rpcRequest struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -174,15 +180,36 @@ func TestExecuteWire(t *testing.T) {
 	}
 }
 
+func TestExecuteIgnoresHostDefaultTransport(t *testing.T) {
+	hostTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = hostTransport })
+	http.DefaultTransport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", "Bearer fixture-host-token")
+		orgID, _ := multitenancy.GetOrgID(req.Context())
+		req.Header.Set("X-Organization-ID", orgID)
+		return hostTransport.RoundTrip(req)
+	})
+	tool := fixtureTool(t, func(w http.ResponseWriter, _ *http.Request, msg rpcRequest) {
+		writeRPC(t, w, msg, sampleResults)
+	})
+	ctx := multitenancy.WithOrgID(t.Context(), "fixture-host-tenant")
+	if _, err := tool.Execute(ctx, `{"query":"public Go documentation"}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExecuteResponses(t *testing.T) {
 	tests := []struct {
-		name, response, want, wantErr string
-		status                        int
+		name, response, protocolErr, want, wantErr string
+		status                                     int
 	}{
 		{name: "empty", response: `{"content":[],"structuredContent":{"results":[]}}`, want: "No results found."},
 		{name: "text fallback", response: `{"content":[{"type":"text","text":"{\"results\":[]}"}]}`, want: "No results found."},
 		{name: "malformed result", response: `{"content":[],"structuredContent":{"unexpected":true}}`, wantErr: "invalid results"},
 		{name: "tool error", response: `{"content":[{"type":"text","text":"untrusted remote diagnostic"}],"isError":true}`, wantErr: "tool error"},
+		{name: "protocol error", protocolErr: `{"code":-32603,"message":"untrusted remote diagnostic"}`, wantErr: "Parallel web_search"},
+		{name: "HTTP protocol error", status: http.StatusUnauthorized, protocolErr: `{"code":-32600,"message":"untrusted remote diagnostic"}`, wantErr: "Unauthorized"},
 		{name: "rate limited", status: http.StatusTooManyRequests, wantErr: "Too Many Requests"},
 		{name: "auth required", status: http.StatusUnauthorized, wantErr: "Unauthorized"},
 		{name: "redirect", status: http.StatusTemporaryRedirect, wantErr: "Temporary Redirect"},
@@ -190,9 +217,18 @@ func TestExecuteResponses(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tool := fixtureTool(t, func(w http.ResponseWriter, r *http.Request, msg rpcRequest) {
+				w.Header().Set("Content-Type", "application/json")
 				if tc.status != 0 {
 					w.Header().Set("Location", "/must-not-follow")
 					w.WriteHeader(tc.status)
+				}
+				if tc.protocolErr != "" {
+					if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"error":%s}`, msg.ID, tc.protocolErr); err != nil {
+						t.Errorf("write fixture protocol error: %v", err)
+					}
+					return
+				}
+				if tc.status != 0 {
 					return
 				}
 				writeRPC(t, w, msg, tc.response)

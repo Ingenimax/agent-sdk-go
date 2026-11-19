@@ -5,6 +5,7 @@ package parallelsearch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -24,6 +25,14 @@ const (
 	maxResponseBytes  = 4 << 20
 	searchTimeout     = 30 * time.Second
 )
+
+// Keep host HTTP middleware and credentials out of public MCP requests.
+var anonymousTransport = &http.Transport{
+	Proxy:               http.ProxyFromEnvironment,
+	ForceAttemptHTTP2:   true,
+	IdleConnTimeout:     90 * time.Second,
+	TLSHandshakeTimeout: 10 * time.Second,
+}
 
 // Tool implements the SDK's web_search tool using Parallel.
 type Tool struct {
@@ -52,15 +61,38 @@ type searchTransport struct{}
 func (searchTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := anonymousTransport.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = resp.Body.Close()
+		return nil, httpStatusError(resp.StatusCode)
 	}
 	contentType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if contentType != "text/event-stream" {
 		resp.Body = http.MaxBytesReader(nil, resp.Body, maxResponseBytes)
 	}
 	return resp, nil
+}
+
+type httpStatusError int
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d %s", e, http.StatusText(int(e)))
+}
+
+func mcpError(ctx context.Context, operation string, err error) error {
+	var status httpStatusError
+	switch {
+	case ctx.Err() != nil:
+		return fmt.Errorf("%s: %w", operation, ctx.Err())
+	case errors.As(err, &status):
+		return fmt.Errorf("%s: %w", operation, status)
+	default:
+		// MCP errors can contain diagnostic text supplied by the remote server.
+		return fmt.Errorf("%s failed", operation)
+	}
 }
 
 // Name returns the tool name.
@@ -146,7 +178,7 @@ func (t *Tool) search(ctx context.Context, args searchArgs) (string, error) {
 		MaxEventSize:         maxResponseBytes,
 	}, nil)
 	if err != nil {
-		return "", fmt.Errorf("connect to Parallel MCP: %w", err)
+		return "", mcpError(ctx, "connect to Parallel MCP", err)
 	}
 	defer func() { _ = session.Close() }()
 
@@ -158,7 +190,7 @@ func (t *Tool) search(ctx context.Context, args searchArgs) (string, error) {
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("call Parallel web_search: %w", err)
+		return "", mcpError(ctx, "call Parallel web_search", err)
 	}
 	if result.IsError {
 		return "", fmt.Errorf("received a tool error from Parallel web_search")
