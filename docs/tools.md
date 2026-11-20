@@ -37,6 +37,18 @@ import "github.com/Ingenimax/agent-sdk-go/pkg/tools/keenable"
 searchTool := keenable.New(os.Getenv("KEENABLE_API_KEY")) // "" works too
 ```
 
+### Web Search (You.com)
+
+Another drop-in alternative, backed by the [You.com Search API](https://you.com/docs/api-reference/search/v1-search). It has the same tool name (`web_search`), the same parameters and the same output format as `websearch`. Search queries are sent to You.com, a third-party service.
+
+No API key is required: with an empty key it calls the keyless endpoint, which allows about 100 searches a day and up to 50 results per query. A key switches to the keyed API at `ydc-index.io`.
+
+```go
+import "github.com/Ingenimax/agent-sdk-go/pkg/tools/youcom"
+
+searchTool := youcom.New(os.Getenv("YDC_API_KEY")) // "" works too
+```
+
 ### Calculator
 
 Allows the agent to perform mathematical calculations:
